@@ -45,7 +45,7 @@ Ein ML-gestütztes Trading-System mit **XGBoost** und **LightGBM**, das Marktpha
 
 ## 📁 Projektstruktur
 
-```
+```text
 mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
 ├── .github/
 │   └── copilot-instructions.md        # Instruktionen für GitHub Copilot
@@ -107,12 +107,12 @@ mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
 
 ## 🔄 Aktuelle Projektphase
 
-### → Phase 0: Vorbereitung
+### → Phase 1: Umgebung & Datenbeschaffung
 
 Phasenübersicht:
 
-- 🔄 Phase 0 – Vorbereitung (Git, .env, Bibliothekstest)
-- ⬜ Phase 1 – Umgebung & Datenbeschaffung
+- ✅ Phase 0 – Vorbereitung (Git, .env, Bibliothekstest)
+- 🔄 Phase 1 – Umgebung & Datenbeschaffung
 - ⬜ Phase 2 – Feature Engineering
 - ⬜ Phase 3 – Regime Detection
 - ⬜ Phase 4 – Labeling & Modelltraining
@@ -251,4 +251,4 @@ model = joblib.load(MODEL_DIR / "model_v1.pkl")
 
 ---
 
-*Letzte Aktualisierung: 2026-02-25*
+Letzte Aktualisierung: 2026-02-25

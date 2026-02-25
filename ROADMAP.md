@@ -30,8 +30,8 @@
 
 - [x] MetaTrader 5 auf Windows 11 Laptop installiert ✅
 - [x] VS Code Remote SSH zum Linux-Server eingerichtet ✅
-- [ ] `vectorbt`, `lightgbm`, `xgboost` auf Linux-Server (ARM) installieren und Testimport prüfen
-- [ ] Python-Umgebung auf Windows 11 Laptop einrichten (für `data_loader.py` und `live_trader.py`)
+- [x] `vectorbt`, `lightgbm`, `xgboost` auf Linux-Server (ARM) installieren und Testimport prüfen ✅
+- [x] Python-Umgebung auf Windows 11 Laptop einrichten (für `data_loader.py` und `live_trader.py`) ✅
 - [ ] Pfad- und Rechte-Management beachten (absolute Pfade, Dateirechte, Umgebungsvariablen)
 - [ ] Deployment-Skripte plattformunabhängig gestalten (z.B. mit Python `os`/`pathlib`)
 - [ ] Dokumentation zu Systemvoraussetzungen und Setup für beide Plattformen pflegen
@@ -59,7 +59,7 @@
 
 - [x] MT5 auf Windows 11 Laptop vorinstalliert – `MetaTrader5` Python-Bibliothek funktioniert ✅
 - [x] `vectorbt`, `lightgbm`, `xgboost` auf Linux-Server (ARM) installieren und Testimport prüfen ✅ (alle 12 Bibliotheken OK)
-- [ ] Python-Umgebung auf Windows 11 Laptop einrichten (`python -m venv venv`, `pip install -r requirements-laptop.txt`)
+- [x] Python-Umgebung auf Windows 11 Laptop einrichten (`python -m venv venv`, `pip install -r requirements-laptop.txt`) ✅
 
 ### Versionskontrolle
 
@@ -103,7 +103,7 @@
 - [x] `.env.example` Template für API-Keys anlegen ✅
 - [x] `python-dotenv` für sicheres Laden der API-Keys einrichten ✅
 - [x] `README.md` mit Projektbeschreibung und Setup-Anleitung erstellen ✅
-- [ ] `.env` mit echten API-Keys befüllen (`cp .env.example .env`)
+- [x] `.env` mit echten API-Keys befüllen (`cp .env.example .env`) ✅
 
 **✅ Phase 0 abgeschlossen, wenn:** Git-Repo existiert, alle Bibliotheken importieren ohne Fehler, `.gitignore` und `.env` sind eingerichtet.
 
@@ -392,8 +392,8 @@
 
 | Phase | Beschreibung | Status |
 |-------|-------------|--------|
-| 0 | Vorbereitung (Git, .env, Bibliothekstest) | 🔄 In Arbeit |
-| 1 | Umgebung & Daten | ⬜ Offen |
+| 0 | Vorbereitung (Git, .env, Bibliothekstest) | ✅ Abgeschlossen |
+| 1 | Umgebung & Daten | 🔄 In Arbeit |
 | 2 | Feature Engineering | ⬜ Offen |
 | 3 | Regime Detection | ⬜ Offen |
 | 4 | Labeling & Training | ⬜ Offen |

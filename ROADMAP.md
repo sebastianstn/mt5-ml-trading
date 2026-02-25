@@ -66,7 +66,7 @@
 - [x] Git-Repository initialisieren (`git init`) ✅
 - [x] `.gitignore` anlegen (Modelle, Daten, API-Keys, `venv/` ausschließen) ✅
 - [x] Ersten Commit erstellen (nur Dokumentation) ✅
-- [ ] Remote-Repository auf GitHub anlegen und verbinden
+- [x] Remote-Repository auf GitHub anlegen und verbinden ✅ ([mt5-ml-trading](https://github.com/sebastianstn/mt5-ml-trading))
 
 ### Projektfundament
 
@@ -392,7 +392,7 @@
 
 | Phase | Beschreibung | Status |
 |-------|-------------|--------|
-| 0 | Vorbereitung (Git, .env, Bibliothekstest) | 🔄 Fast fertig |
+| 0 | Vorbereitung (Git, .env, Bibliothekstest) | 🔄 In Arbeit |
 | 1 | Umgebung & Daten | ⬜ Offen |
 | 2 | Feature Engineering | ⬜ Offen |
 | 3 | Regime Detection | ⬜ Offen |

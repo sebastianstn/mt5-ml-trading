@@ -107,15 +107,15 @@ mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
 
 ## 🔄 Aktuelle Projektphase
 
-### → Phase 2: Feature Engineering
+### → Phase 4: Labeling & Modelltraining
 
 Phasenübersicht:
 
 - ✅ Phase 0 – Vorbereitung (Git, .env, Bibliothekstest)
 - ✅ Phase 1 – Umgebung & Datenbeschaffung
-- 🔄 Phase 2 – Feature Engineering
-- ⬜ Phase 3 – Regime Detection
-- ⬜ Phase 4 – Labeling & Modelltraining
+- ✅ Phase 2 – Feature Engineering (56 Features, 7 Paare)
+- ✅ Phase 3 – Regime Detection (market_regime + adx_14 in allen CSVs)
+- 🔄 Phase 4 – Labeling & Modelltraining
 - ⬜ Phase 5 – Backtesting
 - ⬜ Phase 6 – Live-Integration (MT5)
 - ⬜ Phase 7 – Überwachung & Wartung

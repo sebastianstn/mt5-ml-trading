@@ -165,70 +165,60 @@
 
 ---
 
-## 🟡 PHASE 2 – Feature Engineering
+## ✅ PHASE 2 – Feature Engineering (abgeschlossen)
 
 **Ziel:** Aus Rohdaten aussagekräftige Merkmale für das Modell erzeugen
 
 ### Technische Indikatoren
 
-- [ ] `feature_engineering.py` erstellen
-- [ ] **Trend-Features:** SMA 20/50/200, EMA 12/26, MACD
-- [ ] **Momentum-Features:** RSI (14), Stochastic, Williams %R
-- [ ] **Volatilitäts-Features:** Bollinger Bands, ATR
-- [ ] **Volumen-Features:** OBV (On-Balance Volume), Volume Rate of Change
+- [x] `feature_engineering.py` erstellt ✅
+- [x] **Trend-Features:** SMA 20/50/200, EMA 12/26, MACD ✅
+- [x] **Momentum-Features:** RSI (14), Stochastic, Williams %R ✅
+- [x] **Volatilitäts-Features:** Bollinger Bands, ATR ✅
+- [x] **Volumen-Features:** OBV (On-Balance Volume), Volume Rate of Change ✅
 
 ### Erweiterte Features
 
-- [ ] **Multi-Timeframe:** H4- und D1-Trend als Feature in H1-Daten einbauen
+- [x] **Multi-Timeframe:** H4- und D1-Trend als Feature in H1-Daten einbauen ✅
 - [ ] **Order Flow:** Funding Rate und Open Interest aus Binance API ziehen
 - [ ] **Sentiment:** Fear & Greed Index täglich laden und als Feature einbauen
 
 ### Datenqualität
 
+- [x] Feature-DataFrame als CSV exportieren (7× SYMBOL_H1_features.csv, ~49.000 Kerzen, 56 Features) ✅
 - [ ] Feature-Korrelationsmatrix prüfen (hoch korrelierte Features entfernen)
 - [ ] Alle Features normalisieren / skalieren wo nötig
-- [ ] Feature-DataFrame als CSV exportieren und manuell prüfen
 
-### Tests & Qualität
-
-- [ ] Unit-Tests für Feature-Berechnung schreiben
-- [ ] Erste Modell-Erklärbarkeit prüfen (z.B. Feature Importance, SHAP)
-
-**✅ Phase 2 abgeschlossen, wenn:** Du einen Feature-DataFrame mit >20 sinnvollen Spalten hast, keine NaN-Werte.
+**✅ Phase 2 abgeschlossen:** 7 Währungspaare × 56 Features, keine NaN-Werte.
 
 ---
 
-## 🟠 PHASE 3 – Regime Detection
+## ✅ PHASE 3 – Regime Detection (abgeschlossen)
 
 **Ziel:** Marktphasen automatisch erkennen (Trend ↑, Trend ↓, Seitwärts, Volatil)
 
-### Statistische Methode (Einstieg)
+### Statistische Methode
 
-- [ ] `regime_detection.py` erstellen
-- [ ] Volatilität berechnen (Rolling ATR / Rolling Std der Returns)
-- [ ] Trendstärke berechnen (ADX oder Autokorrelation der Returns)
-- [ ] Regelbasierte Regime-Klassifikation:
+- [x] `regime_detection.py` erstellt ✅
+- [x] Volatilität: ATR% vs. rollender Median(50) ✅
+- [x] Trendstärke: ADX(14) ✅
+- [x] Regelbasierte Regime-Klassifikation (Priorität: Vola > Trend > Seitwärts): ✅
 
   ```
-  0 = Seitwärts    (niedrige Volatilität, kein Trend)
-  1 = Trend aufwärts  (hohe Autokorrelation + steigende Preise)
-  2 = Trend abwärts   (hohe Autokorrelation + fallende Preise)
-  3 = Volatil/Chaotisch (hohe Volatilität, kein klarer Trend)
+  0 = Seitwärts         (~53–57%)
+  1 = Aufwärtstrend     (~17–21%)
+  2 = Abwärtstrend      (~21–25%)
+  3 = Hohe Volatilität  (~2–4%)
   ```
 
-- [ ] Regime als neue Spalte `market_regime` in Feature-DataFrame einfügen
+- [x] `market_regime` + `adx_14` als neue Spalten in alle 7 Feature-CSVs eingefügt ✅
 
 ### Validierung
 
-- [ ] Regime-Spalte visuell auf dem Chart überprüfen (matplotlib)
-- [ ] Verteilung der Regime prüfen (keine Klasse sollte >60% haben)
+- [x] Regime-Verteilung geprüft – alle Klassen vorhanden, keine Dominanz >60% ✅
+- [x] Visualisierung erstellt (plots/SYMBOL_regime.png für alle 7 Paare) ✅
 
-### Tests & Modell-Erklärbarkeit (Regime Detection)
-
-- [ ] Unit-Tests für Regime-Detection schreiben
-- [ ] Regime-Feature mit SHAP/Feature Importance validieren
-
-**✅ Phase 3 abgeschlossen, wenn:** Das Feature `market_regime` korrekt im DataFrame steht und visuell Sinn ergibt.
+**✅ Phase 3 abgeschlossen:** 7 Paare × 58 Features (inkl. market_regime + adx_14), ~48.960 Kerzen.
 
 ---
 

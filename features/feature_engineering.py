@@ -419,63 +419,66 @@ def nan_bereinigung(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 
+def features_berechnen(symbol: str) -> bool:
+    """
+    Berechnet alle Features für ein einzelnes Symbol und speichert das Ergebnis.
+
+    Args:
+        symbol: Währungspaar, z.B. "EURUSD"
+
+    Returns:
+        True wenn erfolgreich, False bei Fehler.
+    """
+    eingabe = DATA_DIR / f"{symbol}_H1.csv"
+    if not eingabe.exists():
+        logger.error(f"{symbol}: Datei nicht gefunden: {eingabe}")
+        return False
+
+    # Daten laden und alle Feature-Gruppen berechnen
+    df = daten_laden(eingabe)
+    df = trend_features(df)
+    df = momentum_features(df)
+    df = volatility_features(df)    # ← ATR wird hier erstellt
+    df = volume_features(df)
+    df = kerzenmuster_features(df)  # ← ATR wird hier verwendet
+    df = multitimeframe_features(df)
+    df = zeitbasierte_features(df)
+    df = nan_bereinigung(df)
+
+    # Ergebnis speichern
+    ausgabe = DATA_DIR / f"{symbol}_H1_features.csv"
+    df.to_csv(ausgabe)
+    groesse_mb = ausgabe.stat().st_size / (1024 * 1024)
+    logger.info(f"{symbol}: gespeichert → {ausgabe.name} ({groesse_mb:.1f} MB)")
+    return True
+
+
 def main() -> None:
-    """Hauptablauf: Daten laden → Features berechnen → validieren → speichern."""
+    """Hauptablauf: Features für alle 7 Forex-Symbole berechnen."""
+    SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+
     logger.info("=" * 60)
-    logger.info("Feature Engineering – gestartet")
+    logger.info(f"Feature Engineering – {len(SYMBOLE)} Symbole")
     logger.info("Gerät: Linux-Server")
     logger.info("=" * 60)
 
-    # 1. Rohdaten laden
-    eingabe = DATA_DIR / "EURUSD_H1.csv"
-    df = daten_laden(eingabe)
+    ergebnisse = []
+    for symbol in SYMBOLE:
+        logger.info(f"\n{'─' * 40}")
+        logger.info(f"Verarbeite: {symbol}")
+        logger.info(f"{'─' * 40}")
+        ok = features_berechnen(symbol)
+        ergebnisse.append((symbol, "OK" if ok else "FEHLER"))
 
-    # 2. Features in korrekter Reihenfolge berechnen
-    #    (volatility_features muss vor kerzenmuster_features kommen,
-    #     da ATR für die Normalisierung benötigt wird!)
-    df = trend_features(df)
-    df = momentum_features(df)
-    df = volatility_features(df)       # ← ATR wird hier erstellt
-    df = volume_features(df)
-    df = kerzenmuster_features(df)     # ← ATR wird hier verwendet
-    df = multitimeframe_features(df)
-    df = zeitbasierte_features(df)
-
-    # 3. NaN-Zeilen entfernen
-    df = nan_bereinigung(df)
-
-    # 4. Feature-Korrelation grob prüfen (Warnungen bei >0.95)
-    ohlcv_cols = ["open", "high", "low", "close", "volume", "spread"]
-    feature_cols = [c for c in df.columns if c not in ohlcv_cols]
-    korr = df[feature_cols].corr().abs()
-    hoch_korreliert = [
-        (c1, c2, korr.loc[c1, c2])
-        for i, c1 in enumerate(feature_cols)
-        for c2 in feature_cols[i + 1 :]
-        if korr.loc[c1, c2] > 0.95
-    ]
-    if hoch_korreliert:
-        logger.warning(f"{len(hoch_korreliert)} Feature-Paare mit Korrelation >0.95:")
-        for c1, c2, val in hoch_korreliert[:5]:
-            logger.warning(f"  {c1} ↔ {c2}: {val:.3f}")
-
-    # 5. Ergebnis speichern
-    ausgabe = DATA_DIR / "EURUSD_H1_features.csv"
-    df.to_csv(ausgabe)
-    groesse_mb = ausgabe.stat().st_size / (1024 * 1024)
-
-    # 6. Zusammenfassung
+    # Abschluss-Zusammenfassung
     print("\n" + "=" * 60)
     print("FEATURE ENGINEERING – ABGESCHLOSSEN")
     print("=" * 60)
-    print(f"\nKerzen:   {len(df):,}")
-    print(f"Spalten:  {len(df.columns)} (inkl. OHLCV)")
-    print(f"Features: {len(feature_cols)}")
-    print(f"Zeitraum: {df.index[0]}  –  {df.index[-1]}")
-    print(f"Datei:    {ausgabe} ({groesse_mb:.1f} MB)")
-    print(f"\nAlle Feature-Spalten ({len(feature_cols)}):")
-    for i, col in enumerate(feature_cols, 1):
-        print(f"  {i:2d}. {col}")
+    for symbol, status in ergebnisse:
+        mark = "✓" if status == "OK" else "✗"
+        print(f"  {mark} {symbol}_H1_features.csv")
+    erfolge = sum(1 for _, s in ergebnisse if s == "OK")
+    print(f"\n{erfolge}/{len(SYMBOLE)} Symbole erfolgreich verarbeitet.")
     print("=" * 60)
 
 

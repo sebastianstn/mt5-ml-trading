@@ -58,19 +58,19 @@
 ### Plattform-Test
 
 - [x] MT5 auf Windows 11 Laptop vorinstalliert – `MetaTrader5` Python-Bibliothek funktioniert ✅
-- [ ] `vectorbt`, `lightgbm`, `xgboost` auf Linux-Server (ARM) installieren und Testimport prüfen
-- [ ] Python-Umgebung auf Windows 11 Laptop einrichten (`python -m venv venv`, `pip install MetaTrader5 pandas numpy pandas_ta`)
+- [x] `vectorbt`, `lightgbm`, `xgboost` auf Linux-Server (ARM) installieren und Testimport prüfen ✅ (alle 12 Bibliotheken OK)
+- [ ] Python-Umgebung auf Windows 11 Laptop einrichten (`python -m venv venv`, `pip install -r requirements-laptop.txt`)
 
 ### Versionskontrolle
 
-- [ ] Git-Repository initialisieren (`git init`)
-- [ ] `.gitignore` anlegen (Modelle, Daten, API-Keys, `venv/` ausschließen)
-- [ ] Ersten Commit erstellen (nur Dokumentation)
+- [x] Git-Repository initialisieren (`git init`) ✅
+- [x] `.gitignore` anlegen (Modelle, Daten, API-Keys, `venv/` ausschließen) ✅
+- [x] Ersten Commit erstellen (nur Dokumentation) ✅
 - [ ] Remote-Repository auf GitHub anlegen und verbinden
 
 ### Projektfundament
 
-- [ ] `requirements-server.txt` für Linux-Server anlegen:
+- [x] `requirements-server.txt` für Linux-Server anlegen: ✅
 
   ```text
   # Linux-Server: Training, Backtesting, Feature Engineering
@@ -88,7 +88,7 @@
   shap>=0.43.0
   ```
 
-- [ ] `requirements-laptop.txt` für Windows 11 Laptop anlegen:
+- [x] `requirements-laptop.txt` für Windows 11 Laptop anlegen: ✅
 
   ```text
   # Windows 11 Laptop: MT5-Verbindung, Live-Trading
@@ -100,9 +100,10 @@
   joblib>=1.3.0
   ```
 
-- [ ] `.env`-Datei für API-Keys anlegen (Binance, Fear & Greed Index)
-- [ ] `python-dotenv` für sicheres Laden der API-Keys einrichten
-- [ ] `README.md` mit Projektbeschreibung und Setup-Anleitung erstellen
+- [x] `.env.example` Template für API-Keys anlegen ✅
+- [x] `python-dotenv` für sicheres Laden der API-Keys einrichten ✅
+- [x] `README.md` mit Projektbeschreibung und Setup-Anleitung erstellen ✅
+- [ ] `.env` mit echten API-Keys befüllen (`cp .env.example .env`)
 
 **✅ Phase 0 abgeschlossen, wenn:** Git-Repo existiert, alle Bibliotheken importieren ohne Fehler, `.gitignore` und `.env` sind eingerichtet.
 
@@ -391,7 +392,7 @@
 
 | Phase | Beschreibung | Status |
 |-------|-------------|--------|
-| 0 | Vorbereitung (Git, .env, Bibliothekstest) | ⬜ Offen |
+| 0 | Vorbereitung (Git, .env, Bibliothekstest) | 🔄 Fast fertig |
 | 1 | Umgebung & Daten | ⬜ Offen |
 | 2 | Feature Engineering | ⬜ Offen |
 | 3 | Regime Detection | ⬜ Offen |

@@ -1,0 +1,99 @@
+# MT5 ML-Trading-Projekt – Fahrplan
+
+XGBoost/LightGBM mit Regime-Detection ist ein bewährter und extrem leistungsfähiger Ansatz. Ich erstelle dir jetzt einen umfassenden Fahrplan, der dir als Bauplan für dein MT5-Projekt dient.
+
+Dieser Plan basiert auf bewährten Methoden aus der Praxis, wie sie z.B. im **AlphaFlow MT5 ML Lab** (einem kompletten Open-Source-Framework für genau solche Projekte ) oder beim Bau des **Corvino-Trading-Systems** (das ein ML-Ensemble mit XGBoost und LightGBM nutzt ) verwendet werden.
+
+## 🗺️ Dein 7-Phasen-Fahrplan für das MT5 ML-Trading-Projekt
+
+Hier ist der detaillierte Plan, der alle Phasen von der Idee bis zum Live-Handel abdeckt. Die Struktur lehnt sich an professionelle ML-Workflows an, wie sie z.B. von FinLab dokumentiert werden .
+
+### **Phase 1: Konzeption & Datenbeschaffung (Die Planung)**
+
+* **Zieldefinition:** Bevor du eine Zeile Code schreibst, definiere genau, was du erreichen willst. Willst du den Kurs der nächsten Kerze (Richtung) vorhersagen (Klassifikation) oder das erwartete prozentuale Wachstum (Regression)? Das bestimmt dein Labeling.
+* **Datenquelle:** Deine Rohdaten kommen aus MetaTrader 5. Das AlphaFlow-Projekt zeigt, wie man mit einem `data_loader.py` direkt und zuverlässig historische Kursdaten (OHLCV) aus MT5 zieht .
+* **Labeling-Strategie (Das Herzstück):** Wie definierst du ein "gutes" Signal? Hier sind die gängigsten Methoden, die du in deiner `labeling_schemes.py` umsetzen kannst :
+  * **Multi-Bar-Klassifikation:** Das Modell lernt, ob der Kurs in den nächsten X Balken steigen (`1`), fallen (`-1`) oder seitwärts (`0`) gehen wird.
+  * **Double-Barrier-Labeling:** Eine von Marcos López de Prado populär gemachte Methode. Ein Trade wird als Erfolg gewertet, wenn ein Take-Profit-Ziel erreicht wird, bevor ein Stop-Loss ausgelöst wird. Das ist sehr realitätsnah.
+  * **Regime-Detection als Label:** Du kannst die Marktphase auch direkt als Label verwenden. Trainiere ein Modell, um zu erkennen, ob wir uns gerade in einem Trend (Auf/Ab) oder einer Seitwärtsphase befinden. Die Vorhersage dieses Modells könnte dann als Filter für dein Haupt-Tradingsignal dienen .
+
+#### **Phase 2: Feature-Engineering (Der Rohstoff)**
+
+Hier wird aus Rohdaten echtes Wissen generiert. Der Erfolg deines Projekts hängt zu 80% von dieser Phase ab .
+
+* **Basis-Features:** Klassische technische Indikatoren, die du mit Bibliotheken wie `TA` (wie im AlphaFlow-Projekt ) oder `pandas_ta` berechnest:
+  * **Trend:** Gleitende Durchschnitte (SMA, EMA), MACD, Parabolic SAR.
+  * **Momentum:** RSI, Stochastic, Williams %R.
+  * **Volatilität:** Bollinger Bands, Average True Range (ATR).
+  * **Volumen:** On-Balance Volume (OBV), Volume Rate of Change.
+* **NEU: Order Flow & Sentiment:** Das ist dein geplanter Vorteil! Du brauchst Daten, die über reine Kursdaten hinausgehen .
+  * **Order Flow:** Wenn du Futures handelst, sind Daten wie **Funding Rates** (Signal für Überhitzung in einem Markt) und **Open Interest** (zeigt, ob neues Geld in den Markt fließt) extrem wertvoll. Ein stark positiver Funding Rate kann z.B. ein konträres Short-Signal sein .
+  * **Sentiment:** Der "Fear & Greed Index" ist ein einfaches Beispiel. Du könntest aber auch Schlagzeilen analysieren (Natural Language Processing), um die Marktstimmung zu quantifizieren.
+* **Multi-Timeframe-Analyse:** Erstelle Features, die den Trend auf höheren Zeitebenen (z.B. 4h, 1d) abbilden. Ein Signal auf dem 1h-Chart ist viel zuverlässiger, wenn es vom 4h-Trend bestätigt wird .
+
+#### **Phase 3: Regime-Detection (Der Game-Changer)**
+
+* **Methoden zur Erkennung:**
+  * **Statistisch:** Berechne die Autokorrelation der Returns (hohe Autokorrelation = Trend) und die Volatilität (z.B. mit ATR). Kombiniere beide zu diskreten Regimen (z.B. "Ruhiger Trend", "Volatile Range", etc.). Das AlphaFlow-Projekt hat dafür ein eigenes Labeling-Schema .
+  * **Modellbasiert:** Trainiere ein eigenes kleines Modell (z.B. einen einfachen Entscheidungsbaum oder einen Gaussian Mixture Model), um die Marktphasen zu clustern.
+* **Integration:** Die erkannte Marktphase wird zu einem Feature für dein Haupt-XGBoost/LightGBM-Modell. Das Modell lernt so, dass bestimmte Indikatoren in einem Trendregime anders zu gewichten sind als in einer Seitwärtsphase.
+
+#### **Phase 4: Modelltraining & Walk-Forward-Analyse (Die Entwicklung)**
+
+* **Die KI-Modelle:**
+  * **XGBoost/LightGBM:** Deine Kernmodelle. Sie sind ideal für tabellarische Daten mit vielen Features, robust gegen Ausreißer und liefern oft bessere Ergebnisse als tiefe neuronale Netze . Du wirst beide trainieren und entweder das bessere auswählen oder ein Ensemble daraus bauen .
+  * **Ensemble (Optional):** Wie im Corvino-System kannst du mehrere Modelle kombinieren (z.B. XGBoost, LightGBM, LSTM), um die Vorhersage zu stabilisieren. Denkbar wäre: LightGBM für das Hauptsignal, ein LSTM für die Sequenzmuster und ein separater Klassifikator für das Marktregime.
+* **Der Trainingsprozess:**
+    1. **Datenaufteilung:** Teile deine Daten **zeitlich** auf (z.B. 2015-2020 Training, 2021-2022 Validierung, 2023 Test). Eine zufällige Aufteilung ist bei Zeitreihen tabu! .
+    2. **Hyperparameter-Tuning:** Optimiere die Modellparameter (wie Lernrate, Baumtiefe) mit Bibliotheken wie **Optuna** oder `GridSearchCV`, um die Leistung auf der Validierungsperiode zu maximieren .
+    3. **Walk-Forward-Analyse (WFA):** Das ist dein bester Freund gegen Overfitting. Anstatt nur einmal zu testen, rollst du dein Trainings-/Testfenster Schritt für Schritt durch die Zeit. Das simuliert, wie das Modell in der Realität funktionieren würde, und zeigt, ob es stabil bleibt .
+
+#### **Phase 5: Backtesting (Der Realitätscheck)**
+
+* **Backtesting-Umgebung:**
+  * **VectorBT:** Eine extrem schnelle und leistungsfähige Python-Bibliothek für Backtesting. Sie ist perfekt, um tausende von Trades zu simulieren, die aus deinen Modellsignalen resultieren .
+  * **MT5 Strategy Tester:** Du kannst auch die fertigen Modelle (als pickle-Datei exportiert) in einem MQL5-Expert Advisor einbetten und direkt im MT5-Tester mit realistischen Tick-Daten testen. Das ist der genaueste, aber auch aufwändigste Weg.
+* **Analyse:** Schau nicht nur auf den Gesamtgewinn. Analysiere:
+  * **Gewinnfaktor, Sharpe Ratio, max. Drawdown.**
+  * **Performance nach Marktphase:** Funktioniert das System in Trends besser? In Seitwärtsphasen? (Das ist ein guter Test für deine Regime-Detection!)
+  * **Monatliche Performance:** Ist das System konsistent oder gab es nur ein oder zwei gute Monate?
+
+#### **Phase 6: Live-Trading-Integration (MT5) (Der Praxistest)**
+
+* **Die Architektur (2 Varianten):**
+    1. **Python orchestriert den Handel (Empfohlen für Stabilität):**
+        * Ein Python-Skript läuft auf einem Server (VPS).
+        * Es holt regelmäßig neue Daten von MT5 (oder einer anderen API), berechnet die Features, lädt das trainierte Modell (z.B. `bester_xgboost_pipeline.pkl`) und generiert eine Vorhersage .
+        * Das Skript sendet dann den Handelsbefehl (z.B. "Kaufe 0.1 Lot EURUSD") über die MT5-Python-Schnittstelle (`MetaTrader5`-Bibliothek) direkt an dein MT5-Terminal auf demselben VPS.
+    2. **MQL5 Expert Advisor (EA) ruft Python auf:**
+        * Ein in MQL5 geschriebener EA läuft in deinem MT5-Chart.
+        * Er ruft in regelmäßigen Abständen eine WebAPI (z.B. mit Flask in Python gebaut) auf, die dein Modell hostet, und erhält die Signalvorhersage.
+        * Das ist flexibel, da Modell und EA entkoppelt sind, aber technisch etwas komplexer.
+
+#### **Phase 7: Überwachung & Wartung (Der kontinuierliche Prozess)**
+
+* **Modell-Drift überwachen:** Die Performance des Modells wird mit der Zeit nachlassen, da sich der Markt verändert .
+* **Regelmäßiges Retraining:** Plane feste Intervalle ein (z.B. einmal pro Woche oder Monat), in denen du dein Modell mit den neuesten Daten automatisch neu trainierst.
+* **Dashboard (Optional):** Ein Echtzeit-Dashboard (z.B. mit React und einem kleinen Backend), das dir Signale, offene Trades und die Performance-Kurve anzeigt, gibt dir volle Kontrolle und Transparenz .
+
+### 🛠️ Werkzeuge & Technologien im Überblick
+
+| Kategorie | Empfohlene Technologien | Fundstelle |
+| :--- | :--- | :--- |
+| **Sprache** | Python 3.9+ |  |
+| **Daten (MT5)** | `MetaTrader5` Bibliothek |  |
+| **Feature Engineering** | `pandas`, `numpy`, `ta` (Technical Analysis Library) |  |
+| **Modellierung** | `xgboost`, `lightgbm`, `scikit-learn`, `optuna` |  |
+| **Backtesting** | `vectorbt`, MT5 Strategy Tester |  |
+| **Deployment** | Docker, VPS (Virtual Private Server) |  |
+
+### 🚀 Deine ersten Schritte: Eine konkrete Handlungsempfehlung
+
+1. **Starte mit dem Framework:** Klone das **AlphaFlow-MT5-ML-DL-Trading-Lab** von GitHub . Es ist eine Goldgrube! Du hast sofort eine funktionierende Struktur für Daten-Download, Feature-Engineering und erste Modelltemplates.
+2. **Baue deine Feature-Pipeline:** Erweitere die `feature_engineering.py` um die speziellen Features, die du im Sinn hast (Order Flow, Sentiment). Nutze dafür APIs wie z.B. von Binance, um Funding Rates zu ziehen .
+3. **Integriere die Regime Detection:** Nutze das vorhandene `labeling_schemes.py`  und erstelle deine eigene Funktion für die Regime-Erkennung. Trainiere einen separaten Klassifikator oder erstelle ein statistisches Regelwerk.
+4. **Trainiere dein erstes Modell:** Starte mit einem der Beispiel-Notebooks (z.B. `multi_bar_classification.ipynb` ) und füge dein neues "Regime"-Feature sowie deine Sentiment-Features zu den Trainingsdaten hinzu.
+
+Du hast einen hervorragenden und absolut zeitgemäßen Plan. Mit dieser Schritt-für-Schritt-Anleitung hast du alles, was du brauchst, um ihn in die Realität umzusetzen. Der Schlüssel zum Erfolg liegt in der Disziplin bei der Datentrennung (keine Zukunftsdaten!) und einer gründigen Walk-Forward-Analyse.
+
+Welche dieser 7 Phasen ist für dich die nächste? Soll ich tiefer in ein bestimmtes Thema einsteigen, z.B. in die Programmierung der Regime Detection oder den Aufbau der Feature-Pipeline?

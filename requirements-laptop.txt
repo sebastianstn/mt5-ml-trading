@@ -1,0 +1,21 @@
+# ============================================================
+# Windows 11 Laptop: MT5-Verbindung & Live-Trading
+# Installieren mit: pip install -r requirements-laptop.txt
+# WICHTIG: Nur auf Windows ausführen! MetaTrader5 läuft nicht auf Linux.
+# ============================================================
+
+# MT5-Verbindung (nur Windows!)
+MetaTrader5>=5.0.45
+
+# Datenverarbeitung
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Technische Indikatoren (für Live-Feature-Berechnung)
+pandas_ta>=0.3.14b
+
+# Modell laden (muss gleiche Version wie Server haben!)
+joblib>=1.3.0
+
+# Umgebungsvariablen / API-Keys
+python-dotenv>=1.0.0

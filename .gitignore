@@ -1,0 +1,57 @@
+# ============================================================
+# MT5 ML-Trading-System – .gitignore
+# ============================================================
+
+# --- Virtuelle Umgebungen ---
+venv/
+.venv/
+env/
+.env/
+
+# --- Umgebungsvariablen & Secrets (NIEMALS in Git!) ---
+.env
+*.env
+.env.local
+
+# --- Rohdaten (zu groß für Git) ---
+data/
+*.csv
+*.parquet
+*.h5
+*.hdf5
+
+# --- Gespeicherte Modelle (zu groß für Git) ---
+models/
+*.pkl
+*.joblib
+*.model
+*.bin
+
+# --- Python Cache ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# --- Jupyter Notebooks Outputs ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --- Logs ---
+logs/
+*.log
+
+# --- IDE & Editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Build & Distribution ---
+dist/
+build/
+*.egg-info/

@@ -8,7 +8,9 @@ Verwendung:
     python data_loader.py
 
 Ergebnis:
-    data/EURUSD_H1.csv  (relativ zum Skript-Verzeichnis)
+    data/EURUSD_H1.csv
+    data/GBPUSD_H1.csv
+    data/USDJPY_H1.csv
 """
 
 # Standard-Bibliotheken
@@ -268,61 +270,72 @@ def daten_speichern(
 
 
 def main() -> None:
-    """Hauptablauf: MT5 verbinden → Daten laden → prüfen → speichern."""
+    """Hauptablauf: MT5 verbinden → Daten für alle Symbole laden → speichern."""
+    # Symbole die geladen werden sollen (H1, 50.000 Kerzen ≈ 5+ Jahre)
+    SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY"]
+
     logger.info("=" * 60)
     logger.info("MT5 Data Loader – gestartet")
+    logger.info(f"Symbole: {', '.join(SYMBOLE)}")
     logger.info("Gerät: Windows 11 Laptop (MT5 muss geöffnet sein!)")
     logger.info("=" * 60)
 
-    # Schritt 1: MT5 verbinden
+    # Schritt 1: MT5 verbinden (einmal für alle Symbole)
     if not mt5_verbinden():
         logger.error("Verbindung fehlgeschlagen – Abbruch.")
         sys.exit(1)
 
+    ergebnisse = []  # Zusammenfassung am Ende
+
     try:
-        # Schritt 2: Daten laden (50.000 H1-Kerzen ≈ 5+ Jahre)
-        df = daten_laden(
-            symbol="EURUSD",
-            timeframe=mt5.TIMEFRAME_H1,
-            anzahl_kerzen=50000,
-        )
+        for symbol in SYMBOLE:
+            logger.info(f"\n{'─' * 40}")
+            logger.info(f"Verarbeite: {symbol}")
+            logger.info(f"{'─' * 40}")
 
-        if df is None:
-            logger.error("Datenladen fehlgeschlagen – Abbruch.")
-            sys.exit(1)
+            # Daten laden
+            df = daten_laden(
+                symbol=symbol,
+                timeframe=mt5.TIMEFRAME_H1,
+                anzahl_kerzen=50000,
+            )
 
-        # Schritt 3: Datenqualität prüfen
-        qualitaet_ok = daten_validieren(df, "EURUSD")
-        if not qualitaet_ok:
-            logger.warning("Datenqualitäts-Probleme gefunden – trotzdem weiter.")
+            if df is None:
+                logger.error(f"{symbol}: Datenladen fehlgeschlagen – übersprungen.")
+                ergebnisse.append((symbol, "FEHLER", 0, None))
+                continue
 
-        # Schritt 4: Als CSV speichern
-        dateipfad = daten_speichern(df, "EURUSD", "H1")
+            # Datenqualität prüfen
+            qualitaet_ok = daten_validieren(df, symbol)
+            if not qualitaet_ok:
+                logger.warning(f"{symbol}: Datenqualitäts-Probleme – trotzdem gespeichert.")
 
-        # Schritt 5: Kurzvorschau ausgeben
-        print("\n" + "=" * 60)
-        print("ERFOLG – Daten geladen und gespeichert!")
-        print("=" * 60)
-        print(f"\nZeitraum: {df.index[0]}  bis  {df.index[-1]}")
-        print(f"Kerzen:   {len(df):,}")
-        print(f"Datei:    {dateipfad}")
-        print("\nErste 3 Zeilen:")
-        print(df.head(3).to_string())
-        print("\nLetzte 3 Zeilen:")
-        print(df.tail(3).to_string())
-        print("\n" + "=" * 60)
-        print("Nächster Schritt: CSV auf den Linux-Server übertragen.")
-        print("Befehl (in PowerShell ausführen):")
-        print(
-            f"  scp {dateipfad} "
-            "stnsebi@<linux-server-ip>:/mnt/1T-Data/XGBoost-LightGBM/data/"
-        )
-        print("=" * 60)
+            # Als CSV speichern
+            dateipfad = daten_speichern(df, symbol, "H1")
+            ergebnisse.append((symbol, "OK", len(df), dateipfad))
 
     finally:
         # MT5-Verbindung immer sauber schließen
         mt5.shutdown()
         logger.info("MT5-Verbindung getrennt.")
+
+    # Zusammenfassung ausgeben
+    print("\n" + "=" * 60)
+    print("ABGESCHLOSSEN – Alle Symbole verarbeitet")
+    print("=" * 60)
+    for symbol, status, kerzen, pfad in ergebnisse:
+        if status == "OK":
+            print(f"  ✓ {symbol}: {kerzen:,} Kerzen → {pfad.name}")
+        else:
+            print(f"  ✗ {symbol}: FEHLER")
+
+    erfolge = [r for r in ergebnisse if r[1] == "OK"]
+    print(f"\n{len(erfolge)}/{len(SYMBOLE)} Symbole erfolgreich geladen.")
+    print("\nNächster Schritt: Alle CSV auf den Linux-Server übertragen.")
+    print("Befehl (in PowerShell aus dem data/-Ordner):")
+    print("  cd C:\\Users\\Sebastian Setnescu\\mt5-trading\\data")
+    print("  scp *.csv stnsebi@192.168.1.4:/mnt/1T-Data/XGBoost-LightGBM/data/")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

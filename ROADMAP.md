@@ -393,8 +393,8 @@
 | Phase | Beschreibung | Status |
 |-------|-------------|--------|
 | 0 | Vorbereitung (Git, .env, Bibliothekstest) | ✅ Abgeschlossen |
-| 1 | Umgebung & Daten | 🔄 In Arbeit |
-| 2 | Feature Engineering | ⬜ Offen |
+| 1 | Umgebung & Daten | ✅ Abgeschlossen |
+| 2 | Feature Engineering | 🔄 In Arbeit |
 | 3 | Regime Detection | ⬜ Offen |
 | 4 | Labeling & Training | ⬜ Offen |
 | 5 | Backtesting | ⬜ Offen |

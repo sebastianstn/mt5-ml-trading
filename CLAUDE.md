@@ -107,13 +107,13 @@ mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
 
 ## 🔄 Aktuelle Projektphase
 
-### → Phase 1: Umgebung & Datenbeschaffung
+### → Phase 2: Feature Engineering
 
 Phasenübersicht:
 
 - ✅ Phase 0 – Vorbereitung (Git, .env, Bibliothekstest)
-- 🔄 Phase 1 – Umgebung & Datenbeschaffung
-- ⬜ Phase 2 – Feature Engineering
+- ✅ Phase 1 – Umgebung & Datenbeschaffung
+- 🔄 Phase 2 – Feature Engineering
 - ⬜ Phase 3 – Regime Detection
 - ⬜ Phase 4 – Labeling & Modelltraining
 - ⬜ Phase 5 – Backtesting

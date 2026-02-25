@@ -8,9 +8,13 @@ Verwendung:
     python data_loader.py
 
 Ergebnis:
-    data/EURUSD_H1.csv
-    data/GBPUSD_H1.csv
-    data/USDJPY_H1.csv
+    data/EURUSD_H1.csv  – Euro / US-Dollar
+    data/GBPUSD_H1.csv  – Britisches Pfund / US-Dollar
+    data/USDJPY_H1.csv  – US-Dollar / Japanischer Yen
+    data/AUDUSD_H1.csv  – Australischer Dollar / US-Dollar
+    data/USDCAD_H1.csv  – US-Dollar / Kanadischer Dollar
+    data/USDCHF_H1.csv  – US-Dollar / Schweizer Franken
+    data/NZDUSD_H1.csv  – Neuseeland-Dollar / US-Dollar
 """
 
 # Standard-Bibliotheken
@@ -272,7 +276,7 @@ def daten_speichern(
 def main() -> None:
     """Hauptablauf: MT5 verbinden → Daten für alle Symbole laden → speichern."""
     # Symbole die geladen werden sollen (H1, 50.000 Kerzen ≈ 5+ Jahre)
-    SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY"]
+    SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
     logger.info("=" * 60)
     logger.info("MT5 Data Loader – gestartet")

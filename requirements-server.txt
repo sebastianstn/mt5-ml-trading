@@ -32,3 +32,6 @@ matplotlib>=3.7.0
 
 # Umgebungsvariablen / API-Keys
 python-dotenv>=1.0.0
+
+# HTTP-Anfragen (für externe APIs: Binance, Alternative.me)
+requests>=2.31.0

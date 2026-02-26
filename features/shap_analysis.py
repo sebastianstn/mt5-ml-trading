@@ -1,11 +1,13 @@
 """
 shap_analysis.py – SHAP-basierte Modell-Erklärbarkeit
 
-Erklärt das trainierte LightGBM-Modell mit SHAP (SHapley Additive exPlanations):
+Erklärt das trainierte LightGBM-Modell mit SHAP
+(SHapley Additive exPlanations):
     - Welche Features sind global am wichtigsten?
     - Wie wirkt sich jedes Feature positiv/negativ auf die Vorhersage aus?
 
-SHAP erklärt WARUM das Modell eine Entscheidung trifft – nicht nur WAS es entscheidet.
+SHAP erklärt WARUM das Modell eine Entscheidung trifft –
+nicht nur WAS es entscheidet.
 Das ist wichtig, um Overfitting zu erkennen und das Modell zu verstehen.
 
 Läuft auf: Linux-Server (nach train_model.py)
@@ -18,9 +20,11 @@ Verwendung:
 
 Eingabe:  models/lgbm_SYMBOL_v1.pkl
           data/SYMBOL_H1_labeled.csv
-Ausgabe:  plots/SYMBOL_shap_summary.png    ← globale Feature-Wichtigkeit
-          plots/SYMBOL_shap_beeswarm.png   ← Einfluss pro Feature auf Long-Klasse
+Ausgabe:  plots/SYMBOL_shap_summary.png    <- globale Feature-Wichtigkeit
+          plots/SYMBOL_shap_beeswarm.png   <- Einfluss pro Feature auf Long
 """
+
+# pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
 import argparse
@@ -37,11 +41,11 @@ import joblib
 # SHAP-Bibliothek für Modell-Erklärbarkeit
 import shap
 
-# Visualisierung
+# Visualisierung – Agg-Backend vor pyplot-Import setzen
 import matplotlib
 
 matplotlib.use("Agg")  # Kein Fenster öffnen – wir speichern nur PNG
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402  # pylint: disable=C0413
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -82,7 +86,15 @@ AUSSCHLUSS_SPALTEN = {
 }
 
 # Symbole (alle 7 Forex-Hauptpaare)
-SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+symbole = [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "AUDUSD",
+    "USDCAD",
+    "USDCHF",
+    "NZDUSD",
+]
 
 
 # ============================================================
@@ -103,7 +115,7 @@ def daten_laden(symbol: str) -> tuple[pd.DataFrame, pd.Series]:
         symbol: Handelssymbol (z.B. "EURUSD")
 
     Returns:
-        Tuple (X_val, y_val) – Validierungs-Features und Labels
+        Tuple (x_val, y_val) – Validierungs-Features und Labels
 
     Raises:
         FileNotFoundError: Wenn die gelabelte CSV nicht existiert.
@@ -111,38 +123,52 @@ def daten_laden(symbol: str) -> tuple[pd.DataFrame, pd.Series]:
     pfad = DATA_DIR / f"{symbol}_H1_labeled.csv"
     if not pfad.exists():
         raise FileNotFoundError(
-            f"Datei nicht gefunden: {pfad}\n" f"Zuerst labeling.py ausführen!"
+            f"Datei nicht gefunden: {pfad}\n" "Zuerst labeling.py ausführen!"
         )
 
-    logger.info(f"[{symbol}] Lade {pfad.name} ...")
+    logger.info("[%s] Lade %s ...", symbol, pfad.name)
     df = pd.read_csv(pfad, index_col="time", parse_dates=True)
-    logger.info(f"[{symbol}] {len(df):,} Kerzen | {len(df.columns)} Spalten")
+    logger.info(
+        "[%s] %s Kerzen | %s Spalten",
+        symbol,
+        f"{len(df):,}",
+        len(df.columns),
+    )
 
     # Features: alle Spalten außer den Ausschluss-Spalten
     feature_spalten = [c for c in df.columns if c not in AUSSCHLUSS_SPALTEN]
-    X = df[feature_spalten].copy()
+    features = df[feature_spalten].copy()
 
     # NaN-Werte mit Median auffüllen (Sicherheitsnetz)
-    nan_anzahl = X.isna().sum().sum()
+    nan_anzahl = features.isna().sum().sum()
     if nan_anzahl > 0:
-        logger.warning(f"[{symbol}] {nan_anzahl} NaN-Werte – werden mit Median gefüllt")
-        X = X.fillna(X.median())
+        logger.warning(
+            "[%s] %s NaN-Werte – werden mit Median gefüllt",
+            symbol,
+            nan_anzahl,
+        )
+        features = features.fillna(features.median())
 
     # Labels umkodieren: {-1, 0, 1} → {0, 1, 2}
     y = df["label"].map({-1: 0, 0: 1, 1: 2})
 
     # Validierungszeitraum: 2022 (nach dem Training, vor dem Test-Set)
-    val_maske = (X.index > "2021-12-31") & (X.index <= "2022-12-31")
-    X_val = X[val_maske]
+    val_maske = (features.index > "2021-12-31") & (
+        features.index <= "2022-12-31"
+    )
+    x_val = features[val_maske]
     y_val = y[val_maske]
 
     logger.info(
-        f"[{symbol}] Validierungsset: {len(X_val):,} Kerzen | "
-        f"{X_val.index[0].date()} bis {X_val.index[-1].date()}"
+        "[%s] Validierungsset: %s Kerzen | %s bis %s",
+        symbol,
+        f"{len(x_val):,}",
+        x_val.index[0].date(),
+        x_val.index[-1].date(),
     )
-    logger.info(f"[{symbol}] Features: {len(feature_spalten)}")
+    logger.info("[%s] Features: %s", symbol, len(feature_spalten))
 
-    return X_val, y_val
+    return x_val, y_val
 
 
 # ============================================================
@@ -152,7 +178,7 @@ def daten_laden(symbol: str) -> tuple[pd.DataFrame, pd.Series]:
 
 def shap_werte_berechnen(
     modell,
-    X_val: pd.DataFrame,
+    x_val: pd.DataFrame,
     n_stichproben: int = 2000,
 ) -> tuple:
     """
@@ -168,34 +194,36 @@ def shap_werte_berechnen(
 
     Args:
         modell: Trainiertes LightGBM-Modell
-        X_val: Validierungs-Features
-        n_stichproben: Anzahl der Stichproben für SHAP (mehr = langsamer aber genauer)
+        x_val: Validierungs-Features
+        n_stichproben: Anzahl Stichproben (mehr = langsamer aber genauer)
 
     Returns:
-        Tuple (shap_werte, X_shap, erklaerer) – SHAP-Werte, Stichproben, Explainer
+        Tuple (shap_werte, x_shap, erklaerer) – Werte, Stichproben, Explainer
     """
     # Zufällige Stichprobe für SHAP (verhindert zu lange Laufzeit)
-    n_shap = min(n_stichproben, len(X_val))
-    X_shap = X_val.sample(n=n_shap, random_state=42)
-    logger.info(f"Berechne SHAP-Werte auf {n_shap} Stichproben ...")
+    n_shap = min(n_stichproben, len(x_val))
+    x_shap = x_val.sample(n=n_shap, random_state=42)
+    logger.info("Berechne SHAP-Werte auf %s Stichproben ...", n_shap)
 
     # TreeExplainer erstellen (optimiert für Gradient-Boosting-Modelle)
     erklaerer = shap.TreeExplainer(modell)
 
     # SHAP-Werte berechnen
-    # Ergebnis: Liste mit 3 Arrays (je eine pro Klasse), je Form (n_shap, n_features)
-    shap_werte = erklaerer.shap_values(X_shap)
+    # Ergebnis: Liste mit 3 Arrays (je eine pro Klasse),
+    # je Form (n_shap, n_features)
+    shap_werte = erklaerer.shap_values(x_shap)
 
     if isinstance(shap_werte, list):
         logger.info(
-            f"SHAP-Werte berechnet: {len(shap_werte)} Klassen × "
-            f"{shap_werte[0].shape[0]} Stichproben × "
-            f"{shap_werte[0].shape[1]} Features"
+            "SHAP-Werte berechnet: %s Klassen x %s Stichproben x %s Features",
+            len(shap_werte),
+            shap_werte[0].shape[0],
+            shap_werte[0].shape[1],
         )
     else:
-        logger.info(f"SHAP-Werte berechnet: Form = {shap_werte.shape}")
+        logger.info("SHAP-Werte berechnet: Form = %s", shap_werte.shape)
 
-    return shap_werte, X_shap, erklaerer
+    return shap_werte, x_shap, erklaerer
 
 
 # ============================================================
@@ -203,6 +231,7 @@ def shap_werte_berechnen(
 # ============================================================
 
 
+# pylint: disable=too-many-locals
 def summary_bar_plotten(
     shap_werte,
     feature_namen: list,
@@ -227,7 +256,9 @@ def summary_bar_plotten(
     # Für jede Klasse: mean(|SHAP|) pro Feature → dann über Klassen mitteln
     if isinstance(shap_werte, list):
         # Multiclass: mittlerer Absolutwert über alle 3 Klassen
-        wichtigkeit = np.mean([np.abs(sv).mean(axis=0) for sv in shap_werte], axis=0)
+        wichtigkeit = np.mean(
+            [np.abs(sv).mean(axis=0) for sv in shap_werte], axis=0
+        )
     else:
         # Binary oder Regression: direkt mitteln
         wichtigkeit = np.abs(shap_werte).mean(axis=0)
@@ -239,11 +270,18 @@ def summary_bar_plotten(
 
     # Plot erstellen
     fig, ax = plt.subplots(figsize=(10, 8))
-    farben = plt.cm.RdYlGn(np.linspace(0.3, 0.9, len(top_namen)))[::-1]
+    # plt.colormaps statt plt.cm (E1101-konform)
+    farben = plt.colormaps["RdYlGn"](np.linspace(0.3, 0.9, len(top_namen)))[
+        ::-1
+    ]
 
-    ax.barh(top_namen, top_werte, color=farben, edgecolor="white", linewidth=0.8)
+    ax.barh(
+        top_namen, top_werte, color=farben, edgecolor="white", linewidth=0.8
+    )
     ax.invert_yaxis()  # Wichtigstes Feature oben
-    ax.set_xlabel("Mittlere |SHAP|-Wichtigkeit (über alle Klassen)", fontsize=11)
+    ax.set_xlabel(
+        "Mittlere |SHAP|-Wichtigkeit (über alle Klassen)", fontsize=11
+    )
     ax.set_title(
         f"{symbol} – LightGBM Modell-Erklärbarkeit\n"
         f"Top {top_n} Features nach SHAP-Wichtigkeit",
@@ -271,12 +309,12 @@ def summary_bar_plotten(
     pfad = PLOTS_DIR / f"{symbol}_shap_summary.png"
     plt.savefig(pfad, dpi=100, bbox_inches="tight")
     plt.close()
-    logger.info(f"[{symbol}] SHAP Summary-Plot gespeichert: {pfad}")
+    logger.info("[%s] SHAP Summary-Plot gespeichert: %s", symbol, pfad)
 
     # Top-10 im Log ausgeben
-    logger.info(f"\n[{symbol}] Top 10 wichtigste Features (SHAP):")
+    logger.info("\n[%s] Top 10 wichtigste Features (SHAP):", symbol)
     for i, (name, wert) in enumerate(zip(top_namen[:10], top_werte[:10]), 1):
-        logger.info(f"  {i:2d}. {name:30s}: {wert:.6f}")
+        logger.info("  %s. %s: %s", f"{i:2d}", f"{name:30s}", f"{wert:.6f}")
 
 
 # ============================================================
@@ -287,7 +325,7 @@ def summary_bar_plotten(
 def beeswarm_plotten(
     shap_werte,
     erklaerer,
-    X_shap: pd.DataFrame,
+    x_shap: pd.DataFrame,
     symbol: str,
 ) -> None:
     """
@@ -298,16 +336,19 @@ def beeswarm_plotten(
     - Farbe: Feature-Wert (rot = hoch, blau = niedrig)
     - Jeder Punkt = eine Datenzeile
 
-    So sehen wir z.B.: "Hoher RSI (rot) → positiver SHAP → erhöht Long-Signal"
+    So sehen wir z.B.:
+    "Hoher RSI (rot) → positiver SHAP → erhöht Long-Signal"
 
     Args:
         shap_werte: SHAP-Werte (Liste bei Multiclass)
         erklaerer: SHAP TreeExplainer (für expected_value)
-        X_shap: Stichproben-Features (für Farbkodierung)
+        x_shap: Stichproben-Features (für Farbkodierung)
         symbol: Handelssymbol (für Dateiname)
     """
     if not isinstance(shap_werte, list) or len(shap_werte) < 3:
-        logger.warning("[{symbol}] Kein Multiclass-Modell – Beeswarm übersprungen")
+        logger.warning(
+            "[%s] Kein Multiclass-Modell – Beeswarm übersprungen", symbol
+        )
         return
 
     # SHAP-Werte für Klasse 2 (Long) auswählen
@@ -324,8 +365,8 @@ def beeswarm_plotten(
     erklaerung = shap.Explanation(
         values=shap_long,
         base_values=np.full(len(shap_long), basiswert),
-        data=X_shap.values,
-        feature_names=list(X_shap.columns),
+        data=x_shap.values,
+        feature_names=list(x_shap.columns),
     )
 
     # Beeswarm-Plot erstellen
@@ -334,8 +375,8 @@ def beeswarm_plotten(
 
     plt.title(
         f"{symbol} – SHAP Beeswarm (Long-Klasse)\n"
-        f"Rot = hoher Feature-Wert | Blau = niedriger Feature-Wert\n"
-        f"SHAP > 0 → erhöht Long-Wahrscheinlichkeit | SHAP < 0 → verringert sie",
+        "Rot = hoher Feature-Wert | Blau = niedriger Feature-Wert\n"
+        "SHAP > 0 erhoeht Long-Wahrscheinlichkeit | SHAP < 0 verringert sie",
         fontsize=11,
         fontweight="bold",
     )
@@ -343,7 +384,7 @@ def beeswarm_plotten(
     pfad = PLOTS_DIR / f"{symbol}_shap_beeswarm.png"
     plt.savefig(pfad, dpi=100, bbox_inches="tight")
     plt.close()
-    logger.info(f"[{symbol}] SHAP Beeswarm-Plot gespeichert: {pfad}")
+    logger.info("[%s] SHAP Beeswarm-Plot gespeichert: %s", symbol, pfad)
 
 
 # ============================================================
@@ -369,9 +410,9 @@ def shap_analyse(symbol: str) -> None:
     Raises:
         FileNotFoundError: Wenn Modell oder Daten fehlen.
     """
-    logger.info(f"\n{'─' * 50}")
-    logger.info(f"[{symbol}] Starte SHAP-Analyse")
-    logger.info(f"{'─' * 50}")
+    logger.info("\n%s", "─" * 50)
+    logger.info("[%s] Starte SHAP-Analyse", symbol)
+    logger.info("%s", "─" * 50)
 
     # Modell laden
     modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_v1.pkl"
@@ -380,23 +421,23 @@ def shap_analyse(symbol: str) -> None:
             f"Modell nicht gefunden: {modell_pfad}\n"
             f"Zuerst train_model.py --symbol {symbol} ausführen!"
         )
-    logger.info(f"[{symbol}] Lade Modell: {modell_pfad.name}")
+    logger.info("[%s] Lade Modell: %s", symbol, modell_pfad.name)
     modell = joblib.load(modell_pfad)
 
-    # Daten laden (Validierungsset 2022)
-    X_val, y_val = daten_laden(symbol)
-    feature_namen = list(X_val.columns)
+    # Daten laden (Validierungsset 2022) – y_val wird nicht weiter genutzt
+    x_val, _ = daten_laden(symbol)
+    feature_namen = list(x_val.columns)
 
     # SHAP-Werte berechnen
-    shap_werte, X_shap, erklaerer = shap_werte_berechnen(modell, X_val)
+    shap_werte, x_shap, erklaerer = shap_werte_berechnen(modell, x_val)
 
     # Plot 1: Summary Bar (globale Feature-Wichtigkeit über alle Klassen)
     summary_bar_plotten(shap_werte, feature_namen, symbol)
 
     # Plot 2: Beeswarm für Long-Klasse
-    beeswarm_plotten(shap_werte, erklaerer, X_shap, symbol)
+    beeswarm_plotten(shap_werte, erklaerer, x_shap, symbol)
 
-    logger.info(f"[{symbol}] SHAP-Analyse abgeschlossen ✅")
+    logger.info("[%s] SHAP-Analyse abgeschlossen", symbol)
 
 
 # ============================================================
@@ -414,25 +455,26 @@ def main() -> None:
         "--symbol",
         default="EURUSD",
         help=(
-            "Handelssymbol (Standard: EURUSD) oder 'alle' für alle 7 Forex-Paare. "
-            "Mögliche Werte: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
+            "Handelssymbol (Standard: EURUSD) oder 'alle' für alle 7 Paare. "
+            "Mögliche Werte: "
+            "EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
         ),
     )
     args = parser.parse_args()
 
     # Symbole bestimmen
     if args.symbol.lower() == "alle":
-        ziel_symbole = SYMBOLE
-    elif args.symbol.upper() in SYMBOLE:
+        ziel_symbole = symbole
+    elif args.symbol.upper() in symbole:
         ziel_symbole = [args.symbol.upper()]
     else:
         print(f"Unbekanntes Symbol: {args.symbol}")
-        print(f"Verfügbar: {', '.join(SYMBOLE)} oder 'alle'")
+        print(f"Verfügbar: {', '.join(symbole)} oder 'alle'")
         return
 
     logger.info("=" * 60)
     logger.info("Phase 4 – SHAP Modell-Erklärbarkeit")
-    logger.info(f"Symbole: {', '.join(ziel_symbole)}")
+    logger.info("Symbole: %s", ", ".join(ziel_symbole))
     logger.info("=" * 60)
 
     ergebnisse = []
@@ -443,8 +485,8 @@ def main() -> None:
         except FileNotFoundError as e:
             logger.error(str(e))
             ergebnisse.append((symbol, "FEHLER – Modell oder Daten fehlen"))
-        except Exception as e:
-            logger.error(f"[{symbol}] Unerwarteter Fehler: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("[%s] Unerwarteter Fehler: %s", symbol, e)
             ergebnisse.append((symbol, f"FEHLER – {e}"))
 
     # Abschlusszusammenfassung
@@ -457,9 +499,9 @@ def main() -> None:
 
     erfolge = sum(1 for _, s in ergebnisse if s == "OK")
     print(f"\n{erfolge}/{len(ergebnisse)} Symbole erfolgreich analysiert")
-    print(f"\nPlots gespeichert in: plots/")
-    print("  SYMBOL_shap_summary.png   ← globale Feature-Wichtigkeit")
-    print("  SYMBOL_shap_beeswarm.png  ← Einfluss auf Long-Klasse")
+    print("\nPlots gespeichert in: plots/")
+    print("  SYMBOL_shap_summary.png   <- globale Feature-Wichtigkeit")
+    print("  SYMBOL_shap_beeswarm.png  <- Einfluss auf Long-Klasse")
     print("\nNächster Schritt: backtest.py ausführen")
     print("=" * 60)
 

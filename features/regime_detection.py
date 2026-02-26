@@ -21,9 +21,11 @@ Verwendung:
     python features/regime_detection.py
 
 Eingabe:  data/SYMBOL_H1_features.csv  (aus feature_engineering.py)
-Ausgabe:  data/SYMBOL_H1_features.csv  (überschrieben, +2 Spalten: market_regime, adx_14)
+Ausgabe:  data/SYMBOL_H1_features.csv  (+2 Spalten: market_regime, adx_14)
           plots/SYMBOL_regime.png      (Visualisierung)
 """
+
+# pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
 import logging
@@ -32,16 +34,15 @@ from typing import Tuple
 
 # Datenverarbeitung
 import pandas as pd
-import numpy as np
 
-# Technische Indikatoren (ADX)
-import pandas_ta as ta
+# Technische Indikatoren: registriert .ta-Accessor auf DataFrame
+import pandas_ta  # noqa: F401  # pylint: disable=unused-import
 
 # Visualisierung (Agg-Backend = kein Display-Fenster nötig auf dem Server)
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # noqa: E402  # pylint: disable=C0413
 
 # Logging konfigurieren (Terminal + Datei)
 logging.basicConfig(
@@ -60,7 +61,15 @@ DATA_DIR = BASE_DIR / "data"
 PLOTS_DIR = BASE_DIR / "plots"
 
 # Alle 7 Forex-Hauptpaare
-SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+SYMBOLE = [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "AUDUSD",
+    "USDCAD",
+    "USDCHF",
+    "NZDUSD",
+]
 
 # Regime-Beschriftungen für Logging und Charts
 REGIME_NAMEN = {
@@ -121,13 +130,11 @@ def volatilitaet_berechnen(
     """
     Berechnet aktuelle Volatilität und rollende Referenzschwelle.
 
-    Statt absoluter ATR-Schwellen verwenden wir einen relativen
-    Ansatz: Wenn die aktuelle ATR% mehr als 1.5× über dem rollenden
-    Median liegt, gilt die Volatilität als "erhöht".
+    Wenn die aktuelle ATR% mehr als 1.5× über dem rollenden Median
+    liegt, gilt die Volatilität als erhöht.
 
     Args:
-        df: DataFrame mit Spalte 'atr_pct' (ATR in Prozent vom Close,
-            bereits in feature_engineering.py berechnet)
+        df: DataFrame mit Spalte 'atr_pct'
         fenster: Lookback-Fenster für rollenden Median (Standard: 50)
 
     Returns:
@@ -135,8 +142,7 @@ def volatilitaet_berechnen(
     """
     atr_pct = df["atr_pct"]
 
-    # Rollender Median der letzten 50 Kerzen = "normales" Vola-Niveau
-    # min_periods=fenster: Erst ab 50 gültigen Werten berechnen
+    # Rollender Median = "normales" Vola-Niveau
     median_atr = atr_pct.rolling(window=fenster, min_periods=fenster).median()
 
     return atr_pct, median_atr
@@ -147,6 +153,7 @@ def volatilitaet_berechnen(
 # ============================================================
 
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def regime_klassifizieren(
     df: pd.DataFrame,
     adx: pd.Series,
@@ -159,14 +166,10 @@ def regime_klassifizieren(
     Klassifiziert jede Kerze in eine der 4 Marktphasen.
 
     Entscheidungsbaum (Priorität: Volatilität > Trend > Seitwärts):
-        1. Hohe Vola:      atr_pct > vol_faktor × median_atr    → Regime 3
-        2. Aufwärtstrend:  ADX > adx_schwelle AND Close > SMA50  → Regime 1
-        3. Abwärtstrend:   ADX > adx_schwelle AND Close < SMA50  → Regime 2
-        4. Seitwärts:      alles andere                          → Regime 0
-
-    WICHTIG – kein Look-Ahead-Bias:
-        Alle Berechnungen verwenden nur Daten bis Zeitpunkt T.
-        ADX und rollender Median sind rein rückwärtsschauende Indikatoren.
+        1. Hohe Vola:     atr_pct > vol_faktor × median_atr  → Regime 3
+        2. Aufwärtstrend: ADX > schwelle AND Close > SMA50   → Regime 1
+        3. Abwärtstrend:  ADX > schwelle AND Close < SMA50   → Regime 2
+        4. Seitwärts:     alles andere                        → Regime 0
 
     Args:
         df: Feature DataFrame mit Spalten 'close' und 'sma_50'
@@ -177,7 +180,7 @@ def regime_klassifizieren(
         vol_faktor: Multiplikator für Volatilitätsschwelle (Standard: 1.5)
 
     Returns:
-        Regime-Serie mit Werten 0, 1, 2, 3 (oder -1 für NaN-Anfangsperiode)
+        Regime-Serie mit Werten 0, 1, 2, 3 (-1 = NaN-Anfangsperiode)
     """
     # Start: alle Kerzen als Seitwärts (0)
     regime = pd.Series(0, index=df.index, dtype=int)
@@ -208,10 +211,7 @@ def regime_validieren(regime: pd.Series, symbol: str) -> bool:
     """
     Prüft ob die Regime-Verteilung realistisch ist.
 
-    Eine gute Regime-Erkennung sollte alle 4 Klassen abdecken.
-    Warnung wenn:
-        - Eine Klasse > 60% aller Kerzen dominiert
-        - Eine Klasse < 5% vorkommt (praktisch nie erkannt)
+    Warnung wenn eine Klasse > 60% dominiert oder < 5% vorkommt.
 
     Args:
         regime: Regime-Serie (0, 1, 2, 3; -1 = NaN)
@@ -224,14 +224,25 @@ def regime_validieren(regime: pd.Series, symbol: str) -> bool:
     gueltig = regime[regime >= 0]
     verteilung = gueltig.value_counts(normalize=True).sort_index()
 
-    # Verteilung als Balkendiagramm im Log ausgeben
-    logger.info(f"\n[{symbol}] Regime-Verteilung ({len(gueltig):,} gültige Kerzen):")
+    # Verteilung im Log ausgeben
+    logger.info(
+        "\n[%s] Regime-Verteilung (%s gültige Kerzen):",
+        symbol,
+        f"{len(gueltig):,}",
+    )
     for regime_nr in [0, 1, 2, 3]:
         anteil = verteilung.get(regime_nr, 0.0)
         name = REGIME_NAMEN[regime_nr]
         balken = "█" * int(anteil * 40)
         leer = "░" * (40 - int(anteil * 40))
-        logger.info(f"  {regime_nr} {name:18s}: {anteil * 100:5.1f}% [{balken}{leer}]")
+        logger.info(
+            "  %s %-18s: %5.1f%% [%s%s]",
+            regime_nr,
+            name,
+            anteil * 100,
+            balken,
+            leer,
+        )
 
     probleme = False
 
@@ -239,18 +250,24 @@ def regime_validieren(regime: pd.Series, symbol: str) -> bool:
     if verteilung.max() > 0.60:
         dom = verteilung.idxmax()
         logger.warning(
-            f"[{symbol}] Regime {dom} ({REGIME_NAMEN[dom]}) dominiert mit "
-            f"{verteilung.max() * 100:.1f}%! Schwellen prüfen."
+            "[%s] Regime %s (%s) dominiert mit %.1f%%! Schwellen prüfen.",
+            symbol,
+            dom,
+            REGIME_NAMEN[dom],
+            verteilung.max() * 100,
         )
         probleme = True
 
     # Warnung: Klasse fast nicht vorhanden
-    for r in [0, 1, 2, 3]:
-        anteil = verteilung.get(r, 0.0)
+    for reg in [0, 1, 2, 3]:
+        anteil = verteilung.get(reg, 0.0)
         if anteil < 0.05:
             logger.warning(
-                f"[{symbol}] Regime {r} ({REGIME_NAMEN[r]}) nur {anteil * 100:.1f}% – "
-                f"Schwellen anpassen?"
+                "[%s] Regime %s (%s) nur %.1f%% – Schwellen anpassen?",
+                symbol,
+                reg,
+                REGIME_NAMEN[reg],
+                anteil * 100,
             )
             probleme = True
 
@@ -266,9 +283,6 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
     """
     Erstellt einen 2-Panel-Chart: Kursverlauf + Marktphasen.
 
-    Oberer Panel: Kursverlauf mit SMA50 und farbiger Hintergrund je Regime
-    Unterer Panel: Regime-Zeitreihe als farbiger Stufenchart
-
     Speichert als: plots/SYMBOL_regime.png
 
     Args:
@@ -278,13 +292,22 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(16, 10), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
+        2,
+        1,
+        figsize=(16, 10),
+        sharex=True,
+        gridspec_kw={"height_ratios": [3, 1]},
     )
     fig.patch.set_facecolor("#F8F9FA")
 
     # --- Oberer Panel: Kursverlauf ---
     ax1.plot(
-        df.index, df["close"], color="#1E90FF", linewidth=0.6, label="Close", zorder=3
+        df.index,
+        df["close"],
+        color="#1E90FF",
+        linewidth=0.6,
+        label="Close",
+        zorder=3,
     )
     ax1.plot(
         df.index,
@@ -314,7 +337,7 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
 
     ax1.set_ylim(preis_min, preis_max)
     ax1.set_title(
-        f"{symbol} H1 – Regime Detection | " f"ADX>25=Trend, ATR>1.5×Median=Vola",
+        f"{symbol} H1 – Regime Detection | ADX>25=Trend, ATR>1.5×Median=Vola",
         fontsize=13,
         fontweight="bold",
     )
@@ -327,11 +350,18 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
     regime_werte = df["market_regime"].values
     farben_pro_kerze = [REGIME_FARBEN.get(r, "#888888") for r in regime_werte]
 
-    # Effizienter als bar() für 8760 Kerzen: scatter mit kleinen Marken
-    ax2.scatter(df.index, regime_werte, c=farben_pro_kerze, s=2, marker="|", zorder=2)
+    ax2.scatter(
+        df.index,
+        regime_werte,
+        c=farben_pro_kerze,
+        s=2,
+        marker="|",
+        zorder=2,
+    )
     ax2.set_yticks([0, 1, 2, 3])
     ax2.set_yticklabels(
-        ["0 Seitwärts", "1 Aufwärts", "2 Abwärts", "3 Hoch Vola"], fontsize=8
+        ["0 Seitwärts", "1 Aufwärts", "2 Abwärts", "3 Hoch Vola"],
+        fontsize=8,
     )
     ax2.set_ylabel("Regime")
     ax2.set_xlabel("Datum")
@@ -344,7 +374,7 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
     plt.savefig(pfad, dpi=100, bbox_inches="tight")
     plt.close()
 
-    logger.info(f"[{symbol}] Chart gespeichert: {pfad}")
+    logger.info("[%s] Chart gespeichert: %s", symbol, pfad)
 
 
 # ============================================================
@@ -375,32 +405,37 @@ def regime_berechnen(symbol: str) -> bool:
 
     # Datei prüfen
     if not eingabe_pfad.exists():
-        logger.error(f"[{symbol}] Datei nicht gefunden: {eingabe_pfad}")
-        logger.error(f"[{symbol}] Zuerst feature_engineering.py ausführen!")
+        logger.error("[%s] Datei nicht gefunden: %s", symbol, eingabe_pfad)
+        logger.error("[%s] Zuerst feature_engineering.py ausführen!", symbol)
         return False
 
     # Feature-CSV laden
-    logger.info(f"[{symbol}] Lade {eingabe_pfad.name} ...")
+    logger.info("[%s] Lade %s ...", symbol, eingabe_pfad.name)
     df = pd.read_csv(eingabe_pfad, index_col="time", parse_dates=True)
-    logger.info(f"[{symbol}] {len(df):,} Kerzen, {len(df.columns)} Features")
+    logger.info(
+        "[%s] %s Kerzen, %s Features",
+        symbol,
+        f"{len(df):,}",
+        len(df.columns),
+    )
 
     # Pflicht-Spalten prüfen
     erforderliche_spalten = ["high", "low", "close", "sma_50", "atr_pct"]
     fehlende = [c for c in erforderliche_spalten if c not in df.columns]
     if fehlende:
-        logger.error(f"[{symbol}] Fehlende Spalten: {fehlende}")
+        logger.error("[%s] Fehlende Spalten: %s", symbol, fehlende)
         return False
 
     # Schritt 1: ADX(14) berechnen
-    logger.info(f"[{symbol}] Berechne ADX(14) ...")
+    logger.info("[%s] Berechne ADX(14) ...", symbol)
     adx = adx_berechnen(df, laenge=14)
 
     # Schritt 2: Volatilitätsschwelle
-    logger.info(f"[{symbol}] Berechne Volatilitätsschwelle (Median-50) ...")
+    logger.info("[%s] Berechne Volatilitätsschwelle (Median-50) ...", symbol)
     atr_pct, median_atr = volatilitaet_berechnen(df, fenster=50)
 
     # Schritt 3: Regime klassifizieren
-    logger.info(f"[{symbol}] Klassifiziere Marktphasen ...")
+    logger.info("[%s] Klassifiziere Marktphasen ...", symbol)
     regime = regime_klassifizieren(
         df,
         adx,
@@ -419,15 +454,16 @@ def regime_berechnen(symbol: str) -> bool:
     df = df[df["market_regime"] >= 0].copy()
     if n_ungueltig > 0:
         logger.info(
-            f"[{symbol}] {n_ungueltig} Anfangs-Kerzen ohne Indikator entfernt "
-            f"(Initialisierungsperiode ADX+Median)"
+            "[%s] %s Anfangs-Kerzen ohne Indikator entfernt",
+            symbol,
+            n_ungueltig,
         )
 
     # Schritt 4: Verteilung validieren
     regime_validieren(df["market_regime"], symbol)
 
     # Schritt 5: Visualisierung (letztes Jahr = ~8.760 H1-Kerzen)
-    logger.info(f"[{symbol}] Erstelle Chart ...")
+    logger.info("[%s] Erstelle Chart ...", symbol)
     df_plot = df.iloc[-8760:].copy()
     regime_visualisieren(df_plot, symbol)
 
@@ -435,8 +471,12 @@ def regime_berechnen(symbol: str) -> bool:
     df.to_csv(eingabe_pfad)
     groesse_mb = eingabe_pfad.stat().st_size / 1024 / 1024
     logger.info(
-        f"[{symbol}] Gespeichert: {eingabe_pfad.name} "
-        f"({len(df):,} Kerzen, {len(df.columns)} Features, {groesse_mb:.1f} MB)"
+        "[%s] Gespeichert: %s (%s Kerzen, %s Features, %.1f MB)",
+        symbol,
+        eingabe_pfad.name,
+        f"{len(df):,}",
+        len(df.columns),
+        groesse_mb,
     )
 
     return True
@@ -451,16 +491,16 @@ def main() -> None:
     """Regime Detection für alle 7 Forex-Hauptpaare."""
     logger.info("=" * 60)
     logger.info("Phase 3 – Regime Detection – gestartet")
-    logger.info(f"Symbole: {', '.join(SYMBOLE)}")
-    logger.info("Methode: ADX(14) + ATR%/Median-50 + SMA50-Richtung")
+    logger.info("Symbole: %s", ", ".join(SYMBOLE))
+    logger.info("Methode: ADX(14) + ATR%%/Median-50 + SMA50-Richtung")
     logger.info("=" * 60)
 
     ergebnisse = []
 
     for symbol in SYMBOLE:
-        logger.info(f"\n{'─' * 40}")
-        logger.info(f"Verarbeite: {symbol}")
-        logger.info(f"{'─' * 40}")
+        logger.info("\n%s", "─" * 40)
+        logger.info("Verarbeite: %s", symbol)
+        logger.info("%s", "─" * 40)
 
         erfolg = regime_berechnen(symbol)
         ergebnisse.append((symbol, "OK" if erfolg else "FEHLER"))

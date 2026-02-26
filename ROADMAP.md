@@ -179,14 +179,24 @@
 ### Erweiterte Features
 
 - [x] **Multi-Timeframe:** H4- und D1-Trend als Feature in H1-Daten einbauen ✅
-- [ ] **Order Flow:** Funding Rate und Open Interest aus Binance API ziehen
-- [ ] **Sentiment:** Fear & Greed Index täglich laden und als Feature einbauen
+- [x] **Order Flow:** Funding Rate und Open Interest aus Binance API ziehen ✅
+  - BTC Funding Rate (8h) + BTC Open Interest (1h) als Risk-On/Off Proxy
+  - Skript: `features/order_flow.py`, Output: `data/btc_funding_rate.csv`, `data/btc_open_interest.csv`
+- [x] **Sentiment:** Fear & Greed Index täglich laden und als Feature einbauen ✅
+  - Alternative.me API (kostenlos, kein Key), täglich → H1 forward-fill
+  - Skript: `features/order_flow.py`, Output: `data/fear_greed.csv`
+  - Neue Features: `fear_greed_value`, `fear_greed_class`, `btc_funding_rate`, `btc_oi_change`, `btc_oi_zscore`
 
 ### Datenqualität
 
 - [x] Feature-DataFrame als CSV exportieren (7× SYMBOL_H1_features.csv, ~49.000 Kerzen, 56 Features) ✅
-- [ ] Feature-Korrelationsmatrix prüfen (hoch korrelierte Features entfernen)
-- [ ] Alle Features normalisieren / skalieren wo nötig
+- [x] Feature-Korrelationsmatrix prüfen (hoch korrelierte Features entfernen) ✅
+  - Skript: `features/correlation_analysis.py`
+  - Output: `plots/correlation_matrix.png`, `plots/high_correlation_pairs.png`, `reports/feature_analysis.txt`
+  - Ergebnis: Tree-basierte Modelle tolerieren hohe Korrelation gut (keine Pflicht zum Entfernen)
+- [x] Alle Features normalisieren / skalieren wo nötig ✅
+  - Ergebnis: XGBoost/LightGBM benötigen KEINE Normalisierung (baumbasiert)
+  - Dokumentiert in `reports/feature_analysis.txt` inkl. Code-Beispiel für StandardScaler
 
 **✅ Phase 2 abgeschlossen:** 7 Währungspaare × 56 Features, keine NaN-Werte.
 
@@ -381,7 +391,7 @@
 |-------|-------------|--------|
 | 0 | Vorbereitung (Git, .env, Bibliothekstest) | ✅ Abgeschlossen |
 | 1 | Umgebung & Daten | ✅ Abgeschlossen |
-| 2 | Feature Engineering | 🔄 In Arbeit |
+| 2 | Feature Engineering | ✅ Abgeschlossen |
 | 3 | Regime Detection | ⬜ Offen |
 | 4 | Labeling & Training | ⬜ Offen |
 | 5 | Backtesting | ⬜ Offen |
@@ -393,4 +403,4 @@
 
 ---
 
-*Letzte Aktualisierung: 2026-02-26*
+Letzte Aktualisierung: 2026-02-26 – Phase 2 vollständig abgeschlossen

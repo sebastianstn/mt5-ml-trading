@@ -51,6 +51,7 @@ pip install -r requirements-laptop.txt
 ## Projektstruktur
 
 ```
+
 mt5-ml-trading/
 ├── .github/
 │   └── copilot-instructions.md   # Instruktionen für GitHub Copilot
@@ -97,4 +98,13 @@ Details → [ROADMAP.md](ROADMAP.md)
 - **Zeitliche Datentrennung:** Training → Validierung → Test (niemals zufällig!)
 - **Paper-Trading zuerst:** Niemals Live-Trading ohne vorherigen Paper-Trading-Test
 - **Stop-Loss Pflicht:** Niemals ohne Absicherung handeln
-- **Modelle:** Immer mit `joblib` speichern, nie mit `pickle`
+
+Das läuft auf dem Linux-Server aus.
+
+Wie entsteht das in Zukunft? Wenn jemand direkt auf GitHub Commits macht (z.B. Dateien bearbeitet oder Workflows hinzufügt) während du lokal arbeitest, divergieren die Branches. Mit kannst du das immer sauber lösen.
+
+```bash
+git pull --no-rebase origin main
+```
+
+kannst du das immer sauber lösen.

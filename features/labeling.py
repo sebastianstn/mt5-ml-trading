@@ -1,7 +1,8 @@
 """
 labeling.py – Double-Barrier Labeling für das ML-Trading-System
 
-Erstellt für jede H1-Kerze ein Label basierend auf der zukünftigen Kursbewegung:
+Erstellt für jede H1-Kerze ein Label basierend auf der
+zukünftigen Kursbewegung:
     1  = Long-Signal   (Kurs steigt um ≥ tp_pct innerhalb von horizon Kerzen)
    -1  = Short-Signal  (Kurs fällt um ≥ sl_pct innerhalb von horizon Kerzen)
     0  = Kein Signal   (weder TP noch SL erreicht → Seitwärts)
@@ -39,6 +40,7 @@ Ausgabe:  data/SYMBOL_H1_labeled.csv       (v1 – Original)
           data/SYMBOL_H1_labeled_v2.csv    (v2 – Option A: Horizon=10)
           data/SYMBOL_H1_labeled_v3.csv    (v3 – Option B: TP/SL=0.15%)
 """
+# pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
 import argparse
@@ -65,7 +67,15 @@ BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 
 # Symbole
-SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+SYMBOLE = [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "AUDUSD",
+    "USDCAD",
+    "USDCHF",
+    "NZDUSD",
+]
 
 # ============================================================
 # Labeling-Parameter (hier anpassen wenn gewünscht)
@@ -80,6 +90,7 @@ HORIZON = 5  # Zeitschranke: 5 H1-Kerzen = 5 Stunden voraus schauen
 # ============================================================
 
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def double_barrier_label(
     close: np.ndarray,
     high: np.ndarray,
@@ -125,7 +136,7 @@ def double_barrier_label(
             if high[i + j] >= tp_level:
                 label = 1  # Kurs erreicht obere Schranke zuerst → Long
                 break
-            elif low[i + j] <= sl_level:
+            if low[i + j] <= sl_level:
                 label = -1  # Kurs erreicht untere Schranke zuerst → Short
                 break
             # Sonst: nächste Kerze prüfen
@@ -155,7 +166,9 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
     anz = len(gueltig)
     verteilung = gueltig.value_counts().sort_index()
 
-    logger.info(f"\n[{symbol}] Label-Verteilung ({anz:,} gültige Kerzen):")
+    logger.info(
+        "\n[%s] Label-Verteilung (%s gültige Kerzen):", symbol, f"{anz:,}"
+    )
     namen = {-1: "Short (-1)", 0: "Kein Signal (0)", 1: "Long  (+1)"}
     for label_nr in [-1, 0, 1]:
         anzahl = verteilung.get(label_nr, 0)
@@ -163,7 +176,12 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
         balken = "█" * int(anteil * 40)
         leer = "░" * (40 - int(anteil * 40))
         logger.info(
-            f"  {namen[label_nr]:15s}: {anzahl:6,} ({anteil * 100:5.1f}%) [{balken}{leer}]"
+            "  %s: %s (%s%%) [%s%s]",
+            f"{namen[label_nr]:15s}",
+            f"{anzahl:6,}",
+            f"{anteil * 100:5.1f}",
+            balken,
+            leer,
         )
 
     # Warnung bei starkem Ungleichgewicht
@@ -171,8 +189,11 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
         anteil = verteilung.get(label_nr, 0) / anz
         if anteil < 0.10:
             logger.warning(
-                f"[{symbol}] Klasse {label_nr} nur {anteil * 100:.1f}%! "
-                f"TP/SL-Schwellen oder Horizon anpassen?"
+                "[%s] Klasse %s nur %s%%! "
+                "TP/SL-Schwellen oder Horizon anpassen?",
+                symbol,
+                label_nr,
+                f"{anteil * 100:.1f}",
             )
 
 
@@ -233,27 +254,34 @@ def symbol_labeln(
 
     # Datei prüfen
     if not eingabe_pfad.exists():
-        logger.error(f"[{symbol}] Nicht gefunden: {eingabe_pfad}")
+        logger.error("[%s] Nicht gefunden: %s", symbol, eingabe_pfad)
         logger.error(
-            f"[{symbol}] Zuerst feature_engineering.py und regime_detection.py ausführen!"
+            "[%s] Zuerst feature_engineering.py und "
+            "regime_detection.py ausführen!",
+            symbol,
         )
         return False
 
     # Feature-CSV laden
-    logger.info(f"[{symbol}] Lade {eingabe_pfad.name} ...")
+    logger.info("[%s] Lade %s ...", symbol, eingabe_pfad.name)
     df = pd.read_csv(eingabe_pfad, index_col="time", parse_dates=True)
-    logger.info(f"[{symbol}] {len(df):,} Kerzen, {len(df.columns)} Features")
+    logger.info(
+        "[%s] %s Kerzen, %s Features", symbol, f"{len(df):,}", len(df.columns)
+    )
 
     # Pflicht-Spalten prüfen
     for col in ["close", "high", "low"]:
         if col not in df.columns:
-            logger.error(f"[{symbol}] Fehlende Spalte: '{col}'")
+            logger.error("[%s] Fehlende Spalte: '%s'", symbol, col)
             return False
 
     # Double-Barrier Labels berechnen (mit den übergebenen Parametern)
     logger.info(
-        f"[{symbol}] Berechne Labels (TP={tp_pct:.2%}, SL={sl_pct:.2%}, "
-        f"Horizon={horizon} Kerzen) ..."
+        "[%s] Berechne Labels (TP=%s, SL=%s, Horizon=%s Kerzen) ...",
+        symbol,
+        f"{tp_pct:.2%}",
+        f"{sl_pct:.2%}",
+        horizon,
     )
     labels = double_barrier_label(
         close=df["close"].values,
@@ -269,7 +297,9 @@ def symbol_labeln(
     n_vorher = len(df)
     df = df.dropna(subset=["label"])
     df["label"] = df["label"].astype(int)  # float → int (-1, 0, 1)
-    logger.info(f"[{symbol}] {n_vorher - len(df)} Zeilen ohne Label entfernt")
+    logger.info(
+        "[%s] %s Zeilen ohne Label entfernt", symbol, n_vorher - len(df)
+    )
 
     # Label-Verteilung analysieren und prüfen
     label_verteilung_pruefen(df, symbol)
@@ -278,8 +308,12 @@ def symbol_labeln(
     df.to_csv(ausgabe_pfad)
     groesse_mb = ausgabe_pfad.stat().st_size / 1024 / 1024
     logger.info(
-        f"[{symbol}] Gespeichert: {ausgabe_pfad.name} "
-        f"({len(df):,} Kerzen, {len(df.columns)} Spalten, {groesse_mb:.1f} MB)"
+        "[%s] Gespeichert: %s (%s Kerzen, %s Spalten, %s MB)",
+        symbol,
+        ausgabe_pfad.name,
+        f"{len(df):,}",
+        len(df.columns),
+        f"{groesse_mb:.1f}",
     )
 
     return True
@@ -291,7 +325,10 @@ def symbol_labeln(
 
 
 def main() -> None:
-    """Labeling für alle oder ausgewählte Forex-Paare (mit konfigurierbaren Parametern)."""
+    """Labeling für alle oder ausgewählte Forex-Paare.
+
+    Unterstützt konfigurierbare Parameter via CLI-Argumente.
+    """
 
     # ---- CLI-Argumente ----
     parser = argparse.ArgumentParser(
@@ -302,20 +339,27 @@ def main() -> None:
         default="alle",
         help=(
             "Handelssymbol oder 'alle' (Standard: alle). "
-            "Mögliche Werte: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
+            "Mögliche Werte: "
+            "EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
         ),
     )
     parser.add_argument(
         "--tp_pct",
         type=float,
         default=TP_PCT,
-        help=f"Take-Profit als Anteil (Standard: {TP_PCT} = {TP_PCT:.2%}). Option B: 0.0015",
+        help=(
+            f"Take-Profit als Anteil (Standard: {TP_PCT} = "
+            f"{TP_PCT:.2%}). Option B: 0.0015"
+        ),
     )
     parser.add_argument(
         "--sl_pct",
         type=float,
         default=SL_PCT,
-        help=f"Stop-Loss als Anteil (Standard: {SL_PCT} = {SL_PCT:.2%}). Option B: 0.0015",
+        help=(
+            f"Stop-Loss als Anteil (Standard: {SL_PCT} = "
+            f"{SL_PCT:.2%}). Option B: 0.0015"
+        ),
     )
     parser.add_argument(
         "--horizon",
@@ -348,18 +392,21 @@ def main() -> None:
     logger.info("=" * 60)
     logger.info("Phase 4 – Labeling – gestartet")
     logger.info(
-        f"Parameter: TP={args.tp_pct:.2%}, SL={args.sl_pct:.2%}, "
-        f"Horizon={args.horizon} H1-Barren | Version: {args.version}"
+        "Parameter: TP=%s, SL=%s, Horizon=%s H1-Barren | Version: %s",
+        f"{args.tp_pct:.2%}",
+        f"{args.sl_pct:.2%}",
+        args.horizon,
+        args.version,
     )
-    logger.info(f"Symbole: {', '.join(ziel_symbole)}")
+    logger.info("Symbole: %s", ", ".join(ziel_symbole))
     logger.info("=" * 60)
 
     ergebnisse = []
 
     for symbol in ziel_symbole:
-        logger.info(f"\n{'─' * 40}")
-        logger.info(f"Verarbeite: {symbol}")
-        logger.info(f"{'─' * 40}")
+        logger.info("\n%s", "─" * 40)
+        logger.info("Verarbeite: %s", symbol)
+        logger.info("%s", "─" * 40)
 
         erfolg = symbol_labeln(
             symbol,
@@ -373,19 +420,28 @@ def main() -> None:
     # Zusammenfassung
     print("\n" + "=" * 60)
     print(f"ABGESCHLOSSEN – Labeling ({args.version})")
-    print(f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | Horizon={args.horizon} H1-Barren")
+    print(
+        f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | "
+        f"Horizon={args.horizon} H1-Barren"
+    )
     print("=" * 60)
     for symbol, status in ergebnisse:
         zeichen = "✓" if status == "OK" else "✗"
         print(f"  {zeichen} {symbol}: {status}")
 
     erfolge = [r for r in ergebnisse if r[1] == "OK"]
-    print(f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich gelabelt.")
+    print(
+        f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich gelabelt."
+    )
 
     # Ausgabe-Dateiname anzeigen
     beispiel_pfad = labeled_pfad("EURUSD", args.version)
-    print(f"\nGelabelte Daten in: {DATA_DIR}/{beispiel_pfad.name.replace('EURUSD', 'SYMBOL')}")
-    print(f"\nNächster Schritt: train_model.py --symbol alle --version {args.version} ausführen")
+    symbol_name = beispiel_pfad.name.replace("EURUSD", "SYMBOL")
+    print(f"\nGelabelte Daten in: {DATA_DIR}/{symbol_name}")
+    print(
+        f"\nNächster Schritt: train_model.py --symbol alle "
+        f"--version {args.version} ausführen"
+    )
     print("=" * 60)
 
 

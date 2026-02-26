@@ -1,0 +1,92 @@
+=================================================================
+REALITY-CHECK: USDJPY
+Erstellt: 2026-02-26 22:45 | Zeitraum: 2023-02-27 – 2026-02-23
+Analysierte Monate: letzte 36 Monate
+=================================================================
+
+1. SIGNAL-VERTEILUNG (ausgeglichen?)
+─────────────────────────────────────────────────────────────────
+   Gesamt Trades:  440
+   Long:           130 (29.5%%)
+   Short:          310 (70.5%%)
+   Balance:        0.59 (1.0 = perfekt, <0.7 = einseitig)
+   Bewertung:      ⚠️  Einseitig – prüfe Long/Short Bias!
+
+2. SIGNAL-WAHRSCHEINLICHKEIT (Vertrauen des Modells)
+─────────────────────────────────────────────────────────────────
+   Durchschnitt:   0.6679 (Ziel: ≥ 0.60)
+   Median:         0.6524
+   Min / Max:      0.6000 / 0.9048
+   Über 0.65:      227 Trades (51.6%%)
+   Bewertung:      ✅ OK
+
+3. REGIME-VERTEILUNG (richtige Marktphasen?)
+─────────────────────────────────────────────────────────────────
+   Regime 0 (Seitwärts       ):    0 Trades (  0.0%%)   
+   Regime 1 (Aufwärtstrend   ):  131 Trades ( 29.8%%) ✅
+   Regime 2 (Abwärtstrend    ):  309 Trades ( 70.2%%) ✅
+   Regime 3 (Hohe Volatilität):    0 Trades (  0.0%%)   
+
+4. EXIT-TYPEN (Qualität der Trade-Ausführung)
+─────────────────────────────────────────────────────────────────
+   TP-Exits:       151 (34.3%%) – Gewinntrades
+   SL-Exits:       119 (27.0%%) – Verlusttrades
+   Horizon-Exits:  170 (38.6%%) – Zeitablauf
+   Bewertung:      ✅ SL-Rate OK
+
+5. MONATLICHER P&L-VERLAUF (Konsistenz)
+─────────────────────────────────────────────────────────────────
+   2023-02 :  ▼   -0.22%%  (1 Trades, Win-Rate: 0%%)
+   2023-03 :  ▲   +0.29%%  (35 Trades, Win-Rate: 51%%)
+   2023-04 :  ▼   -0.41%%  (10 Trades, Win-Rate: 30%%)
+   2023-05 :  ▼   -0.38%%  (12 Trades, Win-Rate: 50%%)
+   2023-06 :  ▲   +0.28%%  (1 Trades, Win-Rate: 100%%)
+   2023-07 :  ▼   -1.16%%  (27 Trades, Win-Rate: 41%%)
+   2023-08 :  ▼   -0.81%%  (3 Trades, Win-Rate: 0%%)
+   2023-09 :  ▲   +0.28%%  (1 Trades, Win-Rate: 100%%)
+   2023-10 :  ▼   -0.06%%  (1 Trades, Win-Rate: 0%%)
+   2023-11 :  ▲   +0.06%%  (8 Trades, Win-Rate: 50%%)
+   2023-12 :  ▲   +0.16%%  (17 Trades, Win-Rate: 53%%)
+   2024-01 :  ▼   -0.92%%  (8 Trades, Win-Rate: 38%%)
+   2024-02 :  ▼   -0.44%%  (4 Trades, Win-Rate: 25%%)
+   2024-03 :  ▼   -0.81%%  (8 Trades, Win-Rate: 25%%)
+   2024-04 :  ▼   -0.32%%  (1 Trades, Win-Rate: 0%%)
+   2024-05 :  ▼   -0.35%%  (7 Trades, Win-Rate: 43%%)
+   2024-06 :  ▼   -0.52%%  (3 Trades, Win-Rate: 33%%)
+   2024-07 :  ▼   -0.43%%  (22 Trades, Win-Rate: 50%%)
+   2024-08 :  ▼   -0.78%%  (30 Trades, Win-Rate: 50%%)
+   2024-09 :  ▲   +1.71%%  (21 Trades, Win-Rate: 67%%)
+   2024-10 :  ▲   +0.82%%  (15 Trades, Win-Rate: 73%%)
+   2024-11 :  ▲   +0.64%%  (14 Trades, Win-Rate: 64%%)
+   2024-12 :  ▼   -0.64%%  (6 Trades, Win-Rate: 50%%)
+   2025-01 :  ▲   +0.95%%  (4 Trades, Win-Rate: 100%%)
+   2025-02 :  ▲   +1.01%%  (17 Trades, Win-Rate: 59%%)
+   2025-03 :  ▼   -1.71%%  (16 Trades, Win-Rate: 25%%)
+   2025-04 :  ▲   +2.96%%  (34 Trades, Win-Rate: 68%%)
+   2025-05 :  ▲   +1.79%%  (35 Trades, Win-Rate: 60%%)
+   2025-06 :  ▲   +0.34%%  (15 Trades, Win-Rate: 53%%)
+   2025-07 :  ▲   +0.26%%  (5 Trades, Win-Rate: 40%%)
+   2025-08 :  ▼   -0.54%%  (9 Trades, Win-Rate: 56%%)
+   2025-09 :  ▼   -0.35%%  (3 Trades, Win-Rate: 33%%)
+   2025-10 :  ▲   +0.12%%  (14 Trades, Win-Rate: 36%%)
+   2025-11 :  ▼   -0.26%%  (3 Trades, Win-Rate: 67%%)
+   2025-12 :  ▼   -0.49%%  (3 Trades, Win-Rate: 0%%)
+   2026-01 :  ▼   -0.06%%  (12 Trades, Win-Rate: 50%%)
+   2026-02 :  ▲   +0.00%%  (15 Trades, Win-Rate: 47%%)
+
+   Gesamt-P&L:     +0.04%%
+   Gesamt Win-Rate: 50.9%% (Ziel: ≥ 45%%)
+   Bewertung:      ✅ OK
+
+=================================================================
+FAZIT
+─────────────────────────────────────────────────────────────────
+Stärken:
+  ✅ Hohe Ø-Wahrscheinlichkeit (0.668)
+  ✅ SL-Rate in Ordnung (27%%)
+  ✅ Win-Rate OK (51%%)
+Probleme:
+  ⚠️  Einseitige Signal-Verteilung (Long/Short Bias)
+
+Plot:  plots/USDJPY_reality_check.png
+=================================================================

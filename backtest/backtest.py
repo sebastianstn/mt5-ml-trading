@@ -32,18 +32,32 @@ Verwendung:
     python backtest/backtest.py --symbol alle --tp_pct 0.006 --sl_pct 0.003
     python backtest/backtest.py --symbol alle --regime_filter 1,2
 
+    # Dynamische Positionsgrößenberechnung (1%-Risiko-Regel):
+    python backtest/backtest.py --symbol EURUSD --kapital 10000 --risiko_pct 0.01
+
+    # ATR-basiertes dynamisches Stop-Loss (1.5× ATR_14):
+    python backtest/backtest.py --symbol EURUSD --atr_sl --atr_faktor 1.5
+
+    # Beides kombiniert + Zeitraum-Filter (nur 2024):
+    python backtest/backtest.py --symbol alle --kapital 10000 --atr_sl \\
+        --zeitraum_von 2024-01-01 --zeitraum_bis 2024-12-31
+
 Eingabe:  models/lgbm_SYMBOL_v1.pkl
           data/SYMBOL_H1_labeled.csv
 Ausgabe:  plots/SYMBOL_backtest_equity.png      ← Equity-Kurve
           plots/SYMBOL_backtest_regime.png      ← Performance nach Regime
           plots/SYMBOL_backtest_monatlich.png   ← Monatliche Returns-Heatmap
+          plots/SYMBOL_backtest_perioden.png    ← NEU: Jahresvergleich
           backtest/SYMBOL_trades.csv            ← Alle Trades als CSV
           backtest/backtest_zusammenfassung.csv ← Kennzahlen aller Symbole
 """
 
+# pylint: disable=too-many-lines,logging-fstring-interpolation
+
 # Standard-Bibliotheken
 import argparse
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -59,9 +73,8 @@ import joblib
 import matplotlib
 
 matplotlib.use("Agg")  # Kein Fenster öffnen – nur PNG speichern
-import matplotlib.pyplot as plt  # noqa: E402
-import matplotlib.ticker as mticker  # noqa: E402
-import seaborn as sns  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402  # pylint: disable=wrong-import-position
+import seaborn as sns  # noqa: E402  # pylint: disable=wrong-import-position
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -106,6 +119,29 @@ SPREAD_KOSTEN = {
     "NZDUSD": 0.000160,  # ~1.6 Pips (Minor, etwas teurer)
 }
 
+# Swap-Kosten (Overnight-Gebühr) als Anteil des Positionswerts pro Overnight-Übertragung
+# Typische IC Markets-Raten: Long = du hältst Basis-Währung über Nacht
+# Positive Werte = du erhältst Swap (selten), negative = du zahlst Gebühr (häufig)
+# Quelle: typische Retail-Broker-Werte für Standard-Lot (1 Pip ≈ 0.0001 EURUSD)
+SWAP_KOSTEN_LONG = {
+    "EURUSD": -0.000053,  # ~-0.53 Pips/Tag (Long EUR = Short USD-Zins)
+    "GBPUSD": -0.000042,  # Long GBP, Short USD
+    "USDJPY": +0.000012,  # Long USD-Zins > JPY-Zins → leicht positiv
+    "AUDUSD": -0.000038,  # Long AUD
+    "USDCAD": -0.000021,  # Long USD
+    "USDCHF": -0.000031,  # Long USD, Short CHF
+    "NZDUSD": -0.000045,  # Long NZD
+}
+SWAP_KOSTEN_SHORT = {
+    "EURUSD": -0.000010,  # Short EURUSD (Short EUR, Long USD)
+    "GBPUSD": -0.000015,  # Short GBP
+    "USDJPY": -0.000065,  # Short USD → verlierst USD-Zins → teuer
+    "AUDUSD": -0.000018,  # Short AUD
+    "USDCAD": +0.000005,  # Short USD, Long CAD-Zins → leicht positiv
+    "USDCHF": -0.000008,  # Short USD
+    "NZDUSD": -0.000022,  # Short NZD
+}
+
 # Test-Zeitraum (heiliges Test-Set – nur einmal verwenden!)
 TEST_VON = "2023-01-01"
 
@@ -143,6 +179,44 @@ AUSSCHLUSS_SPALTEN = {
 
 
 # ============================================================
+# Risikomanagement-Konfiguration
+# ============================================================
+
+
+@dataclass
+class RisikoConfig:
+    """
+    Risikomanagement-Parameter für die Trade-Simulation.
+
+    Kapselt zwei erweiterte Risiko-Features:
+    1. Dynamische Positionsgrößenberechnung (1%-Risiko-Regel):
+       Lot-Größe = (Kapital × Risiko%) / (SL% × Kontrakt-Größe)
+       → Bei 10.000€ Kapital, 1% Risiko, 0.3% SL:
+         Lots = 100 / (0.003 × 100.000) ≈ 0.33 Lots
+
+    2. ATR-basiertes dynamisches Stop-Loss:
+       SL = ATR_14 × atr_faktor  (statt fixer 0.3%)
+       → Passt sich der aktuellen Marktvolatilität an
+       → In ruhigen Märkten: kleiner SL (weniger Risiko)
+       → In volatilen Märkten: größerer SL (bleibt im Trade)
+    """
+
+    # --- Positionsgrößenberechnung ---
+    kapital: float = 10_000.0
+    """Startkapital in EUR/USD (Standard: 10.000)."""
+    risiko_pct: float = 0.01
+    """Max. Risiko pro Trade als Anteil (Standard: 1% = 0.01)."""
+    kontrakt_groesse: float = 100_000.0
+    """Kontraktgröße 1 Lot (Standard: 100.000 Einheiten bei Forex)."""
+
+    # --- ATR-basiertes Stop-Loss ---
+    atr_sl: bool = False
+    """ATR-basiertes SL aktivieren (Standard: deaktiviert → fixer SL%)."""
+    atr_faktor: float = 1.5
+    """ATR-Multiplikator für SL (Standard: 1.5 × ATR_14)."""
+
+
+# ============================================================
 # 1. Daten laden
 # ============================================================
 
@@ -167,16 +241,26 @@ def labeled_pfad(symbol: str, version: str = "v1") -> Path:
     return DATA_DIR / f"{symbol}_H1_labeled_{version}.csv"
 
 
-def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
+def daten_laden(
+    symbol: str,
+    version: str = "v1",
+    zeitraum_von: Optional[str] = None,
+    zeitraum_bis: Optional[str] = None,
+) -> pd.DataFrame:
     """
     Lädt das gelabelte Feature-CSV und isoliert das Test-Set (2023+).
 
     Das Test-Set enthält sowohl die Features für das Modell als auch
     die Rohdaten (OHLC) für die Trade-Simulation.
 
+    Optional kann ein Teilzeitraum des Test-Sets gefiltert werden.
+    So lassen sich verschiedene Marktphasen separat analysieren.
+
     Args:
-        symbol:  Handelssymbol (z.B. "EURUSD")
-        version: Versions-String für den Datei-Pfad (Standard: "v1")
+        symbol:       Handelssymbol (z.B. "EURUSD")
+        version:      Versions-String für den Datei-Pfad (Standard: "v1")
+        zeitraum_von: Optional – Startdatum für den Teilzeitraum (z.B. "2023-01-01")
+        zeitraum_bis: Optional – Enddatum für den Teilzeitraum (z.B. "2023-12-31")
 
     Returns:
         DataFrame mit Features, OHLC-Preisen, label und market_regime.
@@ -194,12 +278,25 @@ def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
     logger.info(f"[{symbol}] Lade {pfad.name} ...")
     df = pd.read_csv(pfad, index_col="time", parse_dates=True)
 
-    # Test-Set isolieren (2023 bis heute)
+    # Test-Set isolieren (ab TEST_VON = 2023-01-01)
     df_test = df[df.index >= TEST_VON].copy()
 
     if len(df_test) == 0:
         raise ValueError(
-            f"[{symbol}] Keine Daten ab {TEST_VON}! Datei endet am {df.index[-1].date()}"
+            f"[{symbol}] Keine Daten ab {TEST_VON}! "
+            f"Datei endet am {df.index[-1].date()}"
+        )
+
+    # Optionaler Teilzeitraum (für Perioden-Vergleich)
+    if zeitraum_von:
+        df_test = df_test[df_test.index >= zeitraum_von]
+    if zeitraum_bis:
+        df_test = df_test[df_test.index <= zeitraum_bis]
+
+    if len(df_test) == 0:
+        raise ValueError(
+            f"[{symbol}] Keine Daten im Zeitraum "
+            f"{zeitraum_von or TEST_VON} – {zeitraum_bis or 'heute'}!"
         )
 
     logger.info(
@@ -214,7 +311,7 @@ def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
 # ============================================================
 
 
-def signale_generieren(
+def signale_generieren(  # pylint: disable=too-many-locals
     df: pd.DataFrame,
     symbol: str,
     schwelle: float = 0.55,
@@ -249,21 +346,21 @@ def signale_generieren(
 
     # Features aufbereiten (gleiche Spalten wie beim Training)
     feature_spalten = [c for c in df.columns if c not in AUSSCHLUSS_SPALTEN]
-    X = df[feature_spalten].copy()
+    x_features = df[feature_spalten].copy()
 
     # NaN-Werte mit Median auffüllen (Sicherheitsnetz)
-    nan_anzahl = X.isna().sum().sum()
+    nan_anzahl = x_features.isna().sum().sum()
     if nan_anzahl > 0:
         logger.warning(f"[{symbol}] {nan_anzahl} NaN-Werte – werden mit Median gefüllt")
-        X = X.fillna(X.median())
+        x_features = x_features.fillna(x_features.median())
 
-    logger.info(f"[{symbol}] Berechne Vorhersagen für {len(X):,} Kerzen ...")
+    logger.info(f"[{symbol}] Berechne Vorhersagen für {len(x_features):,} Kerzen ...")
 
     # Wahrscheinlichkeiten für alle 3 Klassen
     # proba[:,0] = Short-Wahrscheinlichkeit
     # proba[:,1] = Neutral-Wahrscheinlichkeit
     # proba[:,2] = Long-Wahrscheinlichkeit
-    proba = modell.predict_proba(X)
+    proba = modell.predict_proba(x_features)
 
     # Rohe Vorhersage (Klasse mit höchster Wahrscheinlichkeit)
     raw_pred = np.argmax(proba, axis=1)
@@ -310,7 +407,7 @@ def signale_generieren(
 # ============================================================
 
 
-def trade_simulieren(
+def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
     df: pd.DataFrame,
     eintritts_index: int,
     richtung: int,
@@ -318,18 +415,33 @@ def trade_simulieren(
     tp_pct: float = TP_PCT,
     sl_pct: float = SL_PCT,
     horizon: int = HORIZON,
+    risiko_config: Optional[RisikoConfig] = None,
+    atr_wert: float = 0.0,
+    swap_aktiv: bool = False,
+    swap_long: float = 0.0,
+    swap_short: float = 0.0,
+    entry_time: Optional[pd.Timestamp] = None,
 ) -> dict:
     """
     Simuliert einen einzelnen Trade mit Double-Barrier Exit.
 
     Schritte:
         1. Eintrittspreis = close[T] (Market Order auf Kerzenschluss)
-        2. TP/SL-Level berechnen (mit konfigurierbaren Schwellen)
+        2. TP/SL-Level berechnen (fix oder ATR-basiert via risiko_config)
         3. Nächste horizon Kerzen prüfen: welche Schranke wird ZUERST getroffen?
         4. P&L berechnen (inkl. Spread-Kosten)
+        5. Lot-Größe und absoluten P&L berechnen (wenn kapital > 0)
 
     Asymmetrisches TP/SL: z.B. tp_pct=0.006, sl_pct=0.003 → RRR=2:1
     → Bei 40% Win-Rate schon profitabel: 0.4×0.6% − 0.6×0.3% = +0.06% p.Trade
+
+    ATR-basiertes SL (wenn risiko_config.atr_sl=True und atr_wert>0):
+        SL = ATR_14 × atr_faktor / eintrittspreis
+        TP = SL × (tp_pct / sl_pct)  → gleiche RRR wie bei festem SL
+
+    Positionsgrößenberechnung (wenn risiko_config.kapital > 0):
+        Lots = (kapital × risiko_pct) / (sl_pct_aktiv × kontrakt_groesse)
+        pnl_absolut = pnl_pct × lots × kontrakt_groesse
 
     Args:
         df:              Test-Set DataFrame (mit OHLC und index)
@@ -339,22 +451,45 @@ def trade_simulieren(
         tp_pct:          Take-Profit-Abstand (Standard: TP_PCT = 0.3%)
         sl_pct:          Stop-Loss-Abstand   (Standard: SL_PCT = 0.3%)
         horizon:         Zeitschranke in Kerzen (Standard: HORIZON = 5)
+        risiko_config:   Risikomanagement-Konfiguration (Standard: None = einfacher Modus)
+        atr_wert:        ATR_14-Wert dieser Kerze in Preiseinheiten (Standard: 0.0)
+        swap_aktiv:      Swap-Kosten aktivieren (Standard: False)
+        swap_long:       Swap-Satz für Long-Positionen (als Anteil, z.B. -0.000053)
+        swap_short:      Swap-Satz für Short-Positionen (als Anteil, z.B. -0.000010)
+        entry_time:      Eintrittszeitpunkt (pd.Timestamp) für Mitternacht-Prüfung
 
     Returns:
-        Dict mit Trade-Ergebnis: pnl_pct, exit_grund, n_bars_gehalten
+        Dict mit Trade-Ergebnis: pnl_pct, exit_grund, n_bars, eintrittspreis,
+        sl_pct_verwendet, lot_groesse, pnl_absolut, hat_swap
     """
     n = len(df)
 
     # Eintrittspreis (Close der Signal-Kerze)
     eintrittspreis = df["close"].iloc[eintritts_index]
 
-    # TP/SL-Level berechnen (mit den übergebenen, konfigurierbaren Schwellen)
+    # ────────────────────────────────────────────────────────
+    # Feature 2: ATR-basiertes dynamisches Stop-Loss
+    # ────────────────────────────────────────────────────────
+    cfg = risiko_config
+    if cfg and cfg.atr_sl and atr_wert > 0 and eintrittspreis > 0:
+        # SL dynamisch: ATR × Faktor → in Preiseinheiten → umgerechnet in %
+        sl_abs = atr_wert * cfg.atr_faktor
+        sl_pct_aktiv = sl_abs / eintrittspreis
+        # TP hält die gleiche RRR wie beim festen TP/SL-Verhältnis
+        rrr = tp_pct / sl_pct if sl_pct > 0 else 1.0
+        tp_pct_aktiv = sl_pct_aktiv * rrr
+    else:
+        # Festes TP/SL (Standard-Modus)
+        sl_pct_aktiv = sl_pct
+        tp_pct_aktiv = tp_pct
+
+    # TP/SL-Level berechnen (mit aktivem sl_pct_aktiv)
     if richtung == 2:  # Long
-        tp_level = eintrittspreis * (1.0 + tp_pct)  # Obere Schranke (Ziel)
-        sl_level = eintrittspreis * (1.0 - sl_pct)  # Untere Schranke (Stop)
+        tp_level = eintrittspreis * (1.0 + tp_pct_aktiv)  # Obere Schranke (Ziel)
+        sl_level = eintrittspreis * (1.0 - sl_pct_aktiv)  # Untere Schranke (Stop)
     else:  # Short
-        tp_level = eintrittspreis * (1.0 - tp_pct)  # Untere Schranke (Ziel)
-        sl_level = eintrittspreis * (1.0 + sl_pct)  # Obere Schranke (Stop)
+        tp_level = eintrittspreis * (1.0 - tp_pct_aktiv)  # Untere Schranke (Ziel)
+        sl_level = eintrittspreis * (1.0 + sl_pct_aktiv)  # Obere Schranke (Stop)
 
     # Vorwärts schauen: nächste horizon Kerzen
     austritt_pnl = None
@@ -374,26 +509,26 @@ def trade_simulieren(
         if richtung == 2:  # Long
             if high_j >= tp_level:
                 # Take-Profit getroffen → Gewinn = TP-Abstand
-                austritt_pnl = tp_pct
+                austritt_pnl = tp_pct_aktiv
                 exit_grund = "tp"
                 n_bars = j
                 break
-            elif low_j <= sl_level:
+            if low_j <= sl_level:
                 # Stop-Loss getroffen → Verlust = SL-Abstand
-                austritt_pnl = -sl_pct
+                austritt_pnl = -sl_pct_aktiv
                 exit_grund = "sl"
                 n_bars = j
                 break
         else:  # Short
             if low_j <= tp_level:
                 # Take-Profit getroffen (Short) → Gewinn
-                austritt_pnl = tp_pct
+                austritt_pnl = tp_pct_aktiv
                 exit_grund = "tp"
                 n_bars = j
                 break
-            elif high_j >= sl_level:
+            if high_j >= sl_level:
                 # Stop-Loss getroffen (Short) → Verlust
-                austritt_pnl = -sl_pct
+                austritt_pnl = -sl_pct_aktiv
                 exit_grund = "sl"
                 n_bars = j
                 break
@@ -409,14 +544,53 @@ def trade_simulieren(
         exit_grund = "horizon"
 
     # Spread-Kosten abziehen (Eintritt + Austritt = 2× Spread)
-    spread_als_pct = (spread_kosten / eintrittspreis) if eintrittspreis > 10 else spread_kosten
+    spread_als_pct = (
+        (spread_kosten / eintrittspreis) if eintrittspreis > 10 else spread_kosten
+    )
     netto_pnl = austritt_pnl - 2 * spread_als_pct
+
+    # ────────────────────────────────────────────────────────
+    # Swap-Kosten (Review-Punkt 5): Overnight-Gebühr bei Mitternacht-Überschreitung
+    # ────────────────────────────────────────────────────────
+    # Logik: Ein H1-Trade mit Eintrittsstunde H läuft n_bars Kerzen lang.
+    # Wenn H + n_bars >= 24, überschreitet der Trade die Mitternachtsgrenze.
+    # Dann berechnet der Broker einmalig den Tages-Swap auf den Positionswert.
+    hat_swap = False
+    if swap_aktiv and entry_time is not None:
+        entry_hour = pd.Timestamp(entry_time).hour
+        # Prüfen ob der Trade über Mitternacht läuft
+        kreuzt_mitternacht = (entry_hour + n_bars) >= 24
+        if kreuzt_mitternacht:
+            # Long-Swap für Long-Positionen, Short-Swap für Short-Positionen
+            swap_satz = swap_long if richtung == 2 else swap_short
+            # abs(): beide Swap-Sätze werden als Kosten abgezogen (meist negativ)
+            netto_pnl -= abs(swap_satz)
+            hat_swap = True
+
+    # ────────────────────────────────────────────────────────
+    # Feature 1: Dynamische Positionsgrößenberechnung
+    # ────────────────────────────────────────────────────────
+    lot_groesse = 0.0
+    pnl_absolut = 0.0
+    if cfg and cfg.kapital > 0 and sl_pct_aktiv > 0:
+        # Risikobetrag in EUR/USD (z.B. 10.000 × 1% = 100)
+        risikobetrag = cfg.kapital * cfg.risiko_pct
+        # SL-Betrag pro Lot = sl_pct × Eintrittspreis × Kontraktgröße
+        sl_pro_lot = sl_pct_aktiv * cfg.kontrakt_groesse
+        # Lot-Größe: wie viele Lots können wir handeln ohne mehr als risikobetrag zu riskieren?
+        lot_groesse = risikobetrag / sl_pro_lot if sl_pro_lot > 0 else 0.01
+        # Absoluter P&L = prozentualer P&L × Lots × Kontraktgröße
+        pnl_absolut = netto_pnl * lot_groesse * cfg.kontrakt_groesse
 
     return {
         "pnl_pct": netto_pnl,
         "exit_grund": exit_grund,
         "n_bars": n_bars,
         "eintrittspreis": eintrittspreis,
+        "sl_pct_verwendet": round(sl_pct_aktiv * 100, 4),  # in % für Trade-Log
+        "lot_groesse": round(lot_groesse, 4),
+        "pnl_absolut": round(pnl_absolut, 4),
+        "hat_swap": hat_swap,  # True wenn Overnight-Swap-Kosten angefallen
     }
 
 
@@ -425,7 +599,7 @@ def trade_simulieren(
 # ============================================================
 
 
-def trades_simulieren(
+def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     df: pd.DataFrame,
     symbol: str,
     schwelle: float = 0.55,
@@ -433,6 +607,9 @@ def trades_simulieren(
     sl_pct: float = SL_PCT,
     regime_erlaubt: Optional[list] = None,
     horizon: int = HORIZON,
+    risiko_config: Optional[RisikoConfig] = None,
+    spread_faktor: float = 1.0,
+    swap_aktiv: bool = False,
 ) -> pd.DataFrame:
     """
     Simuliert alle Trades auf dem Test-Set und gibt eine Trade-Liste zurück.
@@ -441,11 +618,13 @@ def trades_simulieren(
     Signal-Kerze erst nach horizon Kerzen gesucht (no re-entry während Trade).
 
     Verbesserungs-Parameter:
-        tp_pct / sl_pct:    Asymmetrisches TP/SL für besseres Chance-Risiko-Verhältnis.
-                            Beispiel: tp=0.006, sl=0.003 → RRR=2:1 (nur 40% Win-Rate nötig)
-        regime_erlaubt:     Nur in bestimmten Regimes handeln.
-                            [1, 2] = nur Aufwärts-/Abwärtstrend (kein Seitwärts, keine Volatilität)
-        horizon:            Zeitschranke in Kerzen (muss mit labeling.py übereinstimmen!)
+        tp_pct / sl_pct:  Asymmetrisches TP/SL für besseres Chance-Risiko-Verhältnis.
+                          Beispiel: tp=0.006, sl=0.003 → RRR=2:1 (nur 40% Win-Rate nötig)
+        regime_erlaubt:   Nur in bestimmten Regimes handeln.
+                          [1,2] = nur Aufwärts-/Abwärtstrend
+        risiko_config:    Dynamisches SL und Positionsgrößenberechnung (optional).
+        spread_faktor:    Multiplikator für Spread-Kosten (Standard: 1.0 = real).
+                          2.0 = Transaction Cost Sensitivity Test (verdoppelter Spread).
 
     Args:
         df:             Test-Set DataFrame mit Signalen (aus signale_generieren())
@@ -455,17 +634,56 @@ def trades_simulieren(
         sl_pct:         Stop-Loss-Abstand   (Standard: SL_PCT = 0.3%)
         regime_erlaubt: Liste erlaubter Regime-Nummern (None = alle Regimes handeln)
         horizon:        Zeitschranke in Kerzen (Standard: HORIZON = 5)
+        risiko_config:  Risikomanagement-Konfiguration (Standard: None)
+        spread_faktor:  Spread-Multiplikator für Kosten-Stress-Test (Standard: 1.0)
+        swap_aktiv:     Swap-Kosten (Overnight-Gebühr) aktivieren (Standard: False)
 
     Returns:
         DataFrame mit allen simulierten Trades.
     """
-    spread_kosten = SPREAD_KOSTEN.get(symbol, 0.000150)  # Fallback: 1.5 Pips
+    # Spread-Kosten mit optionalem Multiplikator für Sensitivity Test
+    spread_kosten = SPREAD_KOSTEN.get(symbol, 0.000150) * spread_faktor  # Fallback: 1.5 Pips
+    if spread_faktor != 1.0:
+        logger.info(
+            f"[{symbol}] ⚡ Spread-Stress-Test: Faktor={spread_faktor}× "
+            f"→ Spread={spread_kosten:.6f} "
+            f"(statt {SPREAD_KOSTEN.get(symbol, 0.000150):.6f})"
+        )
 
-    # Regime-Spalte vorbereiten (falls vorhanden)
+    # Regime-Spalte und ATR-Spalte vorbereiten (falls vorhanden)
     hat_regime = "market_regime" in df.columns
+    # atr_14 ist in AUSSCHLUSS_SPALTEN (nicht für Modell), aber im CSV vorhanden
+    hat_atr = "atr_14" in df.columns
+
+    # ATR-SL aktiv? → Nur wenn Config gesetzt und Spalte vorhanden
+    cfg = risiko_config
+    atr_sl_aktiv = cfg is not None and cfg.atr_sl and hat_atr
+
+    if atr_sl_aktiv:
+        logger.info(
+            f"[{symbol}] ATR-SL aktiv: SL = ATR_14 × "  # type: ignore[union-attr]
+            f"{cfg.atr_faktor:.1f} (statt festem SL={sl_pct:.2%})"
+        )
+    if cfg and cfg.kapital > 0:
+        logger.info(
+            f"[{symbol}] Positionsgrößenberechnung: Kapital={cfg.kapital:,.0f} | "
+            f"Risiko={cfg.risiko_pct:.0%} pro Trade | "
+            f"Kontrakt={cfg.kontrakt_groesse:,.0f}"
+        )
+
+    # Swap-Sätze aus den globalen Dicts für dieses Symbol holen
+    swap_long_satz = SWAP_KOSTEN_LONG.get(symbol, -0.000030)   # Fallback: -3 Pips
+    swap_short_satz = SWAP_KOSTEN_SHORT.get(symbol, -0.000015)  # Fallback: -1.5 Pips
+    if swap_aktiv:
+        logger.info(
+            f"[{symbol}] Swap-Kosten aktiv: "
+            f"Long={swap_long_satz:.6f} | Short={swap_short_satz:.6f} "
+            f"(Overnight-Gebühr bei Mitternacht-Überschreitung)"
+        )
 
     trades = []  # Ergebnis-Liste
     n_gefiltert_regime = 0  # Zähler: übersprungene Trades wegen Regime-Filter
+    n_swap_trades = 0       # Zähler: Trades mit Swap-Kosten
     i = 0  # Aktueller Balken-Index
 
     while i < len(df) - horizon:
@@ -474,19 +692,36 @@ def trades_simulieren(
         # Nur Long (2) oder Short (-1) Signale handeln
         if signal in (2, -1):
 
-            # Regime-Filter: Signal überspringen wenn aktuelles Regime nicht erlaubt ist
+            # Regime-Filter: Signal überspringen wenn aktuelles Regime nicht erlaubt
             if regime_erlaubt is not None and hat_regime:
                 aktuelles_regime = df["market_regime"].iloc[i]
-                if not np.isnan(aktuelles_regime) and int(aktuelles_regime) not in regime_erlaubt:
+                if (
+                    not np.isnan(aktuelles_regime)
+                    and int(aktuelles_regime) not in regime_erlaubt
+                ):
                     # Regime nicht erlaubt → Signal ignorieren
                     n_gefiltert_regime += 1
                     i += 1
                     continue
 
-            # Trade simulieren (mit konfigurierbarem TP/SL und Horizon)
-            ergebnis = trade_simulieren(df, i, signal, spread_kosten, tp_pct, sl_pct, horizon)
+            # ATR-Wert dieser Kerze (für dynamisches SL)
+            atr_wert = float(df["atr_14"].iloc[i]) if atr_sl_aktiv else 0.0
 
-            # Trade-Details speichern
+            # Trade simulieren (mit konfigurierbarem TP/SL, ATR, Positionsgröße und Swap)
+            ergebnis = trade_simulieren(
+                df, i, signal, spread_kosten, tp_pct, sl_pct, horizon,
+                risiko_config=cfg, atr_wert=atr_wert,
+                swap_aktiv=swap_aktiv,
+                swap_long=swap_long_satz,
+                swap_short=swap_short_satz,
+                entry_time=df.index[i],
+            )
+
+            # Swap-Zähler erhöhen wenn Overnight-Kosten angefallen
+            if ergebnis.get("hat_swap", False):
+                n_swap_trades += 1
+
+            # Trade-Details speichern (inkl. neuer Risiko-Felder + Swap-Flag)
             regime_wert = df["market_regime"].iloc[i] if hat_regime else np.nan
             trades.append(
                 {
@@ -496,11 +731,15 @@ def trades_simulieren(
                     "signal_klasse": signal,
                     "prob": df["prob_signal"].iloc[i],
                     "eintrittspreis": ergebnis["eintrittspreis"],
+                    "sl_pct_verwendet": ergebnis["sl_pct_verwendet"],
+                    "lot_groesse": ergebnis["lot_groesse"],
                     "exit_grund": ergebnis["exit_grund"],
                     "n_bars": ergebnis["n_bars"],
                     "pnl_pct": ergebnis["pnl_pct"],
+                    "pnl_absolut": ergebnis["pnl_absolut"],
                     "gewinn": ergebnis["pnl_pct"] > 0,
                     "market_regime": regime_wert,
+                    "hat_swap": ergebnis.get("hat_swap", False),
                 }
             )
 
@@ -512,23 +751,32 @@ def trades_simulieren(
     if regime_erlaubt is not None and n_gefiltert_regime > 0:
         regime_namen_str = [REGIME_NAMEN.get(r, str(r)) for r in regime_erlaubt]
         logger.info(
-            f"[{symbol}] Regime-Filter aktiv: {n_gefiltert_regime} Signale außerhalb "
-            f"[{', '.join(regime_namen_str)}] übersprungen"
+            f"[{symbol}] Regime-Filter aktiv: {n_gefiltert_regime} Signale "
+            f"außerhalb [{', '.join(regime_namen_str)}] übersprungen"
         )
 
     if not trades:
-        logger.warning(f"[{symbol}] Keine Trades gefunden! Schwelle zu hoch oder Regime-Filter zu streng?")
+        logger.warning(
+            f"[{symbol}] Keine Trades gefunden! "
+            f"Schwelle zu hoch oder Regime-Filter zu streng?"
+        )
         return pd.DataFrame()
 
     trades_df = pd.DataFrame(trades)
     trades_df.set_index("time", inplace=True)
 
     logger.info(
-        f"[{symbol}] {len(trades_df)} Trades simuliert | "
+        f"[{symbol}] {len(trades_df)} Trades simuliert | Schwelle={schwelle:.0%} | "
         f"Long: {(trades_df['richtung'] == 'Long').sum()} | "
         f"Short: {(trades_df['richtung'] == 'Short').sum()} | "
         f"TP={tp_pct:.1%} / SL={sl_pct:.1%} (RRR={tp_pct/sl_pct:.1f}:1)"
     )
+    # Swap-Kosten-Statistik ausgeben (nur wenn Swap aktiviert)
+    if swap_aktiv and n_swap_trades > 0:
+        logger.info(
+            f"[{symbol}] Swap-Kosten: {n_swap_trades}/{len(trades_df)} Trades "
+            f"({n_swap_trades/len(trades_df):.0%}) hatten Overnight-Gebühren"
+        )
 
     return trades_df
 
@@ -538,7 +786,7 @@ def trades_simulieren(
 # ============================================================
 
 
-def kennzahlen_berechnen(
+def kennzahlen_berechnen(  # pylint: disable=too-many-locals
     trades_df: pd.DataFrame,
     symbol: str,
 ) -> dict:
@@ -602,6 +850,22 @@ def kennzahlen_berechnen(
     else:
         sharpe = 0.0
 
+    # ────────────────────────────────────────────────────────
+    # Feature 1: Absoluter P&L (nur wenn Positionsgrößen berechnet wurden)
+    # ────────────────────────────────────────────────────────
+    hat_absolut = (
+        "pnl_absolut" in trades_df.columns
+        and trades_df["pnl_absolut"].abs().sum() > 0
+    )
+    if hat_absolut:
+        pnl_abs = trades_df["pnl_absolut"].values
+        gesamtrendite_absolut = float(pnl_abs.sum())
+        hat_lot = "lot_groesse" in trades_df.columns
+        avg_lot = float(trades_df["lot_groesse"].mean()) if hat_lot else 0.0
+    else:
+        gesamtrendite_absolut = 0.0
+        avg_lot = 0.0
+
     # Ergebnisse zusammenstellen
     kennzahlen = {
         "symbol": symbol,
@@ -618,19 +882,36 @@ def kennzahlen_berechnen(
         "horizon_exits": int((trades_df["exit_grund"] == "horizon").sum()),
         "zeitraum_von": str(trades_df.index[0].date()),
         "zeitraum_bis": str(trades_df.index[-1].date()),
+        "gesamtrendite_absolut": round(gesamtrendite_absolut, 2),
+        "avg_lot_groesse": round(avg_lot, 4),
     }
 
     # Log-Ausgabe
     logger.info(f"\n{'─' * 55}")
-    logger.info(f"[{symbol}] KENNZAHLEN (Test-Set {kennzahlen['zeitraum_von']} bis {kennzahlen['zeitraum_bis']})")
+    logger.info(
+        f"[{symbol}] KENNZAHLEN "
+        f"(Test-Set {kennzahlen['zeitraum_von']} bis {kennzahlen['zeitraum_bis']})"
+    )
     logger.info(f"{'─' * 55}")
-    logger.info(f"  Anzahl Trades:    {n_trades:6d} (Long: {kennzahlen['n_long']}, Short: {kennzahlen['n_short']})")
+    logger.info(
+        f"  Anzahl Trades:    {n_trades:6d} "
+        f"(Long: {kennzahlen['n_long']}, Short: {kennzahlen['n_short']})"
+    )
     logger.info(f"  Gesamtrendite:    {gesamtrendite:+7.2f}%")
+    if hat_absolut:
+        logger.info(
+            f"  Gesamtrendite:  {gesamtrendite_absolut:+10.2f} EUR/USD "
+            f"(Ø Lot: {avg_lot:.4f})"
+        )
     logger.info(f"  Win-Rate:         {win_rate:7.1f}%")
     logger.info(f"  Gewinnfaktor:     {gewinnfaktor:7.3f}  (Ziel: >1.3)")
     logger.info(f"  Sharpe Ratio:     {sharpe:7.3f}  (Ziel: >1.0)")
     logger.info(f"  Max. Drawdown:    {max_drawdown:+7.2f}%  (Ziel: >-20%)")
-    logger.info(f"  Exits: TP={kennzahlen['tp_hits']} | SL={kennzahlen['sl_hits']} | Horizon={kennzahlen['horizon_exits']}")
+    logger.info(
+        f"  Exits: TP={kennzahlen['tp_hits']} | "
+        f"SL={kennzahlen['sl_hits']} | "
+        f"Horizon={kennzahlen['horizon_exits']}"
+    )
 
     # Zielampel
     ziele = {
@@ -639,7 +920,7 @@ def kennzahlen_berechnen(
         "Drawdown > -20%": max_drawdown > -20,
         "Win-Rate > 45%": win_rate > 45,
     }
-    logger.info(f"\n  Ziel-Check:")
+    logger.info("\n  Ziel-Check:")
     for ziel, erreicht in ziele.items():
         zeichen = "✅" if erreicht else "❌"
         logger.info(f"    {zeichen} {ziel}")
@@ -681,7 +962,9 @@ def regime_analyse(trades_df: pd.DataFrame, symbol: str) -> Optional[pd.DataFram
     ergebnisse = []
 
     for regime_nr in sorted(trades_mit_regime["market_regime"].unique()):
-        regime_trades = trades_mit_regime[trades_mit_regime["market_regime"] == regime_nr]
+        regime_trades = trades_mit_regime[
+            trades_mit_regime["market_regime"] == regime_nr
+        ]
         regime_name = REGIME_NAMEN.get(int(regime_nr), f"Regime {regime_nr}")
 
         pnl = regime_trades["pnl_pct"].values
@@ -713,7 +996,9 @@ def regime_analyse(trades_df: pd.DataFrame, symbol: str) -> Optional[pd.DataFram
 # ============================================================
 
 
-def equity_kurve_plotten(trades_df: pd.DataFrame, symbol: str, kennzahlen: dict) -> None:
+def equity_kurve_plotten(
+    trades_df: pd.DataFrame, symbol: str, kennzahlen: dict
+) -> None:
     """
     Erstellt die Equity-Kurve des Backtests.
 
@@ -794,7 +1079,7 @@ def equity_kurve_plotten(trades_df: pd.DataFrame, symbol: str, kennzahlen: dict)
 # ============================================================
 
 
-def regime_plotten(regime_df: pd.DataFrame, symbol: str) -> None:
+def regime_plotten(regime_df: pd.DataFrame, symbol: str) -> None:  # pylint: disable=too-many-locals
     """
     Erstellt einen Balkenplot der Performance nach Market-Regime.
 
@@ -841,9 +1126,7 @@ def regime_plotten(regime_df: pd.DataFrame, symbol: str) -> None:
     ax1.grid(True, axis="y", alpha=0.3)
 
     # Plot 2: Win-Rate nach Regime
-    farben_wr = [
-        "#2ECC71" if w >= 50 else "#E74C3C" for w in regime_df["win_rate_pct"]
-    ]
+    farben_wr = ["#2ECC71" if w >= 50 else "#E74C3C" for w in regime_df["win_rate_pct"]]
     balken2 = ax2.bar(
         regimes,
         regime_df["win_rate_pct"],
@@ -870,8 +1153,8 @@ def regime_plotten(regime_df: pd.DataFrame, symbol: str) -> None:
     ax2.grid(True, axis="y", alpha=0.3)
     ax2.legend(fontsize=9)
 
-    # Anzahl Trades als Annotation
-    for ax, col in [(ax1, "gesamtrendite_pct"), (ax2, "win_rate_pct")]:
+    # Anzahl Trades als Annotation (col wird nicht benötigt, daher _)
+    for ax, _ in [(ax1, "gesamtrendite_pct"), (ax2, "win_rate_pct")]:
         for i, (_, row) in enumerate(regime_df.iterrows()):
             ax.text(
                 i,
@@ -900,7 +1183,9 @@ def regime_plotten(regime_df: pd.DataFrame, symbol: str) -> None:
 # ============================================================
 
 
-def monatliche_heatmap_plotten(trades_df: pd.DataFrame, symbol: str) -> None:
+def monatliche_heatmap_plotten(  # pylint: disable=too-many-locals
+    trades_df: pd.DataFrame, symbol: str
+) -> None:
     """
     Erstellt eine Heatmap der monatlichen P&L-Werte.
 
@@ -918,9 +1203,7 @@ def monatliche_heatmap_plotten(trades_df: pd.DataFrame, symbol: str) -> None:
 
     # Monatliche P&L aggregieren
     monatlich = (
-        trades_df["pnl_pct"]
-        .resample("ME")  # Monatsende-Resampling
-        .sum()
+        trades_df["pnl_pct"].resample("ME").sum()  # Monatsende-Resampling
         * 100  # in Prozent
     )
 
@@ -936,15 +1219,29 @@ def monatliche_heatmap_plotten(trades_df: pd.DataFrame, symbol: str) -> None:
             "Rendite": monatlich.values,
         }
     )
-    pivot = monatlich_df.pivot_table(values="Rendite", index="Jahr", columns="Monat", aggfunc="sum")
+    pivot = monatlich_df.pivot_table(
+        values="Rendite", index="Jahr", columns="Monat", aggfunc="sum"
+    )
 
     # Monatsnamen für x-Achse
-    monat_namen = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
-                   "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
+    monat_namen = [
+        "Jan",
+        "Feb",
+        "Mär",
+        "Apr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Okt",
+        "Nov",
+        "Dez",
+    ]
     pivot.columns = [monat_namen[int(m) - 1] for m in pivot.columns]
 
-    # Heatmap erstellen
-    fig, ax = plt.subplots(figsize=(13, max(3, len(pivot) * 0.8 + 2)))
+    # Heatmap erstellen (fig wird nicht direkt referenziert, daher _)
+    _, ax = plt.subplots(figsize=(13, max(3, len(pivot) * 0.8 + 2)))
     sns.heatmap(
         pivot,
         annot=True,
@@ -973,11 +1270,183 @@ def monatliche_heatmap_plotten(trades_df: pd.DataFrame, symbol: str) -> None:
 
 
 # ============================================================
-# 10. Vollständiger Backtest für ein Symbol
+# 10. Jahres-Perioden-Vergleich plotten (Feature 3)
 # ============================================================
 
 
-def symbol_backtest(
+def perioden_vergleich_plotten(  # pylint: disable=too-many-locals,too-many-statements
+    trades_df: pd.DataFrame, symbol: str
+) -> None:
+    """
+    Erstellt einen Jahresvergleich der Backtest-Performance.
+
+    Teilt die Trade-Liste nach Jahren auf und zeigt für jedes Jahr:
+    - Gesamtrendite (%)
+    - Win-Rate (%)
+    - Anzahl Trades
+
+    So lassen sich schlechte Jahre (z.B. Trend-Monate) von guten unterscheiden.
+    Das hilft herauszufinden ob das System in allen Marktphasen funktioniert.
+
+    Args:
+        trades_df: Trade-Liste aus trades_simulieren()
+        symbol:    Handelssymbol
+    """
+    if trades_df.empty:
+        return
+
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Jahres-Performance berechnen
+    jahre = sorted(trades_df.index.year.unique())
+
+    if len(jahre) < 2:
+        logger.info(
+            f"[{symbol}] Zu wenige Jahre für Perioden-Vergleich "
+            f"({len(jahre)} Jahr(e)) – übersprungen"
+        )
+        return
+
+    perioden_daten = []
+    for jahr in jahre:
+        jahres_trades = trades_df[trades_df.index.year == jahr]
+        pnl = jahres_trades["pnl_pct"].values
+        n = len(pnl)
+        if n == 0:
+            continue
+        win_rate = float((pnl > 0).mean()) * 100
+        rendite = float(pnl.sum()) * 100
+        perioden_daten.append(
+            {
+                "periode": str(jahr),
+                "n_trades": n,
+                "gesamtrendite_pct": round(rendite, 2),
+                "win_rate_pct": round(win_rate, 1),
+            }
+        )
+
+    if len(perioden_daten) < 2:
+        return
+
+    perioden_df = pd.DataFrame(perioden_daten)
+
+    # ---- Plot ----
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+    fig.patch.set_facecolor("#F8F9FA")
+
+    perioden = perioden_df["periode"]
+    farben_rendite = [
+        "#2ECC71" if r >= 0 else "#E74C3C"
+        for r in perioden_df["gesamtrendite_pct"]
+    ]
+    farben_wr = [
+        "#2ECC71" if w >= 50 else "#E74C3C"
+        for w in perioden_df["win_rate_pct"]
+    ]
+
+    # Plot 1: Gesamtrendite pro Jahr
+    balken1 = ax1.bar(
+        perioden,
+        perioden_df["gesamtrendite_pct"],
+        color=farben_rendite,
+        edgecolor="white",
+        linewidth=1.5,
+    )
+    ax1.axhline(0, color="#7F8C8D", linewidth=1)
+    for b, wert in zip(balken1, perioden_df["gesamtrendite_pct"]):
+        ax1.text(
+            b.get_x() + b.get_width() / 2,
+            wert + (0.01 if wert >= 0 else -0.03),
+            f"{wert:+.2f}%",
+            ha="center",
+            va="bottom" if wert >= 0 else "top",
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax1.set_ylabel("Gesamtrendite (%)")
+    ax1.set_title(f"{symbol} – Rendite pro Jahr", fontweight="bold")
+    ax1.set_facecolor("#F8F9FA")
+    ax1.grid(True, axis="y", alpha=0.3)
+
+    # Plot 2: Win-Rate pro Jahr
+    balken2 = ax2.bar(
+        perioden,
+        perioden_df["win_rate_pct"],
+        color=farben_wr,
+        edgecolor="white",
+        linewidth=1.5,
+    )
+    ax2.axhline(50, color="#7F8C8D", linewidth=1, linestyle="--", label="50%")
+    for b, wert in zip(balken2, perioden_df["win_rate_pct"]):
+        ax2.text(
+            b.get_x() + b.get_width() / 2,
+            wert + 0.5,
+            f"{wert:.1f}%",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax2.set_ylabel("Win-Rate (%)")
+    ax2.set_title(f"{symbol} – Win-Rate pro Jahr", fontweight="bold")
+    ax2.set_ylim(0, 100)
+    ax2.set_facecolor("#F8F9FA")
+    ax2.grid(True, axis="y", alpha=0.3)
+    ax2.legend(fontsize=9)
+
+    # Plot 3: Anzahl Trades pro Jahr
+    ax3.bar(
+        perioden,
+        perioden_df["n_trades"],
+        color="#3498DB",
+        edgecolor="white",
+        linewidth=1.5,
+    )
+    for idx, wert in enumerate(perioden_df["n_trades"]):
+        ax3.text(
+            idx,
+            wert + 0.3,
+            str(wert),
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax3.set_ylabel("Anzahl Trades")
+    ax3.set_title(f"{symbol} – Trades pro Jahr", fontweight="bold")
+    ax3.set_facecolor("#F8F9FA")
+    ax3.grid(True, axis="y", alpha=0.3)
+
+    plt.suptitle(
+        f"{symbol} – Jahresvergleich ({perioden.iloc[0]}–{perioden.iloc[-1]})",
+        fontsize=13,
+        fontweight="bold",
+        y=1.02,
+    )
+    plt.tight_layout()
+    pfad = PLOTS_DIR / f"{symbol}_backtest_perioden.png"
+    plt.savefig(pfad, dpi=100, bbox_inches="tight")
+    plt.close()
+    logger.info(f"[{symbol}] Perioden-Vergleich gespeichert: {pfad}")
+
+    # Log-Ausgabe der Jahres-Kennzahlen
+    logger.info(f"\n[{symbol}] Performance nach Jahr:")
+    for _, row in perioden_df.iterrows():
+        icon = "✅" if row["gesamtrendite_pct"] >= 0 else "❌"
+        logger.info(
+            f"  {row['periode']}: {icon} "
+            f"Rendite={row['gesamtrendite_pct']:+.2f}% | "
+            f"Win-Rate={row['win_rate_pct']:.1f}% | "
+            f"N={row['n_trades']}"
+        )
+
+
+# ============================================================
+# 11. Vollständiger Backtest für ein Symbol
+# ============================================================
+
+
+def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-statements,too-many-locals
     symbol: str,
     schwelle: float = 0.55,
     tp_pct: float = TP_PCT,
@@ -985,17 +1454,22 @@ def symbol_backtest(
     regime_erlaubt: Optional[list] = None,
     version: str = "v1",
     horizon: int = HORIZON,
+    risiko_config: Optional[RisikoConfig] = None,
+    zeitraum_von: Optional[str] = None,
+    zeitraum_bis: Optional[str] = None,
+    spread_faktor: float = 1.0,
+    swap_aktiv: bool = False,
 ) -> Optional[dict]:
     """
     Führt den vollständigen Backtest für ein Symbol durch.
 
     Schritte:
-        1. Test-Set laden (2023+, versioniertes CSV)
+        1. Test-Set laden (2023+, optional gefiltert nach zeitraum_von/bis)
         2. Signale generieren (versioniertes Modell + Schwellenwert)
-        3. Trades simulieren (TP/SL/Horizon + Spread + Regime-Filter)
-        4. Kennzahlen berechnen
+        3. Trades simulieren (TP/SL/Horizon + Spread + Regime-Filter + RisikoConfig)
+        4. Kennzahlen berechnen (inkl. absoluter P&L wenn kapital > 0)
         5. Regime-Analyse
-        6. Plots erstellen
+        6. Plots erstellen (Equity, Regime, Monatlich, Jahresvergleich)
         7. Trade-Log als CSV speichern
 
     Args:
@@ -1006,6 +1480,10 @@ def symbol_backtest(
         regime_erlaubt: Nur in diesen Regimes handeln (None = alle)
         version:        Versions-String für Modell- und Datei-Pfade (Standard: "v1")
         horizon:        Zeitschranke in Kerzen (muss mit labeling.py übereinstimmen!)
+        risiko_config:  Dynamische Positionsgröße + ATR-SL (Standard: None = einfacher Modus)
+        zeitraum_von:   Optionaler Startzeitpunkt (z.B. "2023-01-01")
+        zeitraum_bis:   Optionaler Endzeitpunkt   (z.B. "2023-12-31")
+        spread_faktor:  Spread-Multiplikator für Kosten-Stress-Test (Standard: 1.0 = normal)
 
     Returns:
         Dict mit Kennzahlen oder None bei Fehler.
@@ -1013,24 +1491,41 @@ def symbol_backtest(
     # Info-String für Logging und Dateinamen
     regime_info = (
         f"Regimes=[{','.join(str(r) for r in regime_erlaubt)}]"
-        if regime_erlaubt else "alle Regimes"
+        if regime_erlaubt
+        else "alle Regimes"
+    )
+    atr_info = (
+        f" | ATR-SL={risiko_config.atr_faktor}×ATR"
+        if risiko_config and risiko_config.atr_sl
+        else ""
+    )
+    kapital_info = (
+        f" | Kapital={risiko_config.kapital:,.0f} (Risiko={risiko_config.risiko_pct:.0%})"
+        if risiko_config and risiko_config.kapital > 0
+        else ""
     )
     logger.info(f"\n{'=' * 65}")
     logger.info(
         f"Backtest – {symbol} ({version}) | Schwelle: {schwelle:.0%} | "
-        f"TP={tp_pct:.2%} / SL={sl_pct:.2%} | Horizon={horizon} | {regime_info}"
+        f"TP={tp_pct:.2%} / SL={sl_pct:.2%} | Horizon={horizon} | "
+        f"{regime_info}{atr_info}{kapital_info}"
     )
     logger.info(f"{'=' * 65}")
 
     try:
-        # Schritt 1: Test-Set laden (versioniertes CSV)
-        df = daten_laden(symbol, version)
+        # Schritt 1: Test-Set laden (mit optionalem Zeitraum-Filter)
+        df = daten_laden(symbol, version, zeitraum_von, zeitraum_bis)
 
         # Schritt 2: Signale generieren (versioniertes Modell)
         df = signale_generieren(df, symbol, schwelle, version)
 
-        # Schritt 3: Trades simulieren (mit TP/SL + Regime-Filter + Horizon)
-        trades_df = trades_simulieren(df, symbol, schwelle, tp_pct, sl_pct, regime_erlaubt, horizon)
+        # Schritt 3: Trades simulieren (inkl. Risikomanagement + Spread-Faktor + Swap)
+        trades_df = trades_simulieren(
+            df, symbol, schwelle, tp_pct, sl_pct,
+            regime_erlaubt, horizon, risiko_config,
+            spread_faktor=spread_faktor,
+            swap_aktiv=swap_aktiv,
+        )
 
         if trades_df.empty:
             logger.warning(f"[{symbol}] Keine Trades – übersprungen!")
@@ -1043,37 +1538,46 @@ def symbol_backtest(
         kennzahlen["sl_pct"] = sl_pct
         kennzahlen["rrr"] = round(tp_pct / sl_pct, 2)
         kennzahlen["regime_filter"] = str(regime_erlaubt) if regime_erlaubt else "alle"
+        kennzahlen["spread_faktor"] = spread_faktor  # Für Sensitivity-Test-Protokoll
+        if risiko_config and risiko_config.kapital > 0:
+            kennzahlen["kapital"] = risiko_config.kapital
+            kennzahlen["risiko_pct"] = risiko_config.risiko_pct
+            kennzahlen["atr_sl"] = risiko_config.atr_sl
 
         # Schritt 5: Regime-Analyse
         regime_df = regime_analyse(trades_df, symbol)
 
-        # Schritt 6: Plots erstellen
+        # Schritt 6: Plots erstellen (inkl. neuem Jahres-Perioden-Vergleich)
         equity_kurve_plotten(trades_df, symbol, kennzahlen)
         regime_plotten(regime_df, symbol)
         monatliche_heatmap_plotten(trades_df, symbol)
+        perioden_vergleich_plotten(trades_df, symbol)  # NEU: Jahresvergleich
 
         # Schritt 7: Trade-Log als CSV speichern
         BACKTEST_DIR.mkdir(parents=True, exist_ok=True)
         trade_pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
         trades_df.to_csv(trade_pfad)
-        logger.info(f"[{symbol}] Trade-Log gespeichert: {trade_pfad} ({len(trades_df)} Trades)")
+        logger.info(
+            f"[{symbol}] Trade-Log gespeichert: "
+            f"{trade_pfad} ({len(trades_df)} Trades)"
+        )
 
         return kennzahlen
 
     except FileNotFoundError as e:
         logger.error(str(e))
         return None
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error(f"[{symbol}] Unerwarteter Fehler: {e}", exc_info=True)
         return None
 
 
 # ============================================================
-# 11. Hauptprogramm
+# 12. Hauptprogramm
 # ============================================================
 
 
-def main() -> None:
+def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Backtest für ein oder alle Symbole."""
 
     parser = argparse.ArgumentParser(
@@ -1081,10 +1585,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--symbol",
-        default="EURUSD",
+        nargs="+",
+        default=["EURUSD"],
         help=(
-            "Handelssymbol (Standard: EURUSD) oder 'alle' für alle 7 Forex-Paare. "
-            "Mögliche Werte: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
+            "Ein oder mehrere Symbole (Standard: EURUSD) oder 'alle'. "
+            "Beispiel: --symbol EURUSD USDCAD USDJPY"
         ),
     )
     parser.add_argument(
@@ -1101,8 +1606,8 @@ def main() -> None:
         type=float,
         default=TP_PCT,
         help=(
-            f"Take-Profit als Anteil (Standard: {TP_PCT} = {TP_PCT:.1%}). "
-            "Beispiel: --tp_pct 0.006 für 0.6% TP bei 0.3% SL (RRR=2:1)."
+            f"Take-Profit als Anteil (Standard: {TP_PCT} = {TP_PCT*100:.1f}%%). "
+            "Beispiel: --tp_pct 0.006 fuer 0.6%% TP bei 0.3%% SL (RRR=2:1)."
         ),
     )
     parser.add_argument(
@@ -1110,8 +1615,8 @@ def main() -> None:
         type=float,
         default=SL_PCT,
         help=(
-            f"Stop-Loss als Anteil (Standard: {SL_PCT} = {SL_PCT:.1%}). "
-            "Beispiel: --sl_pct 0.003 für 0.3% SL."
+            f"Stop-Loss als Anteil (Standard: {SL_PCT} = {SL_PCT*100:.1f}%%). "
+            "Beispiel: --sl_pct 0.003 fuer 0.3%% SL."
         ),
     )
     parser.add_argument(
@@ -1143,17 +1648,114 @@ def main() -> None:
             "Option A (v2): --horizon 10"
         ),
     )
+
+    # ── Feature 1: Dynamische Positionsgrößenberechnung ──────────────────────
+    parser.add_argument(
+        "--kapital",
+        type=float,
+        default=0.0,
+        help=(
+            "Startkapital für Positionsgrößenberechnung (Standard: 0 = deaktiviert). "
+            "Beispiel: --kapital 10000 für 10.000 EUR Konto."
+        ),
+    )
+    parser.add_argument(
+        "--risiko_pct",
+        type=float,
+        default=0.01,
+        help=(
+            "Max. Risiko pro Trade als Anteil des Kapitals (Standard: 0.01 = 1%%). "
+            "Beispiel: --risiko_pct 0.02 für 2%% Risiko."
+        ),
+    )
+    parser.add_argument(
+        "--kontrakt_groesse",
+        type=float,
+        default=100_000.0,
+        help=(
+            "Kontraktgröße 1 Lot in Einheiten (Standard: 100.000 = Standard-Lot). "
+            "Für Mini-Lot: --kontrakt_groesse 10000"
+        ),
+    )
+
+    # ── Feature 2: ATR-basiertes Stop-Loss ───────────────────────────────────
+    parser.add_argument(
+        "--atr_sl",
+        action="store_true",
+        default=False,
+        help=(
+            "ATR-basiertes dynamisches Stop-Loss aktivieren (Standard: aus). "
+            "SL = ATR_14 × atr_faktor statt festem --sl_pct."
+        ),
+    )
+    parser.add_argument(
+        "--atr_faktor",
+        type=float,
+        default=1.5,
+        help=(
+            "ATR-Multiplikator für das dynamische SL (Standard: 1.5). "
+            "Beispiel: --atr_faktor 2.0 für 2× ATR als Stop-Loss."
+        ),
+    )
+
+    # ── Feature 3: Zeitraum-Filterung ────────────────────────────────────────
+    parser.add_argument(
+        "--zeitraum_von",
+        type=str,
+        default=None,
+        help=(
+            "Startdatum für den Backtest-Zeitraum (Standard: 2023-01-01). "
+            "Beispiel: --zeitraum_von 2024-01-01"
+        ),
+    )
+    parser.add_argument(
+        "--zeitraum_bis",
+        type=str,
+        default=None,
+        help=(
+            "Enddatum für den Backtest-Zeitraum (Standard: alle Daten). "
+            "Beispiel: --zeitraum_bis 2024-12-31"
+        ),
+    )
+
+    # ── Feature 5: Swap-Kosten (Overnight-Gebühr) ────────────────────────────
+    parser.add_argument(
+        "--swap_aktiv",
+        action="store_true",
+        default=False,
+        help=(
+            "Swap-Kosten (Overnight-Gebühr) aktivieren (Standard: aus). "
+            "Zieht bei Trades die Mitternacht überschreiten den Broker-Swap ab. "
+            "Beispiel: --swap_aktiv (Review-Punkt 5)"
+        ),
+    )
+
+    # ── Feature 4: Transaction Cost Sensitivity Test ──────────────────────────
+    parser.add_argument(
+        "--spread_faktor",
+        type=float,
+        default=1.0,
+        help=(
+            "Spread-Multiplikator für Kosten-Stress-Test (Standard: 1.0 = reale Kosten). "
+            "2.0 = doppelte Spreads (Review-Punkt 3). "
+            "Beispiel: --spread_faktor 2.0 → Strategie noch profitabel bei 2× Kosten?"
+        ),
+    )
+
     args = parser.parse_args()
 
-    # Symbole bestimmen
-    if args.symbol.lower() == "alle":
+    # Symbole bestimmen (Liste oder 'alle')
+    if len(args.symbol) == 1 and args.symbol[0].lower() == "alle":
         ziel_symbole = SYMBOLE
-    elif args.symbol.upper() in SYMBOLE:
-        ziel_symbole = [args.symbol.upper()]
     else:
-        print(f"Unbekanntes Symbol: {args.symbol}")
-        print(f"Verfügbar: {', '.join(SYMBOLE)} oder 'alle'")
-        return
+        ziel_symbole = []
+        for sym in args.symbol:
+            if sym.upper() in SYMBOLE:
+                ziel_symbole.append(sym.upper())
+            else:
+                print(f"Unbekanntes Symbol: {sym}")
+                print(f"Verfügbar: {', '.join(SYMBOLE)} oder 'alle'")
+                return
 
     # Regime-Filter parsen (z.B. "1,2" → [1, 2])
     regime_erlaubt = None
@@ -1161,8 +1763,20 @@ def main() -> None:
         try:
             regime_erlaubt = [int(r.strip()) for r in args.regime_filter.split(",")]
         except ValueError:
-            print(f"Ungültiger --regime_filter: '{args.regime_filter}'. Erwartet: z.B. '1,2'")
+            print(
+                f"Ungültiger --regime_filter: '{args.regime_filter}'. "
+                f"Erwartet: z.B. '1,2'"
+            )
             return
+
+    # RisikoConfig aus CLI-Argumenten zusammenbauen
+    risiko_config = RisikoConfig(
+        kapital=args.kapital,
+        risiko_pct=args.risiko_pct,
+        kontrakt_groesse=args.kontrakt_groesse,
+        atr_sl=args.atr_sl,
+        atr_faktor=args.atr_faktor,
+    ) if (args.kapital > 0 or args.atr_sl) else None
 
     # Backtest-Ausgabe-Ordner anlegen
     BACKTEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -1170,7 +1784,8 @@ def main() -> None:
     start_zeit = datetime.now()
     regime_info = (
         f"Regimes=[{','.join(REGIME_NAMEN.get(r, str(r)) for r in regime_erlaubt)}]"
-        if regime_erlaubt else "alle Regimes"
+        if regime_erlaubt
+        else "alle Regimes"
     )
     logger.info("=" * 65)
     logger.info("⚠️  ACHTUNG: Teste auf dem heiligen Test-Set (2023+)!")
@@ -1178,9 +1793,34 @@ def main() -> None:
     logger.info("=" * 65)
     logger.info(f"Symbole: {', '.join(ziel_symbole)} | Version: {args.version}")
     logger.info(f"Schwellenwert: {args.schwelle:.0%}")
-    logger.info(f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | RRR={args.tp_pct/args.sl_pct:.1f}:1")
+    logger.info(
+        f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | "
+        f"RRR={args.tp_pct/args.sl_pct:.1f}:1"
+    )
     logger.info(f"Regime-Filter: {regime_info}")
     logger.info(f"Horizon: {args.horizon} H1-Barren")
+    if risiko_config:
+        if risiko_config.atr_sl:
+            logger.info(
+                f"ATR-SL: aktiv (Faktor={risiko_config.atr_faktor}×ATR_14)"
+            )
+        if risiko_config.kapital > 0:
+            logger.info(
+                f"Kapital: {risiko_config.kapital:,.0f} | "
+                f"Risiko: {risiko_config.risiko_pct:.0%} pro Trade"
+            )
+    if args.zeitraum_von or args.zeitraum_bis:
+        logger.info(
+            f"Zeitraum-Filter: {args.zeitraum_von or TEST_VON} "
+            f"bis {args.zeitraum_bis or 'heute'}"
+        )
+    if args.spread_faktor != 1.0:
+        logger.info(
+            f"⚡ SPREAD-STRESS-TEST: Faktor={args.spread_faktor}× "
+            f"(Review-Punkt 3: Kosten-Sensitivität)"
+        )
+    if args.swap_aktiv:
+        logger.info("🌙 SWAP-KOSTEN aktiv: Overnight-Gebühren werden eingerechnet")
     logger.info(f"Start: {start_zeit.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 65)
 
@@ -1188,21 +1828,107 @@ def main() -> None:
     alle_kennzahlen = []
     for symbol in ziel_symbole:
         kennzahlen = symbol_backtest(
-            symbol, args.schwelle, args.tp_pct, args.sl_pct,
-            regime_erlaubt, args.version, args.horizon
+            symbol,
+            args.schwelle,
+            args.tp_pct,
+            args.sl_pct,
+            regime_erlaubt,
+            args.version,
+            args.horizon,
+            risiko_config=risiko_config,
+            zeitraum_von=args.zeitraum_von,
+            zeitraum_bis=args.zeitraum_bis,
+            spread_faktor=args.spread_faktor,
+            swap_aktiv=args.swap_aktiv,
         )
         if kennzahlen:
             alle_kennzahlen.append(kennzahlen)
+
+    # ── Survivorship-Bias Check (Review-Punkt 2) ─────────────────────────────
+    # Prüft ob die "guten" Paare nur durch Data-Mining herausgepickt wurden.
+    # Wenn das beste Paar deutlich über dem Durchschnitt liegt, besteht das
+    # Risiko dass wir die Strategie auf Basis von Zufall optimiert haben.
+    if len(alle_kennzahlen) >= 2:
+        renditen  = [k["gesamtrendite_pct"] for k in alle_kennzahlen]
+        sharpes   = [k["sharpe_ratio"]      for k in alle_kennzahlen]
+        drawdowns = [k["max_drawdown_pct"]  for k in alle_kennzahlen]
+        gfs       = [k["gewinnfaktor"]      for k in alle_kennzahlen]
+
+        avg_rendite  = float(np.mean(renditen))
+        avg_sharpe   = float(np.mean(sharpes))
+        avg_gf       = float(np.mean(gfs))
+        avg_drawdown = float(np.mean(drawdowns))
+
+        print(f"\n{'─'*75}")
+        print(
+            f"SURVIVORSHIP-BIAS CHECK (Review-Punkt 2) "
+            f"– {len(alle_kennzahlen)} Paare analysiert"
+        )
+        print(f"{'─'*75}")
+        print(
+            f"  Ø Alle {len(alle_kennzahlen)} Paare:  "
+            f"Rendite={avg_rendite:+.2f}%  "
+            f"Sharpe={avg_sharpe:.3f}  "
+            f"GF={avg_gf:.3f}  "
+            f"DD={avg_drawdown:+.2f}%"
+        )
+        # Die 2 besten Paare nach Sharpe Ratio hervorheben
+        beste = sorted(
+            alle_kennzahlen, key=lambda x: x["sharpe_ratio"], reverse=True
+        )[:2]
+        for b in beste:
+            print(
+                f"  Bestes [{b['symbol']:6}]:      "
+                f"Rendite={b['gesamtrendite_pct']:+.2f}%  "
+                f"Sharpe={b['sharpe_ratio']:.3f}  "
+                f"GF={b['gewinnfaktor']:.3f}  "
+                f"DD={b['max_drawdown_pct']:+.2f}%"
+            )
+        # Warnung: bestes Paar deutlich über Durchschnitt?
+        if max(sharpes) > avg_sharpe * 1.5:
+            print(
+                "  ⚠️  RISIKO: Bestes Paar ist deutlich über Ø "
+                "→ Data-Mining-Bias möglich!"
+            )
+        else:
+            print(
+                "  ✅  OK: Bestes Paar nur moderat besser als Ø "
+                "→ System erscheint robust."
+            )
+        print(f"{'─'*75}")
 
     # Gesamtzusammenfassung
     ende_zeit = datetime.now()
     dauer_sek = int((ende_zeit - start_zeit).total_seconds())
 
     print("\n" + "=" * 75)
-    print(f"BACKTEST ABGESCHLOSSEN – Zusammenfassung ({args.version})")
-    print(f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | RRR={args.tp_pct/args.sl_pct:.1f}:1 | Horizon={args.horizon} | Regime: {regime_info}")
+    stress_label = (
+        f" – ⚡ SPREAD-STRESS-TEST ({args.spread_faktor}× Kosten)"
+        if args.spread_faktor != 1.0 else ""
+    )
+    print(f"BACKTEST ABGESCHLOSSEN – Zusammenfassung ({args.version}){stress_label}")
+    print(
+        f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | "
+        f"RRR={args.tp_pct/args.sl_pct:.1f}:1 | "
+        f"Horizon={args.horizon} | Regime: {regime_info}"
+    )
+    if args.spread_faktor != 1.0:
+        print(
+            f"⚡ Spreads: {args.spread_faktor}× normal → "
+            "Sind die Ergebnisse noch profitabel? (Review-Punkt 3)"
+        )
+    if risiko_config and risiko_config.atr_sl:
+        print(f"ATR-SL: {risiko_config.atr_faktor}× ATR_14 (dynamisches Stop-Loss)")
+    if risiko_config and risiko_config.kapital > 0:
+        print(
+            f"Kapital: {risiko_config.kapital:,.0f} | "
+            f"Risiko/Trade: {risiko_config.risiko_pct:.0%}"
+        )
     print("=" * 75)
-    print(f"{'Symbol':8} {'Trades':7} {'Rendite':9} {'Win-Rate':9} {'GF':6} {'Sharpe':8} {'Max.DD':8}")
+    print(
+        f"{'Symbol':8} {'Trades':7} {'Rendite%':9} "
+        f"{'Win-Rate':9} {'GF':6} {'Sharpe':8} {'Max.DD':8}"
+    )
     print(f"{'─' * 75}")
 
     for k in alle_kennzahlen:
@@ -1210,9 +1936,14 @@ def main() -> None:
         gf_icon = "✅" if k["gewinnfaktor"] > 1.3 else "❌"
         sh_icon = "✅" if k["sharpe_ratio"] > 1.0 else "❌"
         dd_icon = "✅" if k["max_drawdown_pct"] > -20 else "❌"
+        abs_str = (
+            f" ({k['gesamtrendite_absolut']:+.0f}€)"
+            if k.get("gesamtrendite_absolut", 0) != 0
+            else ""
+        )
         print(
             f"  {k['symbol']:8} {k['n_trades']:5d}   "
-            f"{k['gesamtrendite_pct']:+7.2f}%  "
+            f"{k['gesamtrendite_pct']:+7.2f}%{abs_str:<9}  "
             f"{k['win_rate_pct']:6.1f}%  "
             f"{k['gewinnfaktor']:5.2f}{gf_icon} "
             f"{k['sharpe_ratio']:6.3f}{sh_icon} "
@@ -1226,19 +1957,24 @@ def main() -> None:
         if args.version == "v1":
             zusammenfassung_pfad = BACKTEST_DIR / "backtest_zusammenfassung.csv"
         else:
-            zusammenfassung_pfad = BACKTEST_DIR / f"backtest_zusammenfassung_{args.version}.csv"
+            zusammenfassung_pfad = (
+                BACKTEST_DIR / f"backtest_zusammenfassung_{args.version}.csv"
+            )
         zusammenfassung_df.to_csv(zusammenfassung_pfad, index=False)
         print(f"\nZusammenfassung gespeichert: {zusammenfassung_pfad}")
 
-    print(f"\nPlots:    plots/SYMBOL_backtest_equity.png")
-    print(f"          plots/SYMBOL_backtest_regime.png")
-    print(f"          plots/SYMBOL_backtest_monatlich.png")
-    print(f"Trades:   backtest/SYMBOL_trades.csv")
+    print("\nPlots:    plots/SYMBOL_backtest_equity.png")
+    print("          plots/SYMBOL_backtest_regime.png")
+    print("          plots/SYMBOL_backtest_monatlich.png")
+    print("          plots/SYMBOL_backtest_perioden.png  ← NEU: Jahresvergleich")
+    print("Trades:   backtest/SYMBOL_trades.csv")
     print(f"Laufzeit: {dauer_sek // 60}m {dauer_sek % 60}s")
 
     # Legende
     print("\nLegende: ✅ Ziel erreicht | ❌ Ziel nicht erreicht")
-    print("         GF=Gewinnfaktor (Ziel >1.3) | Sharpe (Ziel >1.0) | Max.DD (Ziel >-20%)")
+    print(
+        "         GF=Gewinnfaktor (Ziel >1.3) | Sharpe (Ziel >1.0) | Max.DD (Ziel >-20%)"
+    )
     print("\nNächster Schritt: live_trader.py auf Windows Laptop einrichten (Phase 6)")
     print("=" * 75)
 

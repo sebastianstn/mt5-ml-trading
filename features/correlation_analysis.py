@@ -1,14 +1,14 @@
 """
 correlation_analysis.py – Feature-Korrelationsmatrix
-und Normalisierungsanalyse.
+und Normalisierungsanalyse für alle 7 Forex-Hauptpaare.
 
 Läuft auf: Linux-Server
 
 Was dieses Skript macht:
-    1. Lädt die EURUSD_H1_labeled.csv (repräsentativ für alle Symbole)
+    1. Lädt die SYMBOL_H1_labeled.csv für ein oder alle 7 Symbole
     2. Berechnet die Pearson-Korrelationsmatrix aller Modell-Features
     3. Identifiziert hoch korrelierte Feature-Paare (|r| > 0.85)
-    4. Erstellt eine visuelle Heatmap
+    4. Erstellt eine visuelle Heatmap pro Symbol
     5. Bewertet den Normalisierungsbedarf
     6. Speichert einen Textbericht mit Empfehlungen
 
@@ -20,17 +20,24 @@ HINWEIS zu Normalisierung:
 Verwendung:
     cd /mnt/1T-Data/XGBoost-LightGBM
     source venv/bin/activate
-    python features/correlation_analysis.py
 
-Output:
-    plots/correlation_matrix.png     – Heatmap der Korrelationsmatrix
-    plots/high_correlation_pairs.png – Balkendiagramm stärkster Korrelationen
-    reports/feature_analysis.txt     – Textbericht mit Empfehlungen
+    # Einzelnes Symbol:
+    python features/correlation_analysis.py --symbol EURUSD
+    python features/correlation_analysis.py --symbol USDJPY
+
+    # Alle 7 Symbole:
+    python features/correlation_analysis.py --symbol alle
+
+Output (pro Symbol):
+    plots/SYMBOL_correlation_matrix.png     – Heatmap der Korrelationsmatrix
+    plots/SYMBOL_high_correlation_pairs.png – Balkendiagramm stärkster Korrelationen
+    reports/SYMBOL_feature_analysis.txt     – Textbericht mit Empfehlungen
 """
 
 # pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
+import argparse
 import logging
 from pathlib import Path
 from typing import List, Tuple
@@ -54,6 +61,9 @@ BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 PLOTS_DIR = BASE_DIR / "plots"
 REPORTS_DIR = BASE_DIR / "reports"
+
+# Alle 7 Forex-Hauptpaare (identisch mit allen anderen Skripten)
+SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
 # Schwellenwert für "hoch korreliert" (kann angepasst werden)
 KORRELATIONS_SCHWELLE = 0.85
@@ -605,48 +615,52 @@ def korrelations_bericht(
 # ============================================================
 
 
-def main() -> None:
-    """Korrelationsanalyse für EURUSD durchführen und Bericht erstellen."""
-    # Ausgabe-Ordner erstellen falls nicht vorhanden
-    PLOTS_DIR.mkdir(exist_ok=True)
-    REPORTS_DIR.mkdir(exist_ok=True)
+def symbol_analyse(symbol: str) -> bool:
+    """
+    Führt die vollständige Korrelationsanalyse für ein einzelnes Symbol durch.
 
-    logger.info("=" * 60)
-    logger.info("KORRELATIONSANALYSE – START")
-    logger.info("Gerät: Linux-Server")
+    Args:
+        symbol: Währungspaar (z.B. 'EURUSD')
+
+    Returns:
+        True bei Erfolg, False bei Fehler.
+    """
+    logger.info("\n%s", "=" * 60)
+    logger.info("KORRELATIONSANALYSE – %s", symbol)
     logger.info("=" * 60)
 
     # ── Schritt 1: Daten laden ─────────────────────────────────
-    logger.info("\n[1/4] Modell-Features laden...")
+    logger.info("\n[1/4] Modell-Features laden (%s)...", symbol)
     try:
-        df = modell_features_laden(symbol="EURUSD")
+        df = modell_features_laden(symbol=symbol)
     except FileNotFoundError as e:
         logger.error(e)
-        return
+        return False
 
     # ── Schritt 2: Korrelationsmatrix berechnen ────────────────
-    logger.info("\n[2/4] Korrelationsmatrix berechnen...")
+    logger.info("\n[2/4] Korrelationsmatrix berechnen (%s)...", symbol)
     korr_matrix, hohe_paare = korrelationsmatrix_berechnen(df)
 
     # ── Schritt 3: Visualisierungen erstellen ─────────────────
-    logger.info("\n[3/4] Visualisierungen erstellen...")
-    heatmap_erstellen(korr_matrix, PLOTS_DIR / "correlation_matrix.png")
+    # Dateinamen enthalten jetzt das Symbol (z.B. EURUSD_correlation_matrix.png)
+    logger.info("\n[3/4] Visualisierungen erstellen (%s)...", symbol)
+    heatmap_erstellen(korr_matrix, PLOTS_DIR / f"{symbol}_correlation_matrix.png")
     paare_diagramm_erstellen(
-        hohe_paare, PLOTS_DIR / "high_correlation_pairs.png"
+        hohe_paare, PLOTS_DIR / f"{symbol}_high_correlation_pairs.png"
     )
 
     # ── Schritt 4: Textbericht speichern ──────────────────────
-    logger.info("\n[4/4] Textbericht erstellen...")
+    logger.info("\n[4/4] Textbericht erstellen (%s)...", symbol)
 
     korr_text = korrelations_bericht(hohe_paare, df)
     norm_text = normalisierung_analysieren(df)
 
     bericht = "\n\n".join(
         [
-            "PHASE 2 – FEATURE-QUALITAETSANALYSE",
+            f"PHASE 2 – FEATURE-QUALITAETSANALYSE ({symbol})",
             "Erstellt von: features/correlation_analysis.py",
             f"Datum: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}",
-            f"Datenquelle: EURUSD_H1_labeled.csv ({len(df):,} Kerzen)",
+            f"Datenquelle: {symbol}_H1_labeled.csv ({len(df):,} Kerzen)",
             "",
             korr_text,
             "",
@@ -654,21 +668,83 @@ def main() -> None:
         ]
     )
 
-    bericht_pfad = REPORTS_DIR / "feature_analysis.txt"
+    # Bericht pro Symbol speichern
+    bericht_pfad = REPORTS_DIR / f"{symbol}_feature_analysis.txt"
     bericht_pfad.write_text(bericht, encoding="utf-8")
-    logger.info("Bericht gespeichert: %s", bericht_pfad)
+    logger.info("Bericht gespeichert: %s", bericht_pfad.name)
 
-    # Terminal-Ausgabe
-    print("\n" + korr_text)
-    print("\n" + norm_text)
+    # Terminal-Ausgabe (kompakt)
+    print(f"\n[{symbol}] Hoch korrelierte Paare: {len(hohe_paare)}")
+    if hohe_paare:
+        for feat1, feat2, r in hohe_paare[:5]:
+            print(f"  {feat1} <-> {feat2}: r={r:+.3f}")
+        if len(hohe_paare) > 5:
+            print(f"  ... und {len(hohe_paare) - 5} weitere (→ Bericht)")
 
+    return True
+
+
+def main() -> None:
+    """Korrelationsanalyse für ein oder alle 7 Forex-Symbole."""
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "MT5 ML-Trading – Feature-Korrelationsanalyse\n"
+            "Analysiert alle 7 Forex-Hauptpaare auf hoch korrelierte Features.\n\n"
+            "Verwendung:\n"
+            "  python features/correlation_analysis.py --symbol EURUSD\n"
+            "  python features/correlation_analysis.py --symbol alle"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--symbol",
+        default="EURUSD",
+        help=(
+            "Handelssymbol oder 'alle' fuer alle 7 Paare (Standard: EURUSD). "
+            "Moeglich: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
+        ),
+    )
+    args = parser.parse_args()
+
+    # Ausgabe-Ordner erstellen falls nicht vorhanden
+    PLOTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(exist_ok=True)
+
+    # Symbole bestimmen: einzelnes Symbol oder alle 7
+    if args.symbol.lower() == "alle":
+        ziel_symbole = SYMBOLE
+    elif args.symbol.upper() in SYMBOLE:
+        ziel_symbole = [args.symbol.upper()]
+    else:
+        print(
+            f"Unbekanntes Symbol: '{args.symbol}'\n"
+            f"Verfuegbar: {', '.join(SYMBOLE)} oder 'alle'"
+        )
+        return
+
+    logger.info("=" * 60)
+    logger.info("KORRELATIONSANALYSE – START")
+    logger.info("Symbole: %s", ", ".join(ziel_symbole))
+    logger.info("Geraet: Linux-Server")
+    logger.info("=" * 60)
+
+    # Alle Symbole analysieren
+    erfolge = 0
+    for symbol in ziel_symbole:
+        if symbol_analyse(symbol):
+            erfolge += 1
+
+    # Abschlussbericht
     print("\n" + "=" * 60)
-    print("KORRELATIONSANALYSE – ABGESCHLOSSEN")
+    print(f"KORRELATIONSANALYSE – ABGESCHLOSSEN ({erfolge}/{len(ziel_symbole)} Symbole)")
     print("=" * 60)
-    print("  * plots/correlation_matrix.png")
-    print("  * plots/high_correlation_pairs.png")
-    print("  * reports/feature_analysis.txt")
+    for sym in ziel_symbole:
+        print(f"  plots/{sym}_correlation_matrix.png")
+        print(f"  plots/{sym}_high_correlation_pairs.png")
+        print(f"  reports/{sym}_feature_analysis.txt")
     print("=" * 60)
+    print("\nNaechster Schritt: Features mit geringer Importance entfernen (SHAP)")
 
 
 if __name__ == "__main__":

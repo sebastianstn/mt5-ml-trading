@@ -1,0 +1,84 @@
+=================================================================
+REALITY-CHECK: USDCAD
+Erstellt: 2026-02-26 22:45 | Zeitraum: 2023-03-10 – 2026-02-11
+Analysierte Monate: letzte 36 Monate
+=================================================================
+
+1. SIGNAL-VERTEILUNG (ausgeglichen?)
+─────────────────────────────────────────────────────────────────
+   Gesamt Trades:  101
+   Long:           61 (60.4%%)
+   Short:          40 (39.6%%)
+   Balance:        0.79 (1.0 = perfekt, <0.7 = einseitig)
+   Bewertung:      ✅ Ausgeglichen
+
+2. SIGNAL-WAHRSCHEINLICHKEIT (Vertrauen des Modells)
+─────────────────────────────────────────────────────────────────
+   Durchschnitt:   0.6728 (Ziel: ≥ 0.60)
+   Median:         0.6667
+   Min / Max:      0.6004 / 0.8475
+   Über 0.65:      60 Trades (59.4%%)
+   Bewertung:      ✅ OK
+
+3. REGIME-VERTEILUNG (richtige Marktphasen?)
+─────────────────────────────────────────────────────────────────
+   Regime 0 (Seitwärts       ):    0 Trades (  0.0%%)   
+   Regime 1 (Aufwärtstrend   ):   41 Trades ( 40.6%%) ✅
+   Regime 2 (Abwärtstrend    ):   60 Trades ( 59.4%%) ✅
+   Regime 3 (Hohe Volatilität):    0 Trades (  0.0%%)   
+
+4. EXIT-TYPEN (Qualität der Trade-Ausführung)
+─────────────────────────────────────────────────────────────────
+   TP-Exits:       29 (28.7%%) – Gewinntrades
+   SL-Exits:       14 (13.9%%) – Verlusttrades
+   Horizon-Exits:  58 (57.4%%) – Zeitablauf
+   Bewertung:      ✅ SL-Rate OK
+
+5. MONATLICHER P&L-VERLAUF (Konsistenz)
+─────────────────────────────────────────────────────────────────
+   2023-03 :  ▼   -0.21%%  (4 Trades, Win-Rate: 25%%)
+   2023-04 :  ▼   -0.07%%  (4 Trades, Win-Rate: 25%%)
+   2023-05 :  ▲   +0.76%%  (5 Trades, Win-Rate: 80%%)
+   2023-06 :  ▼   -0.02%%  (2 Trades, Win-Rate: 50%%)
+   2023-07 :  ▼   -0.06%%  (2 Trades, Win-Rate: 50%%)
+   2023-08 :  ▲   +0.57%%  (5 Trades, Win-Rate: 60%%)
+   2023-09 :  ▼   -0.52%%  (4 Trades, Win-Rate: 25%%)
+   2023-10 :  ▲   +0.21%%  (4 Trades, Win-Rate: 50%%)
+   2023-11 :  ▼   -0.22%%  (2 Trades, Win-Rate: 0%%)
+   2023-12 :  ▼   -0.13%%  (5 Trades, Win-Rate: 40%%)
+   2024-02 :  ▲   +0.04%%  (2 Trades, Win-Rate: 50%%)
+   2024-03 :  ▼   -0.21%%  (1 Trades, Win-Rate: 0%%)
+   2024-04 :  ▼   -0.28%%  (3 Trades, Win-Rate: 33%%)
+   2024-05 :  ▲   +0.22%%  (1 Trades, Win-Rate: 100%%)
+   2024-08 :  ▼   -0.16%%  (2 Trades, Win-Rate: 0%%)
+   2024-11 :  ▼   -0.03%%  (3 Trades, Win-Rate: 67%%)
+   2024-12 :  ▲   +0.10%%  (1 Trades, Win-Rate: 100%%)
+   2025-01 :  ▲   +0.37%%  (6 Trades, Win-Rate: 50%%)
+   2025-02 :  ▲   +0.84%%  (8 Trades, Win-Rate: 62%%)
+   2025-03 :  ▲   +0.22%%  (2 Trades, Win-Rate: 50%%)
+   2025-04 :  ▲   +0.56%%  (13 Trades, Win-Rate: 69%%)
+   2025-05 :  ▼   -0.37%%  (4 Trades, Win-Rate: 50%%)
+   2025-06 :  ▼   -0.40%%  (5 Trades, Win-Rate: 20%%)
+   2025-07 :  ▲   +1.00%%  (4 Trades, Win-Rate: 100%%)
+   2025-08 :  ▲   +0.03%%  (1 Trades, Win-Rate: 100%%)
+   2025-09 :  ▼   -0.33%%  (1 Trades, Win-Rate: 0%%)
+   2025-12 :  ▼   -0.04%%  (1 Trades, Win-Rate: 0%%)
+   2026-01 :  ▲   +0.14%%  (2 Trades, Win-Rate: 100%%)
+   2026-02 :  ▲   +0.25%%  (4 Trades, Win-Rate: 50%%)
+
+   Gesamt-P&L:     +2.25%%
+   Gesamt Win-Rate: 51.5%% (Ziel: ≥ 45%%)
+   Bewertung:      ✅ OK
+
+=================================================================
+FAZIT
+─────────────────────────────────────────────────────────────────
+Stärken:
+  ✅ Signal-Verteilung ausgeglichen
+  ✅ Hohe Ø-Wahrscheinlichkeit (0.673)
+  ✅ SL-Rate in Ordnung (14%%)
+  ✅ Win-Rate OK (51%%)
+  Keine signifikanten Probleme gefunden.
+
+Plot:  plots/USDCAD_reality_check.png
+=================================================================

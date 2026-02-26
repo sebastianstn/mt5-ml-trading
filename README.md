@@ -99,6 +99,8 @@ Details → [ROADMAP.md](ROADMAP.md)
 - **Paper-Trading zuerst:** Niemals Live-Trading ohne vorherigen Paper-Trading-Test
 - **Stop-Loss Pflicht:** Niemals ohne Absicherung handeln
 
+---
+
 Das läuft auf dem Linux-Server aus.
 
 Wie entsteht das in Zukunft? Wenn jemand direkt auf GitHub Commits macht (z.B. Dateien bearbeitet oder Workflows hinzufügt) während du lokal arbeitest, divergieren die Branches. Mit kannst du das immer sauber lösen.
@@ -108,3 +110,14 @@ git pull --no-rebase origin main
 ```
 
 kannst du das immer sauber lösen.
+
+---
+
+Tipp für die Zukunft: Immer zuerst source
+
+```bash
+cd /mnt/1T-Data/XGBoost-LightGBM
+source venv/bin/activate
+```
+
+ausführen, bevor du irgendein Skript in diesem Projekt startest.

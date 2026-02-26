@@ -1,0 +1,136 @@
+PHASE 2 – FEATURE-QUALITAETSANALYSE (AUDUSD)
+
+Erstellt von: features/correlation_analysis.py
+
+Datum: 2026-02-26 21:54
+
+Datenquelle: AUDUSD_H1_labeled.csv (48,957 Kerzen)
+
+
+
+======================================================================
+KORRELATIONSANALYSE – ZUSAMMENFASSUNG
+======================================================================
+Analysiert: 45 Modell-Features
+Schwellenwert: |r| >= 0.85
+Hochkorrelierte Paare: 20
+
+HOCH KORRELIERTE PAARE (|r| >= 0.85):
+----------------------------------------------------------------------
+  r=+1.0000  rsi_14  <->  rsi_centered
+  r=+0.9613  stoch_k  <->  stoch_d
+  r=+0.9607  price_sma50_ratio  <->  macd_line
+  r=+0.9533  macd_line  <->  macd_signal
+  r=+0.9401  fear_greed_value  <->  fear_greed_class
+  r=+0.9216  price_sma20_ratio  <->  roc_10
+  r=+0.9208  stoch_k  <->  williams_r
+  r=+0.9191  williams_r  <->  bb_pct
+  r=+0.9159  macd_line  <->  return_24h
+  r=+0.9108  price_sma50_ratio  <->  return_24h
+  r=+0.8942  price_sma50_ratio  <->  macd_signal
+  r=+0.8820  atr_pct  <->  hist_vol_20
+  r=+0.8810  rsi_14  <->  bb_pct
+  r=+0.8810  rsi_centered  <->  bb_pct
+  r=+0.8709  stoch_k  <->  bb_pct
+  r=+0.8699  price_sma50_ratio  <->  rsi_14
+  r=+0.8699  price_sma50_ratio  <->  rsi_centered
+  r=+0.8687  price_sma20_ratio  <->  rsi_14
+  r=+0.8687  price_sma20_ratio  <->  rsi_centered
+  r=+0.8513  macd_hist  <->  roc_10
+
+BEKANNTE REDUNDANZEN (erwartetes Verhalten):
+----------------------------------------------------------------------
+  rsi_14 <-> rsi_centered:
+    -> rsi_centered = rsi_14 - 50. Perfekte Korrelation. Entfernbar.
+  stoch_k <-> stoch_d:
+    -> stoch_d = geglaettetes stoch_k. Hohe Korrelation erwartet.
+  session_london <-> session_overlap:
+    -> session_overlap ist Teilmenge von session_london.
+  trend_h4 <-> trend_d1:
+    -> Beide messen Trend auf höheren Zeitrahmen. Oft gleichgerichtet.
+  price_sma20_ratio <-> price_sma50_ratio:
+    -> Beide messen Abstand zum gleitenden Durchschnitt.
+
+EMPFEHLUNG FUER TREE-BASED MODELLE (XGBoost / LightGBM):
+----------------------------------------------------------------------
+  Hohe Korrelation ist für Tree-basierte Modelle KEIN krit. Problem.
+  Trees können redundante Features ignorieren (Importance nahe 0).
+  Optional: rsi_centered entfernen (identisch zu rsi_14 - 50).
+  Optional: Ein Feature aus sehr hoch korrelierten Paaren entfernen.
+  Pruefe Feature Importance: Features < 0.001 sind Kandidaten.
+  ! Nicht zu viele Features entfernen – Trees nutzen Redundanz.
+
+
+
+======================================================================
+NORMALISIERUNGSANALYSE
+======================================================================
+
+WICHTIG: XGBoost und LightGBM sind baumbasierte Modelle.
+Normalisierung ist für diese Modelle NICHT erforderlich.
+Baeume entscheiden über Schwellenwerte, nicht über Abstände.
+Falls in Zukunft neuronale Netze oder SVM eingesetzt werden,
+sollten die folgenden Features skaliert werden:
+
+FEATURES MIT GROSSEM WERTEBEREICH (Priorität für Skalierung):
+----------------------------------------------------------------------
+  volume_roc                Min=    -99.85  Max= 103675.00  Mean=   77.22  Std=  615.25
+
+FEATURES MIT MITTLEREM WERTEBEREICH:
+----------------------------------------------------------------------
+  rsi_14                    Min=      8.64  Max=     92.71  Mean=   50.02  Std=   12.43
+  rsi_centered              Min=    -41.36  Max=     42.71  Mean=    0.02  Std=   12.43
+  stoch_k                   Min=      0.66  Max=     99.55  Mean=   51.06  Std=   28.10
+  stoch_d                   Min=      1.00  Max=     99.07  Mean=   51.06  Std=   27.33
+  williams_r                Min=   -100.00  Max=      0.00  Mean=  -48.94  Std=   30.06
+  rsi_h4                    Min=      9.43  Max=     88.53  Mean=   49.86  Std=   12.30
+  hour                      Min=      0.00  Max=     23.00  Mean=   11.50  Std=    6.92
+  adx_14                    Min=      6.13  Max=     75.54  Mean=   25.41  Std=   10.11
+  fear_greed_value          Min=      5.00  Max=     95.00  Mean=   46.87  Std=   21.85
+
+BEREITS SKALIERTE FEATURES (35 Stueck):
+----------------------------------------------------------------------
+  price_sma20_ratio         Min= -0.0461  Max=  0.0260  Mean=-0.0000  Std= 0.0033
+  price_sma50_ratio         Min= -0.0656  Max=  0.0290  Mean=-0.0000  Std= 0.0052
+  price_sma200_ratio        Min= -0.1171  Max=  0.0481  Mean=-0.0001  Std= 0.0103
+  sma_20_50_cross           Min= -1.0000  Max=  1.0000  Mean=-0.0010  Std= 1.0000
+  sma_50_200_cross          Min= -1.0000  Max=  1.0000  Mean= 0.0101  Std= 1.0000
+  ema_cross                 Min= -1.0000  Max=  1.0000  Mean= 0.0067  Std= 1.0000
+  macd_line                 Min= -0.0101  Max=  0.0046  Mean=-0.0000  Std= 0.0010
+  macd_signal               Min= -0.0083  Max=  0.0044  Mean=-0.0000  Std= 0.0009
+  macd_hist                 Min= -0.0023  Max=  0.0032  Mean= 0.0000  Std= 0.0003
+  stoch_cross               Min= -1.0000  Max=  1.0000  Mean= 0.0075  Std= 0.9999
+  roc_10                    Min= -4.3430  Max=  5.2747  Mean=-0.0008  Std= 0.4173
+  atr_pct                   Min=  0.0007  Max=  0.0132  Mean= 0.0018  Std= 0.0008
+  bb_width                  Min=  0.0010  Max=  0.0866  Mean= 0.0082  Std= 0.0055
+  bb_pct                    Min= -0.5418  Max=  1.5384  Mean= 0.5027  Std= 0.3288
+  hist_vol_20               Min=  0.0215  Max=  0.8896  Mean= 0.0932  Std= 0.0488
+  obv_zscore                Min= -5.2223  Max=  5.7332  Mean= 0.0295  Std= 1.3851
+  volume_ratio              Min=  0.0013  Max=  9.3082  Mean= 1.0254  Std= 0.6556
+  return_1h                 Min= -0.0266  Max=  0.0286  Mean=-0.0000  Std= 0.0014
+  return_4h                 Min= -0.0422  Max=  0.0391  Mean=-0.0000  Std= 0.0027
+  return_24h                Min= -0.0797  Max=  0.0542  Mean=-0.0000  Std= 0.0064
+  candle_body               Min=  0.0000  Max=  6.3927  Mean= 0.4826  Std= 0.4410
+  upper_wick                Min=  0.0000  Max=  3.4687  Mean= 0.2517  Std= 0.2276
+  lower_wick                Min=  0.0000  Max=  8.7443  Mean= 0.2516  Std= 0.2416
+  candle_dir                Min= -1.0000  Max=  1.0000  Mean= 0.0382  Std= 0.9959
+  hl_range                  Min=  0.0000  Max=  0.0818  Mean= 0.0018  Std= 0.0014
+  trend_h4                  Min= -1.0000  Max=  1.0000  Mean= 0.0027  Std= 1.0000
+  trend_d1                  Min= -1.0000  Max=  1.0000  Mean=-0.0289  Std= 0.9996
+  day_of_week               Min=  0.0000  Max=  6.0000  Mean= 2.0173  Std= 1.4517
+  session_london            Min=  0.0000  Max=  1.0000  Mean= 0.3759  Std= 0.4844
+  session_ny                Min=  0.0000  Max=  1.0000  Mean= 0.3756  Std= 0.4843
+  session_asia              Min=  0.0000  Max=  1.0000  Mean= 0.3743  Std= 0.4839
+  session_overlap           Min=  0.0000  Max=  1.0000  Mean= 0.1671  Std= 0.3731
+  market_regime             Min=  0.0000  Max=  3.0000  Mean= 0.7169  Std= 0.8831
+  fear_greed_class          Min=  0.0000  Max=  3.0000  Mean= 1.3129  Std= 0.9169
+  btc_funding_rate          Min= -0.0030  Max=  0.0030  Mean= 0.0001  Std= 0.0002
+
+EMPFEHLUNG:
+  Für XGBoost/LightGBM: Kein Handlungsbedarf.
+  Falls SVM/Neural Network: StandardScaler auf alle Features anwenden.
+  Code-Beispiel:
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)  # NUR transform()!

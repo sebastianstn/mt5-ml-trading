@@ -1,0 +1,71 @@
+# ============================================================
+# test.yml – Automatische Code-Qualitätsprüfung
+#
+# Läuft bei jedem Push und Pull Request auf den main-Branch.
+# Prüft: Formatierung (black), Linting (flake8 + pylint), Unit-Tests (pytest)
+#
+# HINWEIS: Nur test.yml ist für dieses Projekt sinnvoll.
+# train/backtest/deploy/data benötigen lokale Daten oder MT5 auf Windows.
+# ============================================================
+
+name: Tests & Code-Qualität
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Pytest + Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Repository auschecken
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      # 2. Python 3.11 einrichten (stabil, kompatibel mit allen Paketen)
+      - name: Python 3.11 einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # 3. Nur Test-Abhängigkeiten installieren (kein MT5, kein vectorbt)
+      - name: Test-Abhängigkeiten installieren
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy pandas_ta --no-deps
+          pip install scikit-learn joblib python-dotenv
+          pip install pytest black flake8 pylint
+
+      # 4. black – prüft ob Code korrekt formatiert ist
+      - name: black – Formatierung prüfen
+        run: |
+          black --check features/labeling.py features/regime_detection.py \
+                        features/feature_engineering.py train_model.py \
+                        tests/
+
+      # 5. flake8 – prüft auf Syntax-Fehler und PEP8-Verstösse
+      - name: flake8 – Linting
+        run: |
+          flake8 features/ train_model.py tests/ \
+            --max-line-length=100 \
+            --extend-ignore=E203,W503 \
+            --exclude=__pycache__,venv
+
+      # 6. pylint – tiefere Code-Analyse
+      - name: pylint – Code-Analyse
+        run: |
+          pylint features/labeling.py \
+            --disable=C0114,C0115,C0116 \
+            --disable=R0913,R0914,R0801 \
+            --fail-under=7.0
+        continue-on-error: true  # Pylint-Warnungen blockieren nicht den Build
+
+      # 7. pytest – Unit-Tests ausführen
+      - name: pytest – Unit-Tests
+        run: |
+          pytest tests/ -v --tb=short

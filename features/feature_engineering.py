@@ -55,7 +55,9 @@ def daten_laden(dateipfad: Path) -> pd.DataFrame:
     """
     df = pd.read_csv(dateipfad, index_col="time", parse_dates=True)
     df.sort_index(inplace=True)
-    logger.info(f"Rohdaten geladen: {len(df):,} Kerzen ({df.index[0]} – {df.index[-1]})")
+    logger.info(
+        f"Rohdaten geladen: {len(df):,} Kerzen ({df.index[0]} – {df.index[-1]})"
+    )
     return df
 
 
@@ -85,9 +87,15 @@ def trend_features(df: pd.DataFrame) -> pd.DataFrame:
     result["sma_200"] = ta.sma(result["close"], length=200)
 
     # Preis-zu-SMA Ratio: positive Werte = Preis über dem SMA (bullish)
-    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result["sma_20"]
-    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result["sma_50"]
-    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result["sma_200"]
+    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result[
+        "sma_20"
+    ]
+    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result[
+        "sma_50"
+    ]
+    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result[
+        "sma_200"
+    ]
 
     # SMA-Crossover: 1 = SMA20 über SMA50 (bullish), -1 = bearish
     result["sma_20_50_cross"] = np.sign(result["sma_20"] - result["sma_50"])
@@ -150,13 +158,17 @@ def momentum_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- Williams %R (14) ---
     # -100 bis 0: Werte < -80 = überverkauft, > -20 = überkauft
-    result["williams_r"] = ta.willr(result["high"], result["low"], result["close"], length=14)
+    result["williams_r"] = ta.willr(
+        result["high"], result["low"], result["close"], length=14
+    )
 
     # --- Rate of Change (10 Perioden) ---
     # Prozentuale Preisveränderung über 10 Kerzen
     result["roc_10"] = ta.roc(result["close"], length=10)
 
-    logger.info("Momentum-Features: RSI(14), Stochastic(14,3), Williams %R(14), ROC(10) ✓")
+    logger.info(
+        "Momentum-Features: RSI(14), Stochastic(14,3), Williams %R(14), ROC(10) ✓"
+    )
     return result
 
 
@@ -200,7 +212,9 @@ def volatility_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # BB %B: Wo liegt der Preis? 0 = am unteren Band, 1 = am oberen Band
     band_range = result["bb_upper"] - result["bb_lower"]
-    result["bb_pct"] = (result["close"] - result["bb_lower"]) / band_range.replace(0, np.nan)
+    result["bb_pct"] = (result["close"] - result["bb_lower"]) / band_range.replace(
+        0, np.nan
+    )
 
     # --- Historische Volatilität (Rolling 20 Perioden) ---
     # Annualisierte Volatilität der Log-Returns
@@ -438,7 +452,7 @@ def features_berechnen(symbol: str) -> bool:
     df = daten_laden(eingabe)
     df = trend_features(df)
     df = momentum_features(df)
-    df = volatility_features(df)    # ← ATR wird hier erstellt
+    df = volatility_features(df)  # ← ATR wird hier erstellt
     df = volume_features(df)
     df = kerzenmuster_features(df)  # ← ATR wird hier verwendet
     df = multitimeframe_features(df)

@@ -39,6 +39,7 @@ import pandas_ta as ta
 
 # Visualisierung (Agg-Backend = kein Display-Fenster nötig auf dem Server)
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -277,19 +278,22 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(16, 10), sharex=True,
-        gridspec_kw={"height_ratios": [3, 1]}
+        2, 1, figsize=(16, 10), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
     )
     fig.patch.set_facecolor("#F8F9FA")
 
     # --- Oberer Panel: Kursverlauf ---
     ax1.plot(
-        df.index, df["close"],
-        color="#1E90FF", linewidth=0.6, label="Close", zorder=3
+        df.index, df["close"], color="#1E90FF", linewidth=0.6, label="Close", zorder=3
     )
     ax1.plot(
-        df.index, df["sma_50"],
-        color="#FF8C00", linewidth=1.2, label="SMA 50", alpha=0.9, zorder=2
+        df.index,
+        df["sma_50"],
+        color="#FF8C00",
+        linewidth=1.2,
+        label="SMA 50",
+        alpha=0.9,
+        zorder=2,
     )
 
     # Hintergrundfarbe für jede Marktphase
@@ -299,17 +303,20 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
         maske = df["market_regime"] == regime_nr
         if maske.any():
             ax1.fill_between(
-                df.index, preis_min, preis_max,
+                df.index,
+                preis_min,
+                preis_max,
                 where=maske,
-                alpha=0.12, color=farbe,
+                alpha=0.12,
+                color=farbe,
                 label=f"Regime {regime_nr}: {REGIME_NAMEN[regime_nr]}",
             )
 
     ax1.set_ylim(preis_min, preis_max)
     ax1.set_title(
-        f"{symbol} H1 – Regime Detection | "
-        f"ADX>25=Trend, ATR>1.5×Median=Vola",
-        fontsize=13, fontweight="bold"
+        f"{symbol} H1 – Regime Detection | " f"ADX>25=Trend, ATR>1.5×Median=Vola",
+        fontsize=13,
+        fontweight="bold",
     )
     ax1.set_ylabel("Kurs")
     ax1.legend(loc="upper left", fontsize=8, ncol=3)
@@ -321,14 +328,10 @@ def regime_visualisieren(df: pd.DataFrame, symbol: str) -> None:
     farben_pro_kerze = [REGIME_FARBEN.get(r, "#888888") for r in regime_werte]
 
     # Effizienter als bar() für 8760 Kerzen: scatter mit kleinen Marken
-    ax2.scatter(
-        df.index, regime_werte,
-        c=farben_pro_kerze, s=2, marker="|", zorder=2
-    )
+    ax2.scatter(df.index, regime_werte, c=farben_pro_kerze, s=2, marker="|", zorder=2)
     ax2.set_yticks([0, 1, 2, 3])
     ax2.set_yticklabels(
-        ["0 Seitwärts", "1 Aufwärts", "2 Abwärts", "3 Hoch Vola"],
-        fontsize=8
+        ["0 Seitwärts", "1 Aufwärts", "2 Abwärts", "3 Hoch Vola"], fontsize=8
     )
     ax2.set_ylabel("Regime")
     ax2.set_xlabel("Datum")
@@ -399,13 +402,16 @@ def regime_berechnen(symbol: str) -> bool:
     # Schritt 3: Regime klassifizieren
     logger.info(f"[{symbol}] Klassifiziere Marktphasen ...")
     regime = regime_klassifizieren(
-        df, adx, atr_pct, median_atr,
+        df,
+        adx,
+        atr_pct,
+        median_atr,
         adx_schwelle=25.0,
         vol_faktor=1.5,
     )
 
     # Neue Spalten hinzufügen
-    df["adx_14"] = adx          # ADX als Feature für späteres ML-Modell
+    df["adx_14"] = adx  # ADX als Feature für späteres ML-Modell
     df["market_regime"] = regime  # Regime-Label
 
     # Anfangszeilen ohne gültigen Indikator entfernen

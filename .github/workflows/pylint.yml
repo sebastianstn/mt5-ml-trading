@@ -7,28 +7,30 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Tipp: 3.13 ist sehr neu, stelle sicher, dass alle deine 
-        # Pakete (wie pandas) dort schon stabil laufen.
-        python-version: ["3.10", "3.13"]
-    steps:
-    - uses: actions/checkout@v4
+        # 3.10 ist stabil für Data Science, 3.12 ist aktuell der Standard
+        python-version: ["3.10", "3.12"]
     
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5 # Update auf v5 empfohlen
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        
+        # Caching beschleunigt den Workflow bei zukünftigen Pushes
+        cache: 'pip'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pylint
-        # Hier installieren wir die fehlenden Pakete:
-        pip install pandas numpy pandas_ta python-dotenv matplotlib
-        # Falls du eine requirements.txt hast, aktiviere die nächste Zeile:
-        # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
+        pip install pylint pandas numpy pandas_ta python-dotenv matplotlib
+        # Falls vorhanden, weitere Pakete aus requirements.txt laden:
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
     - name: Analysing the code with pylint
       run: |
-        # PYTHONPATH hilft Pylint, deine eigenen Unterordner zu finden
+        # Verhindert Import-Fehler für deine eigenen Unterordner
         export PYTHONPATH=$PYTHONPATH:$(pwd)
+        # Scannt alle Python-Dateien
         pylint $(git ls-files '*.py')

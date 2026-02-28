@@ -12,9 +12,14 @@ pandas>=2.0.0
 numpy>=1.24.0
 
 # Technische Indikatoren (für Live-Feature-Berechnung)
-pandas_ta>=0.3.14b
+# WICHTIG: pandas_ta SEPARAT installieren mit --no-deps (siehe Install-Anleitung unten)!
+# Grund: pandas_ta 0.4.x hängt von numba ab → numba unterstützt Python 3.14 NICHT.
+# numba ist nur eine optionale Beschleunigung; RSI, ATR, BB etc. laufen ohne numba.
+# Installieren mit: pip install pandas_ta --no-deps
+# pandas_ta ist NICHT in dieser Datei gelistet – sonst zieht pip numba mit rein!
 
-# Modell laden (muss gleiche Version wie Server haben!)
+# ML-Modelle ausführen (muss gleiche Version wie Server haben!)
+lightgbm>=4.6.0  # Server-Version: 4.6.0 – gleiche Major.Minor verwenden!
 joblib>=1.3.0
 
 # HTTP-Anfragen (für Fear & Greed + BTC Funding Rate APIs)

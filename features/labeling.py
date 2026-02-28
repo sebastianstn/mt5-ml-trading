@@ -40,6 +40,7 @@ Ausgabe:  data/SYMBOL_H1_labeled.csv       (v1 – Original)
           data/SYMBOL_H1_labeled_v2.csv    (v2 – Option A: Horizon=10)
           data/SYMBOL_H1_labeled_v3.csv    (v3 – Option B: TP/SL=0.15%)
 """
+
 # pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
@@ -147,6 +148,75 @@ def double_barrier_label(
     return labels
 
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+def double_barrier_label_rrr(
+    close: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    tp_pct: float,
+    sl_pct: float,
+    horizon: int,
+) -> np.ndarray:
+    """
+    Korrekte Double-Barrier Labels für asymmetrisches RRR (z.B. 2:1).
+
+    Im Gegensatz zur Standard-Funktion werden BEIDE Richtungen mit derselben
+    tp_pct-Hürde geprüft:
+        - Label  1 (Long):  Kurs steigt tp_pct VOR dem Fallen um sl_pct
+        - Label -1 (Short): Kurs fällt  tp_pct VOR dem Steigen um sl_pct
+        - Label  0 (Neutral): Weder Long noch Short wäre profitabel gewesen
+
+    Warum das wichtig ist: Mit tp=0.6%, sl=0.3% (2:1) würde die Standard-Funktion
+    Long selten labeln (+0.6% nötig) und Short oft labeln (-0.3% reicht) →
+    starkes Klassenungleichgewicht. Diese Funktion ist symmetrisch.
+
+    Args:
+        close:   Close-Preise als numpy-Array
+        high:    High-Preise als numpy-Array
+        low:     Low-Preise als numpy-Array
+        tp_pct:  Zielbewegung in BEIDE Richtungen (z.B. 0.006 = 0.6%)
+        sl_pct:  Adverse Bewegung bis Stop-Loss (z.B. 0.003 = 0.3%)
+        horizon: Maximale Anzahl Kerzen voraus
+
+    Returns:
+        numpy-Array mit Labels (-1, 0, 1), letzte `horizon` Werte = NaN
+    """
+    n = len(close)
+    labels = np.full(n, np.nan)
+
+    for i in range(n - horizon):
+        # Barrieren für 2:1 RRR (BEIDE Richtungen mit demselben tp_pct)
+        long_tp = close[i] * (1.0 + tp_pct)  # Long:  TP bei +tp_pct (z.B. +0.6%)
+        long_sl = close[i] * (1.0 - sl_pct)  # Long:  SL bei -sl_pct (z.B. -0.3%)
+        short_tp = close[i] * (1.0 - tp_pct)  # Short: TP bei -tp_pct (z.B. -0.6%)
+        short_sl = close[i] * (1.0 + sl_pct)  # Short: SL bei +sl_pct (z.B. +0.3%)
+
+        label = 0  # Standard: kein klares Signal
+
+        for j in range(1, horizon + 1):
+            h = high[i + j]
+            l = low[i + j]
+
+            # Long-TP zuerst prüfen (Kurs stieg tp_pct)
+            if h >= long_tp:
+                label = 1  # Long würde TP treffen → Long Signal
+                break
+
+            # Short-TP prüfen (Kurs fiel tp_pct)
+            if l <= short_tp:
+                label = -1  # Short würde TP treffen → Short Signal
+                break
+
+            # Adverse Bewegungen (SL-Level) → kein profitabler Trade möglich
+            if l <= long_sl or h >= short_sl:
+                label = 0  # Long-SL oder Short-SL getroffen → Kein Signal
+                break
+
+        labels[i] = label
+
+    return labels
+
+
 # ============================================================
 # 2. Label-Verteilung analysieren
 # ============================================================
@@ -166,9 +236,7 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
     anz = len(gueltig)
     verteilung = gueltig.value_counts().sort_index()
 
-    logger.info(
-        "\n[%s] Label-Verteilung (%s gültige Kerzen):", symbol, f"{anz:,}"
-    )
+    logger.info("\n[%s] Label-Verteilung (%s gültige Kerzen):", symbol, f"{anz:,}")
     namen = {-1: "Short (-1)", 0: "Kein Signal (0)", 1: "Long  (+1)"}
     for label_nr in [-1, 0, 1]:
         anzahl = verteilung.get(label_nr, 0)
@@ -189,8 +257,7 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
         anteil = verteilung.get(label_nr, 0) / anz
         if anteil < 0.10:
             logger.warning(
-                "[%s] Klasse %s nur %s%%! "
-                "TP/SL-Schwellen oder Horizon anpassen?",
+                "[%s] Klasse %s nur %s%%! " "TP/SL-Schwellen oder Horizon anpassen?",
                 symbol,
                 label_nr,
                 f"{anteil * 100:.1f}",
@@ -229,6 +296,7 @@ def symbol_labeln(
     sl_pct: float = SL_PCT,
     horizon: int = HORIZON,
     version: str = "v1",
+    modus: str = "standard",
 ) -> bool:
     """
     Vollständiger Labeling-Ablauf für ein Symbol.
@@ -245,6 +313,7 @@ def symbol_labeln(
         sl_pct:  Stop-Loss-Schwelle   (Standard: SL_PCT = 0.3%)
         horizon: Zeitschranke in Kerzen (Standard: HORIZON = 5)
         version: Versions-String für den Ausgabe-Dateinamen (Standard: "v1")
+        modus:   "standard" = original symmetrisch | "rrr" = korrekte RRR-Logik
 
     Returns:
         True wenn erfolgreich, False bei Fehler.
@@ -256,8 +325,7 @@ def symbol_labeln(
     if not eingabe_pfad.exists():
         logger.error("[%s] Nicht gefunden: %s", symbol, eingabe_pfad)
         logger.error(
-            "[%s] Zuerst feature_engineering.py und "
-            "regime_detection.py ausführen!",
+            "[%s] Zuerst feature_engineering.py und " "regime_detection.py ausführen!",
             symbol,
         )
         return False
@@ -265,9 +333,7 @@ def symbol_labeln(
     # Feature-CSV laden
     logger.info("[%s] Lade %s ...", symbol, eingabe_pfad.name)
     df = pd.read_csv(eingabe_pfad, index_col="time", parse_dates=True)
-    logger.info(
-        "[%s] %s Kerzen, %s Features", symbol, f"{len(df):,}", len(df.columns)
-    )
+    logger.info("[%s] %s Kerzen, %s Features", symbol, f"{len(df):,}", len(df.columns))
 
     # Pflicht-Spalten prüfen
     for col in ["close", "high", "low"]:
@@ -275,31 +341,56 @@ def symbol_labeln(
             logger.error("[%s] Fehlende Spalte: '%s'", symbol, col)
             return False
 
-    # Double-Barrier Labels berechnen (mit den übergebenen Parametern)
-    logger.info(
-        "[%s] Berechne Labels (TP=%s, SL=%s, Horizon=%s Kerzen) ...",
-        symbol,
-        f"{tp_pct:.2%}",
-        f"{sl_pct:.2%}",
-        horizon,
-    )
-    labels = double_barrier_label(
-        close=df["close"].values,
-        high=df["high"].values,
-        low=df["low"].values,
-        tp_pct=tp_pct,
-        sl_pct=sl_pct,
-        horizon=horizon,
-    )
+    # Double-Barrier Labels berechnen (Funktion abhängig vom Modus)
+    if modus == "rrr":
+        # Korrekte RRR-Logik: BEIDE Richtungen verwenden tp_pct als Ziel
+        logger.info(
+            "[%s] Berechne Labels (Modus=RRR, TP=%s, SL=%s, Horizon=%s Kerzen) ...",
+            symbol,
+            f"{tp_pct:.2%}",
+            f"{sl_pct:.2%}",
+            horizon,
+        )
+        logger.info(
+            "[%s] RRR-Logik: Long=+%.2f%% vor -%.2f%% | Short=-%.2f%% vor +%.2f%%",
+            symbol,
+            tp_pct * 100,
+            sl_pct * 100,
+            tp_pct * 100,
+            sl_pct * 100,
+        )
+        labels = double_barrier_label_rrr(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            tp_pct=tp_pct,
+            sl_pct=sl_pct,
+            horizon=horizon,
+        )
+    else:
+        # Standard-Modus: symmetrische Barrieren (v1-kompatibel)
+        logger.info(
+            "[%s] Berechne Labels (Modus=Standard, TP=%s, SL=%s, Horizon=%s Kerzen) ...",
+            symbol,
+            f"{tp_pct:.2%}",
+            f"{sl_pct:.2%}",
+            horizon,
+        )
+        labels = double_barrier_label(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            tp_pct=tp_pct,
+            sl_pct=sl_pct,
+            horizon=horizon,
+        )
     df["label"] = labels
 
     # Letzte horizon Zeilen ohne gültiges Label entfernen
     n_vorher = len(df)
     df = df.dropna(subset=["label"])
     df["label"] = df["label"].astype(int)  # float → int (-1, 0, 1)
-    logger.info(
-        "[%s] %s Zeilen ohne Label entfernt", symbol, n_vorher - len(df)
-    )
+    logger.info("[%s] %s Zeilen ohne Label entfernt", symbol, n_vorher - len(df))
 
     # Label-Verteilung analysieren und prüfen
     label_verteilung_pruefen(df, symbol)
@@ -377,6 +468,17 @@ def main() -> None:
             "v3 → SYMBOL_H1_labeled_v3.csv"
         ),
     )
+    parser.add_argument(
+        "--modus",
+        default="standard",
+        choices=["standard", "rrr"],
+        help=(
+            "Labeling-Logik: "
+            "'standard' = symmetrische Barrieren (v1-kompatibel, Standard) | "
+            "'rrr' = korrekte RRR-Logik (beide Richtungen mit tp_pct als Ziel, "
+            "für 2:1 oder 3:1 RRR empfohlen)"
+        ),
+    )
     args = parser.parse_args()
 
     # ---- Symbole bestimmen ----
@@ -392,11 +494,12 @@ def main() -> None:
     logger.info("=" * 60)
     logger.info("Phase 4 – Labeling – gestartet")
     logger.info(
-        "Parameter: TP=%s, SL=%s, Horizon=%s H1-Barren | Version: %s",
+        "Parameter: TP=%s, SL=%s, Horizon=%s H1-Barren | Version: %s | Modus: %s",
         f"{args.tp_pct:.2%}",
         f"{args.sl_pct:.2%}",
         args.horizon,
         args.version,
+        args.modus.upper(),
     )
     logger.info("Symbole: %s", ", ".join(ziel_symbole))
     logger.info("=" * 60)
@@ -414,15 +517,16 @@ def main() -> None:
             sl_pct=args.sl_pct,
             horizon=args.horizon,
             version=args.version,
+            modus=args.modus,
         )
         ergebnisse.append((symbol, "OK" if erfolg else "FEHLER"))
 
     # Zusammenfassung
     print("\n" + "=" * 60)
-    print(f"ABGESCHLOSSEN – Labeling ({args.version})")
+    print(f"ABGESCHLOSSEN – Labeling ({args.version}, Modus={args.modus.upper()})")
     print(
         f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | "
-        f"Horizon={args.horizon} H1-Barren"
+        f"Horizon={args.horizon} H1-Barren | RRR={args.tp_pct/args.sl_pct:.1f}:1"
     )
     print("=" * 60)
     for symbol, status in ergebnisse:
@@ -430,9 +534,7 @@ def main() -> None:
         print(f"  {zeichen} {symbol}: {status}")
 
     erfolge = [r for r in ergebnisse if r[1] == "OK"]
-    print(
-        f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich gelabelt."
-    )
+    print(f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich gelabelt.")
 
     # Ausgabe-Dateiname anzeigen
     beispiel_pfad = labeled_pfad("EURUSD", args.version)

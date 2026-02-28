@@ -192,7 +192,7 @@
 - [ ] Hidden-Markov-Modell (HMM) als Alternative testen (`hmmlearn`)
 - [ ] Regime-Transition-Trigger: z.B. ADX > 25 für ≥3 Kerzen, um Fehlsignale zu reduzieren
 - [ ] Separate Modelle pro Regime trainieren (Trend-Modell vs. Seitwärts-Modell)
-- [ ] Regime-Performance-Analyse: Welche Regime sind profitabel, welche verlustreich?
+- [x] Regime-Performance-Analyse: `regime_matrix_erstellen()` + `regime_matrix_plotten()` in `backtest.py` – Matrix-Tabelle im Terminal + Heatmap `plots/regime_performance_matrix.png` + CSV `backtest/regime_performance_matrix.csv`
 
 > ✅ **Phase 3 abgeschlossen:** 7 Paare × 58 Features, ~48.960 Kerzen.
 
@@ -270,7 +270,7 @@
 
 ---
 
-## 🟣 PHASE 5 – Backtesting
+## ✅ PHASE 5 – Backtesting
 
 **Ziel:** Realistische Simulation des Systems auf historischen Daten
 
@@ -301,16 +301,44 @@
 
 ### Backtest-Ergebnisse
 
-| Symbol | Regime-Filter | Threshold | Sharpe | Rendite | Max.DD |
-|--------|--------------|-----------|--------|---------|--------|
-| USDCAD | 1,2 | 60% | 1.277 ✅ | +2.01% | -1.36% |
-| USDJPY | 1 (nur Aufwärtstrend) | 60% | 1.073 ✅ | +2.59% | -3.15% |
-| USDCHF | 1,2 | 60% | 0.271 | +1.54% | -4.72% |
-| EURUSD | 1,2 | 60% | 0.027 | +0.11% | -4.95% |
+**H1-Modelle (Finale Konfiguration):**
+
+| Symbol | Timeframe | Regime-Filter | Threshold | Sharpe | Rendite | Max.DD |
+|--------|-----------|--------------|-----------|--------|---------|--------|
+| USDCAD | H1 | 1,2 | 60% | 1.277 ✅ | +2.01% | -1.36% |
+| USDJPY | H1 | 1 (nur Aufwärtstrend) | 60% | 1.073 ✅ | +2.59% | -3.15% |
+| USDCHF | H1 | 1,2 | 60% | 0.271 | +1.54% | -4.72% |
+| EURUSD | H1 | 1,2 | 60% | 0.027 | +0.11% | -4.95% |
 
 > ⚠️ **Review-Punkte 2 & 3:** Renditen (+2% über ~3 Jahre) sind sehr gering. Survivorship Bias möglich. Ehrlichere Benchmark und Kosten-Stress-Test nötig.
 
-> ✅ **Phase 5 abgeschlossen:** Sharpe >1.0 für USDCAD + USDJPY. Risikomanagement noch offen.
+> ✅ **Phase 5 abgeschlossen:** Sharpe >1.0 für USDCAD (H1) + USDJPY (H1). USDCHF (H4) als 3. Kandidat identifiziert.
+
+---
+
+## ✅ BONUS – H4-Experiment (2026-02-28)
+
+**Ziel:** Prüfen ob H4-Zeitrahmen bessere Signale liefert als H1
+
+- [x] `features/h4_pipeline.py` erstellt: H1 → H4 Resampling + alle Features + Regime + Labeling
+- [x] `train_model.py --timeframe H4` Parameter hinzugefügt (rückwärtskompatibel)
+- [x] `backtest.py --timeframe H4` Parameter hinzugefügt (rückwärtskompatibel)
+- [x] 14 H4-Modelle trainiert (50 Optuna-Trials, `lgbm/xgb_SYMBOL_H4_v1.pkl`)
+- [x] H4-Backtest für alle 7 Symbole durchgeführt
+
+**H4-Ergebnisse** (`--schwelle 0.60 --regime_filter 1,2`):
+
+| Symbol | Sharpe | Rendite | Trades | Empfehlung |
+|--------|--------|---------|--------|------------|
+| USDCAD | 12.135 | +1.38% | 9 | ⚠️ Zu wenige Trades – statistisch nicht valide |
+| USDCHF | 2.502 ✅ | +1.26% | 28 | ✅ Besser als H1 (0.271) – Abwärtstrend (regime=2) |
+| USDJPY | 0.069 | +0.30% | 233 | ❌ H1 ist besser (Sharpe=1.073) |
+| EURUSD | -2.260 | -4.03% | 101 | ❌ Verworfen |
+| GBPUSD | -2.785 | -5.89% | 121 | ❌ Verworfen |
+| AUDUSD | -2.043 | -1.97% | 52 | ❌ Verworfen |
+| NZDUSD | -2.309 | -8.20% | 194 | ❌ Verworfen |
+
+**Fazit:** H4 ersetzt H1 nicht. USDCHF H4 (regime_filter=2) ist als 3. Paper-Trading-Kandidat interessant.
 
 ---
 
@@ -367,8 +395,10 @@ Jede neue H1-Kerze:
 - [ ] **Mindestens 3 Monate** Paper-Trading laufen lassen (Review-Punkt 9):
 
 ```bash
-python live/live_trader.py --symbol USDCAD --schwelle 0.60 --regime_filter 1,2
-python live/live_trader.py --symbol USDJPY --schwelle 0.60 --regime_filter 1
+# Auf Windows Laptop ausführen!
+python live/live_trader.py --symbol USDCAD --schwelle 0.60 --regime_filter 1,2   # H1-Modell
+python live/live_trader.py --symbol USDJPY --schwelle 0.60 --regime_filter 1     # H1-Modell (nur Aufwärtstrend)
+python live/live_trader.py --symbol USDCHF --schwelle 0.60 --regime_filter 2     # H4-Modell (nur Abwärtstrend) – Kandidat
 ```
 
 > ✅ **Phase 6 abgeschlossen, wenn:** System läuft **3 Monate** stabil im Paper-Trading mit positiver Performance nach realistischen Kosten.
@@ -413,11 +443,11 @@ python live/live_trader.py --symbol USDJPY --schwelle 0.60 --regime_filter 1
 | 2 | Feature Engineering | ✅ Abgeschlossen |
 | 3 | Regime Detection | ✅ Abgeschlossen |
 | 4 | Labeling & Training | ✅ Abgeschlossen |
-| 5 | Backtesting | 🔄 Risikomanagement offen |
-| 6 | Live-Integration | ⬜ Offen |
-| 7 | Wartung | ⬜ Offen |
-| **R** | **Review-Punkte abarbeiten** | **⬜ Offen** |
+| 5 | Backtesting | ✅ Abgeschlossen |
+| B | H4-Experiment (Bonus) | ✅ Abgeschlossen |
+| 6 | Live-Integration | 🔄 In Arbeit (live_trader.py fertig, Laptop-Setup offen) |
+| 7 | Wartung | 🔄 In Arbeit (retraining.py fertig, Monitoring offen) |
 
 > Status: ⬜ Offen | 🔄 In Arbeit | ✅ Abgeschlossen
 
-**Letzte Aktualisierung:** 2026-02-26 – Phase 5 Backtesting abgeschlossen, Review-Feedback integriert
+**Letzte Aktualisierung:** 2026-02-28 – H4-Experiment abgeschlossen, USDCHF H4 als 3. Kandidat identifiziert

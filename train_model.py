@@ -120,33 +120,47 @@ AUSSCHLUSS_SPALTEN = {
 # ============================================================
 
 
-def labeled_pfad(symbol: str, version: str = "v1") -> Path:
+def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Path:
     """
-    Gibt den Eingabe-Pfad für das gelabelte CSV zurück (konsistent mit labeling.py).
+    Gibt den Eingabe-Pfad für das gelabelte CSV zurück.
 
-    v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
-    v2 → data/SYMBOL_H1_labeled_v2.csv
-    v3 → data/SYMBOL_H1_labeled_v3.csv
+    H1 (Standard):
+        v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
+        v2 → data/SYMBOL_H1_labeled_v2.csv
+        v3 → data/SYMBOL_H1_labeled_v3.csv
+    H4:
+        v1 → data/SYMBOL_H4_labeled.csv
+        v2 → data/SYMBOL_H4_labeled_v2.csv
 
     Args:
-        symbol:  Handelssymbol (z.B. "EURUSD")
-        version: Versions-String (Standard: "v1")
+        symbol:    Handelssymbol (z.B. "EURUSD")
+        version:   Versions-String (Standard: "v1")
+        timeframe: Zeitrahmen der Daten – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         Path zum gelabelten CSV
     """
+    if timeframe == "H4":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_H4_labeled.csv"
+        return DATA_DIR / f"{symbol}_H4_labeled_{version}.csv"
+
+    # H1 (Standard, rückwärtskompatibel)
     if version == "v1":
         return DATA_DIR / f"{symbol}_H1_labeled.csv"
     return DATA_DIR / f"{symbol}_H1_labeled_{version}.csv"
 
 
-def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
+def daten_laden(
+    symbol: str, version: str = "v1", timeframe: str = "H1"
+) -> pd.DataFrame:
     """
     Lädt den gelabelten Feature-DataFrame für ein Symbol.
 
     Args:
-        symbol:  Handelssymbol (z.B. "EURUSD")
-        version: Versions-String für den Datei-Pfad (Standard: "v1")
+        symbol:    Handelssymbol (z.B. "EURUSD")
+        version:   Versions-String für den Datei-Pfad (Standard: "v1")
+        timeframe: Zeitrahmen – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit Features und 'label'-Spalte.
@@ -154,11 +168,12 @@ def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
     Raises:
         FileNotFoundError: Wenn die Datei nicht existiert.
     """
-    pfad = labeled_pfad(symbol, version)
+    pfad = labeled_pfad(symbol, version, timeframe)
     if not pfad.exists():
+        hilfe = "h4_pipeline.py" if timeframe == "H4" else f"labeling.py --version {version}"
         raise FileNotFoundError(
             f"Datei nicht gefunden: {pfad}\n"
-            f"Zuerst labeling.py --version {version} ausführen!"
+            f"Zuerst {hilfe} ausführen!"
         )
 
     logger.info(f"Lade {pfad.name} ...")
@@ -882,24 +897,38 @@ def confusion_matrix_plotten(
 # ============================================================
 
 
-def modell_speichern(modell, symbol: str, modell_typ: str, version: str = "v1") -> Path:
+def modell_speichern(
+    modell,
+    symbol: str,
+    modell_typ: str,
+    version: str = "v1",
+    timeframe: str = "H1",
+) -> Path:
     """
     Speichert das Modell als .pkl mit joblib.
 
     NIEMALS pickle verwenden – joblib ist sicherer und schneller!
 
+    Dateiname-Schema:
+        H1: lgbm_SYMBOL_v1.pkl   (Standard, rückwärtskompatibel)
+        H4: lgbm_SYMBOL_H4_v1.pkl
+
     Args:
-        modell: Trainiertes Modell
-        symbol: Handelssymbol (z.B. "EURUSD")
+        modell:    Trainiertes Modell
+        symbol:    Handelssymbol (z.B. "EURUSD")
         modell_typ: "lgbm" oder "xgb"
-        version: Versions-String (z.B. "v1")
+        version:   Versions-String (z.B. "v1")
+        timeframe: "H1" oder "H4" (Standard: "H1")
 
     Returns:
         Pfad zur gespeicherten Datei
     """
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    dateiname = f"{modell_typ}_{symbol.lower()}_{version}.pkl"
+    if timeframe == "H4":
+        dateiname = f"{modell_typ}_{symbol.lower()}_H4_{version}.pkl"
+    else:
+        dateiname = f"{modell_typ}_{symbol.lower()}_{version}.pkl"
     pfad = MODEL_DIR / dateiname
 
     joblib.dump(modell, pfad)
@@ -913,27 +942,32 @@ def modell_speichern(modell, symbol: str, modell_typ: str, version: str = "v1") 
 # ============================================================
 
 
-def symbol_trainieren(symbol: str, n_trials: int, version: str) -> bool:
+def symbol_trainieren(
+    symbol: str, n_trials: int, version: str, timeframe: str = "H1"
+) -> bool:
     """
     Kompletter Training-Ablauf für ein einzelnes Symbol.
 
     Args:
-        symbol:   Handelssymbol (z.B. "EURUSD")
-        n_trials: Anzahl Optuna-Trials
-        version:  Versions-String für I/O-Dateien (z.B. "v1", "v2", "v3")
+        symbol:    Handelssymbol (z.B. "EURUSD")
+        n_trials:  Anzahl Optuna-Trials
+        version:   Versions-String für I/O-Dateien (z.B. "v1", "v2", "v3")
+        timeframe: Zeitrahmen der Daten – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         True wenn erfolgreich, False bei Fehler.
     """
     logger.info("=" * 60)
-    logger.info(f"Phase 4 – Modelltraining – {symbol} ({version})")
+    logger.info(
+        f"Phase 4 – Modelltraining – {symbol} ({version}, {timeframe})"
+    )
     logger.info(f"Optuna Trials: {n_trials}")
     logger.info(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 60)
 
     try:
         # ---- Schritt 1: Daten laden ----
-        df = daten_laden(symbol, version)
+        df = daten_laden(symbol, version, timeframe)
     except FileNotFoundError as e:
         logger.error(str(e))
         return False
@@ -997,9 +1031,9 @@ def symbol_trainieren(symbol: str, n_trials: int, version: str) -> bool:
     )
     logger.info(f"\nBestes Modell: {bestes_name} (F1={bestes_f1:.4f})")
 
-    # Beide Optuna-Modelle mit der richtigen Version speichern
-    modell_speichern(xgb_opt, symbol, "xgb", version)
-    modell_speichern(lgbm_opt, symbol, "lgbm", version)
+    # Beide Optuna-Modelle mit der richtigen Version + Zeitrahmen speichern
+    modell_speichern(xgb_opt, symbol, "xgb", version, timeframe)
+    modell_speichern(lgbm_opt, symbol, "lgbm", version, timeframe)
 
     # ---- Schritt 10: Schwellenwert-Analyse (bestes Modell) ----
     logger.info("\n" + "=" * 50)
@@ -1022,13 +1056,17 @@ def symbol_trainieren(symbol: str, n_trials: int, version: str) -> bool:
     # ---- Abschluss ----
     ende = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("\n" + "=" * 60)
-    print(f"ABGESCHLOSSEN – Training {symbol} ({version})")
+    print(f"ABGESCHLOSSEN – Training {symbol} ({version}, {timeframe})")
     print("=" * 60)
     print(f"  Bestes Modell:   {bestes_name}")
     print(f"  F1-Macro (Val):  {bestes_f1:.4f} ({bestes_f1 * 100:.2f}%)")
     print(f"\n  Gespeicherte Modelle:")
-    print(f"    models/xgb_{symbol.lower()}_{version}.pkl")
-    print(f"    models/lgbm_{symbol.lower()}_{version}.pkl")
+    if timeframe == "H4":
+        print(f"    models/xgb_{symbol.lower()}_H4_{version}.pkl")
+        print(f"    models/lgbm_{symbol.lower()}_H4_{version}.pkl")
+    else:
+        print(f"    models/xgb_{symbol.lower()}_{version}.pkl")
+        print(f"    models/lgbm_{symbol.lower()}_{version}.pkl")
     print(f"\n  Empfohlener Schwellenwert: {empfohlener_schwellenwert:.0%}")
     print(f"  (Trades nur wenn Modell-Wahrscheinlichkeit > {empfohlener_schwellenwert:.0%})")
     print(
@@ -1066,6 +1104,17 @@ def main() -> None:
             "v3 → SYMBOL_H1_labeled_v3.csv + lgbm_SYMBOL_v3.pkl"
         ),
     )
+    parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "H4"],
+        help=(
+            "Zeitrahmen der Eingabedaten (Standard: H1). "
+            "H1 → SYMBOL_H1_labeled.csv → lgbm_SYMBOL_v1.pkl | "
+            "H4 → SYMBOL_H4_labeled.csv → lgbm_SYMBOL_H4_v1.pkl. "
+            "Vor H4 zuerst features/h4_pipeline.py ausführen!"
+        ),
+    )
     args = parser.parse_args()
 
     # Symbole bestimmen
@@ -1084,9 +1133,9 @@ def main() -> None:
 
     for symbol in ziel_symbole:
         print(f"\n{'═' * 60}")
-        print(f"  Training: {symbol} ({args.version})")
+        print(f"  Training: {symbol} ({args.version}, {args.timeframe})")
         print(f"{'═' * 60}")
-        erfolg = symbol_trainieren(symbol, args.trials, args.version)
+        erfolg = symbol_trainieren(symbol, args.trials, args.version, args.timeframe)
         gesamt_ergebnisse.append((symbol, "OK" if erfolg else "FEHLER"))
 
     # Gesamtzusammenfassung (nur bei mehreren Symbolen)

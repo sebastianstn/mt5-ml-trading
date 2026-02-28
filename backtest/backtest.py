@@ -47,9 +47,11 @@ Eingabe:  models/lgbm_SYMBOL_v1.pkl
 Ausgabe:  plots/SYMBOL_backtest_equity.png      ← Equity-Kurve
           plots/SYMBOL_backtest_regime.png      ← Performance nach Regime
           plots/SYMBOL_backtest_monatlich.png   ← Monatliche Returns-Heatmap
-          plots/SYMBOL_backtest_perioden.png    ← NEU: Jahresvergleich
+          plots/SYMBOL_backtest_perioden.png    ← Jahresvergleich
+          plots/regime_performance_matrix.png  ← NEU: Regime-Vergleich alle Symbole
           backtest/SYMBOL_trades.csv            ← Alle Trades als CSV
           backtest/backtest_zusammenfassung.csv ← Kennzahlen aller Symbole
+          backtest/regime_performance_matrix.csv ← NEU: Regime-Performance-Daten
 """
 
 # pylint: disable=too-many-lines,logging-fstring-interpolation
@@ -221,21 +223,33 @@ class RisikoConfig:
 # ============================================================
 
 
-def labeled_pfad(symbol: str, version: str = "v1") -> Path:
+def labeled_pfad(
+    symbol: str, version: str = "v1", timeframe: str = "H1"
+) -> Path:
     """
     Gibt den Pfad zum gelabelten CSV zurück (konsistent mit anderen Skripten).
 
-    v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
-    v2 → data/SYMBOL_H1_labeled_v2.csv
-    v3 → data/SYMBOL_H1_labeled_v3.csv
+    H1 (Standard):
+        v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
+        v2 → data/SYMBOL_H1_labeled_v2.csv
+    H4:
+        v1 → data/SYMBOL_H4_labeled.csv
+        v2 → data/SYMBOL_H4_labeled_v2.csv
 
     Args:
-        symbol:  Handelssymbol (z.B. "EURUSD")
-        version: Versions-String (Standard: "v1")
+        symbol:    Handelssymbol (z.B. "EURUSD")
+        version:   Versions-String (Standard: "v1")
+        timeframe: Zeitrahmen – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         Path zum gelabelten CSV
     """
+    if timeframe == "H4":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_H4_labeled.csv"
+        return DATA_DIR / f"{symbol}_H4_labeled_{version}.csv"
+
+    # H1 (Standard, rückwärtskompatibel)
     if version == "v1":
         return DATA_DIR / f"{symbol}_H1_labeled.csv"
     return DATA_DIR / f"{symbol}_H1_labeled_{version}.csv"
@@ -246,6 +260,7 @@ def daten_laden(
     version: str = "v1",
     zeitraum_von: Optional[str] = None,
     zeitraum_bis: Optional[str] = None,
+    timeframe: str = "H1",
 ) -> pd.DataFrame:
     """
     Lädt das gelabelte Feature-CSV und isoliert das Test-Set (2023+).
@@ -261,6 +276,7 @@ def daten_laden(
         version:      Versions-String für den Datei-Pfad (Standard: "v1")
         zeitraum_von: Optional – Startdatum für den Teilzeitraum (z.B. "2023-01-01")
         zeitraum_bis: Optional – Enddatum für den Teilzeitraum (z.B. "2023-12-31")
+        timeframe:    Zeitrahmen der Daten – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit Features, OHLC-Preisen, label und market_regime.
@@ -268,11 +284,12 @@ def daten_laden(
     Raises:
         FileNotFoundError: Wenn die Datei nicht existiert.
     """
-    pfad = labeled_pfad(symbol, version)
+    pfad = labeled_pfad(symbol, version, timeframe)
     if not pfad.exists():
+        hilfe = "h4_pipeline.py" if timeframe == "H4" else f"labeling.py --version {version}"
         raise FileNotFoundError(
             f"Datei nicht gefunden: {pfad}\n"
-            f"Zuerst labeling.py --version {version} ausführen!"
+            f"Zuerst {hilfe} ausführen!"
         )
 
     logger.info(f"[{symbol}] Lade {pfad.name} ...")
@@ -316,6 +333,7 @@ def signale_generieren(  # pylint: disable=too-many-locals
     symbol: str,
     schwelle: float = 0.55,
     version: str = "v1",
+    timeframe: str = "H1",
 ) -> pd.DataFrame:
     """
     Lädt das LightGBM-Modell und generiert Trade-Signale mit Wahrscheinlichkeit.
@@ -325,21 +343,33 @@ def signale_generieren(  # pylint: disable=too-many-locals
     - Short-Signal: Modell sagt Klasse 0 UND prob_short > schwelle
     - Kein Signal:  Klasse 1 (Neutral) ODER Wahrscheinlichkeit zu niedrig
 
+    Modell-Dateiname:
+        H1: lgbm_SYMBOL_v1.pkl      (Standard)
+        H4: lgbm_SYMBOL_H4_v1.pkl  (H4-Experiment)
+
     Args:
-        df:       Test-Set DataFrame mit Features und OHLC
-        symbol:   Handelssymbol
-        schwelle: Mindest-Wahrscheinlichkeit für einen Trade (Standard: 0.55)
-        version:  Versions-String für das Modell-File (Standard: "v1")
+        df:        Test-Set DataFrame mit Features und OHLC
+        symbol:    Handelssymbol
+        schwelle:  Mindest-Wahrscheinlichkeit für einen Trade (Standard: 0.55)
+        version:   Versions-String für das Modell-File (Standard: "v1")
+        timeframe: Zeitrahmen für den Modell-Dateinamen – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit zusätzlichen Spalten: signal, prob_signal
     """
-    # Modell laden (versioniertes Modell-File)
-    modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}.pkl"
+    # Modell laden (versioniertes Modell-File, abhängig vom Zeitrahmen)
+    if timeframe == "H4":
+        modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_H4_{version}.pkl"
+    else:
+        modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}.pkl"
+
     if not modell_pfad.exists():
+        hilfe = (
+            f"train_model.py --symbol {symbol} --timeframe {timeframe}"
+        )
         raise FileNotFoundError(
             f"Modell nicht gefunden: {modell_pfad}\n"
-            f"Zuerst train_model.py --symbol {symbol} ausführen!"
+            f"Zuerst {hilfe} ausführen!"
         )
     logger.info(f"[{symbol}] Lade Modell: {modell_pfad.name}")
     modell = joblib.load(modell_pfad)
@@ -421,6 +451,7 @@ def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-
     swap_long: float = 0.0,
     swap_short: float = 0.0,
     entry_time: Optional[pd.Timestamp] = None,
+    stunden_pro_bar: int = 1,
 ) -> dict:
     """
     Simuliert einen einzelnen Trade mit Double-Barrier Exit.
@@ -552,14 +583,18 @@ def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-
     # ────────────────────────────────────────────────────────
     # Swap-Kosten (Review-Punkt 5): Overnight-Gebühr bei Mitternacht-Überschreitung
     # ────────────────────────────────────────────────────────
-    # Logik: Ein H1-Trade mit Eintrittsstunde H läuft n_bars Kerzen lang.
-    # Wenn H + n_bars >= 24, überschreitet der Trade die Mitternachtsgrenze.
-    # Dann berechnet der Broker einmalig den Tages-Swap auf den Positionswert.
+    # H1: Ein Trade mit Eintrittsstunde H läuft n_bars Stunden.
+    #     Wenn H + n_bars >= 24, überschreitet er Mitternacht.
+    # H4: Jede Kerze = 4 Stunden. Laufzeit = n_bars × stunden_pro_bar.
+    #     Wenn H + n_bars*4 >= 24, überschreitet der Trade Mitternacht.
+    # Der Broker berechnet den Swap bei jeder Mitternacht-Überschreitung.
     hat_swap = False
     if swap_aktiv and entry_time is not None:
         entry_hour = pd.Timestamp(entry_time).hour
+        # Gesamte Trade-Dauer in Stunden (H1: 1h/Bar, H4: 4h/Bar)
+        trade_stunden = n_bars * stunden_pro_bar
         # Prüfen ob der Trade über Mitternacht läuft
-        kreuzt_mitternacht = (entry_hour + n_bars) >= 24
+        kreuzt_mitternacht = (entry_hour + trade_stunden) >= 24
         if kreuzt_mitternacht:
             # Long-Swap für Long-Positionen, Short-Swap für Short-Positionen
             swap_satz = swap_long if richtung == 2 else swap_short
@@ -610,6 +645,7 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
     risiko_config: Optional[RisikoConfig] = None,
     spread_faktor: float = 1.0,
     swap_aktiv: bool = False,
+    timeframe: str = "H1",
 ) -> pd.DataFrame:
     """
     Simuliert alle Trades auf dem Test-Set und gibt eine Trade-Liste zurück.
@@ -708,6 +744,8 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
             atr_wert = float(df["atr_14"].iloc[i]) if atr_sl_aktiv else 0.0
 
             # Trade simulieren (mit konfigurierbarem TP/SL, ATR, Positionsgröße und Swap)
+            # stunden_pro_bar: 1 für H1 (Standard), 4 für H4 (für Swap-Kostenberechnung)
+            stunden_pro_bar = 4 if timeframe == "H4" else 1
             ergebnis = trade_simulieren(
                 df, i, signal, spread_kosten, tp_pct, sl_pct, horizon,
                 risiko_config=cfg, atr_wert=atr_wert,
@@ -715,6 +753,7 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
                 swap_long=swap_long_satz,
                 swap_short=swap_short_satz,
                 entry_time=df.index[i],
+                stunden_pro_bar=stunden_pro_bar,
             )
 
             # Swap-Zähler erhöhen wenn Overnight-Kosten angefallen
@@ -989,6 +1028,245 @@ def regime_analyse(trades_df: pd.DataFrame, symbol: str) -> Optional[pd.DataFram
         )
 
     return pd.DataFrame(ergebnisse)
+
+
+# ============================================================
+# 6b. Regime-Performance-Matrix (alle Symbole kombiniert)
+# ============================================================
+
+
+def regime_matrix_erstellen(ziel_symbole: list) -> Optional[pd.DataFrame]:
+    """
+    Liest alle gespeicherten Trade-CSVs und erstellt eine Regime-Performance-Matrix.
+
+    Ergebnis: Für jede Symbol/Regime-Kombination werden N, Win-Rate,
+    Gesamtrendite und Gewinnfaktor berechnet. Zeigt klar welche Regimes
+    profitabel sind und welche gemieden werden sollen.
+
+    Args:
+        ziel_symbole: Liste der Symbole die analysiert werden sollen
+
+    Returns:
+        DataFrame mit Spalten [symbol, regime, regime_name, n_trades,
+        win_rate_pct, gesamtrendite_pct, gewinnfaktor] oder None
+    """
+    alle_daten = []
+
+    for symbol in ziel_symbole:
+        # Trade-CSV laden (wird am Ende von symbol_backtest() gespeichert)
+        trade_pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
+        if not trade_pfad.exists():
+            logger.warning(f"[{symbol}] Trade-CSV nicht gefunden: {trade_pfad}")
+            continue
+
+        trades = pd.read_csv(trade_pfad, index_col=0, parse_dates=True)
+
+        if "market_regime" not in trades.columns or trades.empty:
+            logger.warning(f"[{symbol}] Keine market_regime-Spalte in Trade-CSV")
+            continue
+
+        # Gültige Regime-Daten extrahieren
+        trades = trades.dropna(subset=["market_regime"]).copy()
+        trades["market_regime"] = trades["market_regime"].astype(int)
+
+        # Für jedes vorhandene Regime die Kennzahlen berechnen
+        for regime_nr in sorted(trades["market_regime"].unique()):
+            regime_trades = trades[trades["market_regime"] == regime_nr]
+            pnl = regime_trades["pnl_pct"].values
+            n = len(pnl)
+            if n == 0:
+                continue
+
+            win_rate = (pnl > 0).mean() * 100
+            rendite = pnl.sum() * 100
+            verluste = abs(pnl[pnl < 0].sum())
+            gf = pnl[pnl > 0].sum() / verluste if verluste > 0 else float("inf")
+
+            alle_daten.append(
+                {
+                    "symbol": symbol,
+                    "regime": regime_nr,
+                    "regime_name": REGIME_NAMEN.get(int(regime_nr), f"Regime {regime_nr}"),
+                    "n_trades": n,
+                    "win_rate_pct": round(win_rate, 1),
+                    "gesamtrendite_pct": round(rendite, 2),
+                    "gewinnfaktor": round(gf, 3),
+                }
+            )
+
+    if not alle_daten:
+        logger.warning("Keine Regime-Daten vorhanden – Matrix kann nicht erstellt werden")
+        return None
+
+    return pd.DataFrame(alle_daten)
+
+
+def regime_matrix_drucken(matrix_df: pd.DataFrame, regime_info: str) -> None:
+    """
+    Gibt die Regime-Performance-Matrix als formatierte Tabelle aus.
+
+    Empfiehlt für jedes Symbol den besten Regime-Filter basierend auf
+    Rendite und Win-Rate.
+
+    Args:
+        matrix_df: Ergebnis aus regime_matrix_erstellen()
+        regime_info: Beschreibung des aktiven Regime-Filters (für Header)
+    """
+    # Alle vorhandenen Regime-Nummern ermitteln
+    regime_nummern = sorted(matrix_df["regime"].unique())
+
+    # Header ausgeben
+    print(f"\n{'═' * 80}")
+    print(f"REGIME-PERFORMANCE-MATRIX – Welches Regime ist profitabel?")
+    print(f"Regime-Filter beim Backtest: {regime_info}")
+    print(f"{'═' * 80}")
+
+    # Spalten-Header
+    header = f"{'Symbol':8}"
+    for reg_nr in regime_nummern:
+        reg_kurz = REGIME_NAMEN.get(reg_nr, f"R{reg_nr}")[:12]
+        header += f"  │ {reg_kurz:12} (N   Win%  Rend%)"
+    print(header)
+    print(f"{'─' * 80}")
+
+    # Für jedes Symbol eine Zeile ausgeben
+    symbole = matrix_df["symbol"].unique()
+    empfehlungen = {}  # {symbol: [profitable Regime-Nummern]}
+
+    for symbol in symbole:
+        zeile = f"{symbol:8}"
+        profitable_regimes = []
+
+        for reg_nr in regime_nummern:
+            subset = matrix_df[
+                (matrix_df["symbol"] == symbol) & (matrix_df["regime"] == reg_nr)
+            ]
+            if subset.empty:
+                zeile += f"  │ {'—':>35}"
+            else:
+                row = subset.iloc[0]
+                n = int(row["n_trades"])
+                win = row["win_rate_pct"]
+                rend = row["gesamtrendite_pct"]
+
+                # :+.2f fügt automatisch + oder – hinzu
+                zeile += f"  │ {n:4d}  {win:5.1f}%  {rend:+.2f}%"
+
+                # Als profitabel markieren wenn Rendite > 0 UND Win-Rate > 48%
+                if rend > 0 and win > 48:
+                    profitable_regimes.append(reg_nr)
+
+        print(zeile)
+        empfehlungen[symbol] = profitable_regimes
+
+    print(f"{'─' * 80}")
+
+    # Empfehlungen ausgeben
+    print("\nREGIME-FILTER-EMPFEHLUNG (Rendite > 0% UND Win-Rate > 48%):")
+    for symbol in symbole:
+        regs = empfehlungen[symbol]
+        if regs:
+            reg_str = ",".join(str(r) for r in regs)
+            namen = " + ".join(REGIME_NAMEN.get(r, str(r)) for r in regs)
+            print(f"  {symbol}: --regime_filter {reg_str}  ({namen})")
+        else:
+            print(f"  {symbol}: Kein Regime profitabel – Symbol nicht handeln!")
+
+    print(f"{'═' * 80}")
+
+
+def regime_matrix_plotten(matrix_df: pd.DataFrame) -> None:
+    """
+    Erstellt eine Heatmap der Regime-Performance für alle Symbole.
+
+    Zeigt gesamtrendite_pct als Farbskala: rot = negativ, grün = positiv.
+    Speichert als: plots/regime_performance_matrix.png
+
+    Args:
+        matrix_df: Ergebnis aus regime_matrix_erstellen()
+    """
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Pivot-Tabelle: Symbole als Zeilen, Regimes als Spalten
+    pivot = matrix_df.pivot_table(
+        index="symbol",
+        columns="regime_name",
+        values="gesamtrendite_pct",
+        aggfunc="sum",
+    )
+
+    # Spalten-Reihenfolge nach Regime-Nummer
+    regime_reihenfolge = [
+        REGIME_NAMEN[r]
+        for r in sorted(REGIME_NAMEN.keys())
+        if REGIME_NAMEN[r] in pivot.columns
+    ]
+    pivot = pivot.reindex(columns=regime_reihenfolge)
+
+    # Pivot für Win-Rate (als Annotation)
+    pivot_win = matrix_df.pivot_table(
+        index="symbol",
+        columns="regime_name",
+        values="win_rate_pct",
+        aggfunc="mean",
+    ).reindex(columns=regime_reihenfolge)
+
+    # Beschriftungen: "Rend%\nN=x\nWin%"
+    pivot_n = matrix_df.pivot_table(
+        index="symbol",
+        columns="regime_name",
+        values="n_trades",
+        aggfunc="sum",
+    ).reindex(columns=regime_reihenfolge)
+
+    # Annotation-Text erstellen
+    annot = pd.DataFrame(index=pivot.index, columns=pivot.columns, dtype=str)
+    for sym in pivot.index:
+        for col in pivot.columns:
+            rend = pivot.loc[sym, col]
+            n = pivot_n.loc[sym, col]
+            win = pivot_win.loc[sym, col]
+            if pd.isna(rend):
+                annot.loc[sym, col] = "–"
+            else:
+                prefix = "+" if rend >= 0 else ""
+                annot.loc[sym, col] = f"{prefix}{rend:.2f}%\nN={int(n)}\n{win:.0f}%W"
+
+    # Heatmap zeichnen
+    fig, ax = plt.subplots(figsize=(12, max(5, len(pivot) * 0.9 + 2)))
+    fig.patch.set_facecolor("#F8F9FA")
+
+    sns.heatmap(
+        pivot.astype(float),
+        annot=annot,
+        fmt="",
+        cmap="RdYlGn",  # Rot (negativ) → Gelb (0) → Grün (positiv)
+        center=0,
+        linewidths=0.5,
+        linecolor="#CCCCCC",
+        ax=ax,
+        cbar_kws={"label": "Gesamtrendite (%)"},
+        annot_kws={"size": 9},
+    )
+
+    ax.set_title(
+        "Regime-Performance-Matrix – Gesamtrendite % pro Symbol & Regime\n"
+        "(gruen = profitabel, rot = Verlust | N = Anzahl Trades | W = Win-Rate)",
+        fontsize=12,
+        fontweight="bold",
+        pad=15,
+    )
+    ax.set_xlabel("Marktregime", fontsize=11)
+    ax.set_ylabel("Symbol", fontsize=11)
+    ax.tick_params(axis="x", rotation=20)
+    ax.tick_params(axis="y", rotation=0)
+
+    plt.tight_layout()
+
+    pfad = PLOTS_DIR / "regime_performance_matrix.png"
+    plt.savefig(pfad, dpi=100, bbox_inches="tight")
+    plt.close()
+    logger.info(f"Regime-Matrix-Plot gespeichert: {pfad}")
 
 
 # ============================================================
@@ -1459,6 +1737,7 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
     zeitraum_bis: Optional[str] = None,
     spread_faktor: float = 1.0,
     swap_aktiv: bool = False,
+    timeframe: str = "H1",
 ) -> Optional[dict]:
     """
     Führt den vollständigen Backtest für ein Symbol durch.
@@ -1513,11 +1792,11 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
     logger.info(f"{'=' * 65}")
 
     try:
-        # Schritt 1: Test-Set laden (mit optionalem Zeitraum-Filter)
-        df = daten_laden(symbol, version, zeitraum_von, zeitraum_bis)
+        # Schritt 1: Test-Set laden (mit optionalem Zeitraum-Filter + Zeitrahmen)
+        df = daten_laden(symbol, version, zeitraum_von, zeitraum_bis, timeframe)
 
-        # Schritt 2: Signale generieren (versioniertes Modell)
-        df = signale_generieren(df, symbol, schwelle, version)
+        # Schritt 2: Signale generieren (versioniertes Modell, passend zum Zeitrahmen)
+        df = signale_generieren(df, symbol, schwelle, version, timeframe)
 
         # Schritt 3: Trades simulieren (inkl. Risikomanagement + Spread-Faktor + Swap)
         trades_df = trades_simulieren(
@@ -1525,6 +1804,7 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
             regime_erlaubt, horizon, risiko_config,
             spread_faktor=spread_faktor,
             swap_aktiv=swap_aktiv,
+            timeframe=timeframe,
         )
 
         if trades_df.empty:
@@ -1742,6 +2022,19 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
         ),
     )
 
+    # ── H4 Experiment: Zeitrahmen wählen ──────────────────────────────────────
+    parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "H4"],
+        help=(
+            "Zeitrahmen für Daten und Modell (Standard: H1). "
+            "H1 → SYMBOL_H1_labeled.csv + lgbm_SYMBOL_v1.pkl | "
+            "H4 → SYMBOL_H4_labeled.csv + lgbm_SYMBOL_H4_v1.pkl. "
+            "Vor H4 zuerst h4_pipeline.py + train_model.py --timeframe H4 ausführen!"
+        ),
+    )
+
     args = parser.parse_args()
 
     # Symbole bestimmen (Liste oder 'alle')
@@ -1791,14 +2084,17 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     logger.info("⚠️  ACHTUNG: Teste auf dem heiligen Test-Set (2023+)!")
     logger.info("   Diese Auswertung ist FINAL – Modell danach nicht mehr anpassen!")
     logger.info("=" * 65)
-    logger.info(f"Symbole: {', '.join(ziel_symbole)} | Version: {args.version}")
+    logger.info(
+        f"Symbole: {', '.join(ziel_symbole)} | Version: {args.version} "
+        f"| Zeitrahmen: {args.timeframe}"
+    )
     logger.info(f"Schwellenwert: {args.schwelle:.0%}")
     logger.info(
         f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | "
         f"RRR={args.tp_pct/args.sl_pct:.1f}:1"
     )
     logger.info(f"Regime-Filter: {regime_info}")
-    logger.info(f"Horizon: {args.horizon} H1-Barren")
+    logger.info(f"Horizon: {args.horizon} {args.timeframe}-Barren")
     if risiko_config:
         if risiko_config.atr_sl:
             logger.info(
@@ -1840,6 +2136,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
             zeitraum_bis=args.zeitraum_bis,
             spread_faktor=args.spread_faktor,
             swap_aktiv=args.swap_aktiv,
+            timeframe=args.timeframe,
         )
         if kennzahlen:
             alle_kennzahlen.append(kennzahlen)
@@ -1896,6 +2193,22 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
                 "→ System erscheint robust."
             )
         print(f"{'─'*75}")
+
+    # ── Regime-Performance-Matrix (Phase 3 Optimierung) ─────────────────────────
+    # Zeigt für jede Symbol/Regime-Kombination die Performance an.
+    # Ermöglicht eine datengetriebene Entscheidung für --regime_filter.
+    if len(ziel_symbole) >= 2:
+        matrix_df = regime_matrix_erstellen(ziel_symbole)
+        if matrix_df is not None:
+            # Tabelle im Terminal ausgeben
+            regime_matrix_drucken(matrix_df, regime_info)
+            # Heatmap als PNG speichern
+            regime_matrix_plotten(matrix_df)
+            # Matrix als CSV für spätere Auswertung speichern
+            matrix_pfad = BACKTEST_DIR / "regime_performance_matrix.csv"
+            matrix_df.to_csv(matrix_pfad, index=False)
+            print(f"Matrix CSV: {matrix_pfad}")
+            print(f"Matrix PNG: plots/regime_performance_matrix.png")
 
     # Gesamtzusammenfassung
     ende_zeit = datetime.now()
@@ -1966,8 +2279,10 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     print("\nPlots:    plots/SYMBOL_backtest_equity.png")
     print("          plots/SYMBOL_backtest_regime.png")
     print("          plots/SYMBOL_backtest_monatlich.png")
-    print("          plots/SYMBOL_backtest_perioden.png  ← NEU: Jahresvergleich")
+    print("          plots/SYMBOL_backtest_perioden.png")
+    print("          plots/regime_performance_matrix.png  ← NEU: Regime-Vergleich")
     print("Trades:   backtest/SYMBOL_trades.csv")
+    print("Matrix:   backtest/regime_performance_matrix.csv  ← NEU: Regime-Daten")
     print(f"Laufzeit: {dauer_sek // 60}m {dauer_sek % 60}s")
 
     # Legende

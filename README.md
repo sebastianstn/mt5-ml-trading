@@ -1,6 +1,8 @@
 # MT5 ML-Trading-System
 
-Ein automatisches Handelssystem mit **XGBoost** und **LightGBM** + Regime-Detection, das in MetaTrader 5 live handelt.
+Automatisches Trading-System mit **LightGBM/XGBoost** + Regime-Detection für MT5.
+
+Aktueller Betriebsmodus: **Paper-Trading aktiv** (USDCAD + USDJPY).
 
 ---
 
@@ -8,116 +10,116 @@ Ein automatisches Handelssystem mit **XGBoost** und **LightGBM** + Regime-Detect
 
 | Gerät | Rolle | Was läuft hier? |
 | --- | --- | --- |
-| **Windows 11 Laptop** | MT5-Host & Live-Trading | MT5 Terminal, `data_loader.py`, `live_trader.py` |
-| **Linux Server (1TB SSD)** | Datenspeicher & Training | Rohdaten, Modelle, Training, Backtesting |
-| **VS Code Remote SSH** | Entwicklung | Code wird remote auf dem Linux-Server bearbeitet |
+| **Windows 11 Laptop** | MT5-Host & Paper-Betrieb | MT5 Terminal, `live/live_trader.py`, Dashboard/Sync |
+| **Linux Server (1TB SSD)** | Training & Auswertung | Feature-Engineering, Training, Backtests, KPI/Reports |
+| **VS Code Remote SSH** | Entwicklung | Codebearbeitung auf dem Linux-Server |
+
+> Wichtig: `MetaTrader5` funktioniert nur auf Windows mit laufendem MT5-Terminal.
 
 ---
 
-## Setup – Linux-Server
+## Schnellstart
+
+### Linux-Server (Training/Backtest)
 
 ```bash
-# 1. Repository klonen
-git clone https://github.com/sebastianstn/mt5-ml-trading.git
-cd mt5-ml-trading
-
-# 2. Virtuelle Umgebung erstellen
-python -m venv venv
-source venv/bin/activate
-
-# 3. Abhängigkeiten installieren
+cd /mnt/1T-Data/XGBoost-LightGBM
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements-server.txt
-
-# 4. Umgebungsvariablen einrichten
-cp .env.example .env
-# .env mit echten API-Keys befüllen (niemals in Git einchecken!)
+pytest tests -q
 ```
 
-## Setup – Windows 11 Laptop
+### Windows-Laptop (Paper-Trading)
 
 ```bash
-# 1. Virtuelle Umgebung erstellen
-python -m venv venv
-venv\Scripts\activate
-
-# 2. Abhängigkeiten installieren (nur für Laptop!)
+cd C:\Users\<USER>\mt5_trading
+python -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements-laptop.txt
-
-# 3. .env-Datei anlegen und befüllen
 ```
+
+Danach Trader starten (Paper-Modus):
+
+- `USDCAD`: Schwelle 0.60, Regime `1,2`
+- `USDJPY`: Schwelle 0.60, Regime `1`
+
+Details inkl. Dashboard-Sync: `live/mt5/README_MT5_Dashboard.md`.
 
 ---
 
 ## Projektstruktur
 
-```
-
-mt5-ml-trading/
-├── .github/
-│   └── copilot-instructions.md   # Instruktionen für GitHub Copilot
-├── CLAUDE.md                     # Instruktionen für Claude Code
-├── ROADMAP.md                    # Projektplan mit allen Phasen
-├── data/                         # Rohdaten CSV (nicht in Git)
-├── features/                     # Feature-Engineering
-│   └── feature_engineering.py
-├── models/                       # Trainierte Modelle .pkl (nicht in Git)
-├── backtest/                     # Backtesting
-│   └── backtest.py
-├── live/                         # Live-Trading (→ auf Windows Laptop)
-│   └── live_trader.py
-├── notebooks/                    # Jupyter Notebooks
-├── tests/                        # Unit-Tests
-├── requirements-server.txt       # Linux-Server Abhängigkeiten
-├── requirements-laptop.txt       # Windows Laptop Abhängigkeiten
-├── .env.example                  # API-Key Template
-└── README.md                     # Diese Datei
+```text
+/mnt/1T-Data/XGBoost-LightGBM/
+├── data/                    # Rohdaten, Features, Labels
+├── features/                # Feature-/Label-/Regime-Pipelines
+├── models/                  # Modellartefakte (.pkl)
+├── backtest/                # Backtesting-Skripte + Resultate
+├── live/                    # Live/Paper-Trading + MT5-Integration
+├── reports/                 # KPI-, Plan- und Incident-Dokumente
+├── tests/                   # Unit-Tests
+├── train_model.py
+├── retraining.py
+├── walk_forward.py
+└── Roadmap.md
 ```
 
 ---
 
-## Phasenübersicht
+## Phasenstatus (aktuell)
 
 | Phase | Beschreibung | Status |
 | --- | --- | --- |
-| 0 | Vorbereitung | 🔄 In Arbeit |
-| 1 | Umgebung & Datenbeschaffung | ⬜ Offen |
-| 2 | Feature Engineering | ⬜ Offen |
-| 3 | Regime Detection | ⬜ Offen |
-| 4 | Labeling & Modelltraining | ⬜ Offen |
-| 5 | Backtesting | ⬜ Offen |
-| 6 | Live-Integration (MT5) | ⬜ Offen |
-| 7 | Überwachung & Wartung | ⬜ Offen |
+| 0 | Vorbereitung | ✅ |
+| 1 | Umgebung & Datenbeschaffung | ✅ |
+| 2 | Feature Engineering | ✅ |
+| 3 | Regime Detection | ✅ |
+| 4 | Labeling & Modelltraining | ✅ |
+| 5 | Backtesting | ✅ |
+| 6 | Live-Integration (Paper-Betrieb) | ✅ |
+| 7 | Überwachung & Wartung | 🔄 |
 
-Details → [ROADMAP.md](ROADMAP.md)
-
----
-
-## Wichtige Regeln
-
-- **Look-Ahead-Bias:** Features dürfen keine Zukunftsdaten enthalten (`.shift(1)` bei Rolling-Features)
-- **Zeitliche Datentrennung:** Training → Validierung → Test (niemals zufällig!)
-- **Paper-Trading zuerst:** Niemals Live-Trading ohne vorherigen Paper-Trading-Test
-- **Stop-Loss Pflicht:** Niemals ohne Absicherung handeln
+Details: `Roadmap.md`.
 
 ---
 
-Das läuft auf dem Linux-Server aus.
+## Operative Leitplanken
 
-Wie entsteht das in Zukunft? Wenn jemand direkt auf GitHub Commits macht (z.B. Dateien bearbeitet oder Workflows hinzufügt) während du lokal arbeitest, divergieren die Branches. Mit kannst du das immer sauber lösen.
-
-```bash
-git pull --no-rebase origin main
-```
-
-kannst du das immer sauber lösen.
+- **Keine Zukunftsdaten** in Features (Look-Ahead-Bias verhindern, Rolling mit `.shift(1)`).
+- **Zeitliche Splits** statt zufälligem Split für Time-Series.
+- **Paper first**: Echtgeld erst nach stabilen KPI-Gates.
+- **Stop-Loss Pflicht** + Kill-Switch aktiv.
+- **Aktive Paare aktuell nur:** `USDCAD`, `USDJPY`.
 
 ---
 
-Tipp für die Zukunft: Immer zuerst source
+## Nächster Fokus
 
-```bash
-cd /mnt/1T-Data/XGBoost-LightGBM
-source venv/bin/activate
-```
+Phase 7 sauber ausführen:
 
-ausführen, bevor du irgendein Skript in diesem Projekt startest.
+1. Daily Ops diszipliniert pflegen (`reports/daily_ops_checklist_w1.md`)
+2. Wöchentlichen KPI-Report erzeugen (`reports/weekly_kpi_report.py`)
+3. 12 konsekutive GO-Wochen für Eskalationsfreigabe aufbauen
+4. Dokumente regelmäßig mit Guard prüfen (`reports/doc_drift_guard.py` + `reports/doc_sync_checklist.md`)
+
+---
+
+## Automatischer Doc-Guard vor Commit
+
+Damit der Doc-Drift-Guard bei jedem Commit automatisch läuft:
+
+- Hook-Template: `.githooks/pre-commit`
+- Hook-Template (PowerShell): `.githooks/pre-commit.ps1`
+- Installer: `scripts/install_pre_commit_hook.sh`
+- Installer (PowerShell): `scripts/install_pre_commit_hook.ps1`
+
+Einmalig installieren (Linux-Server):
+
+- `bash scripts/install_pre_commit_hook.sh`
+
+Einmalig installieren (Windows PowerShell):
+
+- `powershell -ExecutionPolicy Bypass -File .\scripts\install_pre_commit_hook.ps1`
+
+Danach prüft Git bei jedem Commit automatisch `reports/doc_drift_guard.py`.

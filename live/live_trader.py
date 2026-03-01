@@ -83,9 +83,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(
-            LOG_DIR / "live_trader.log", encoding="utf-8"
-        ),
+        logging.FileHandler(LOG_DIR / "live_trader.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -95,20 +93,29 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 # Risikomanagement
-TP_PCT = 0.003        # Take-Profit: 0.3% (identisch mit Labeling)
-SL_PCT = 0.003        # Stop-Loss:   0.3% (identisch mit Labeling)
-LOT = 0.01            # Minimale Lot-Größe (0.01 = Micro-Lot, ~1€/Pip)
+TP_PCT = 0.003  # Take-Profit: 0.3% (identisch mit Labeling)
+SL_PCT = 0.003  # Stop-Loss:   0.3% (identisch mit Labeling)
+LOT = 0.01  # Minimale Lot-Größe (0.01 = Micro-Lot, ~1€/Pip)
 MAX_OFFENE_TRADES = 1  # Maximal 1 offene Position pro Symbol
 MAGIC_NUMBER = 20260101  # Eindeutige Kennung für ML-Trades in MT5
 
 # Kill-Switch – Harter Stopp bei zu hohem Drawdown (Review-Punkt 8)
 KILL_SWITCH_DD_DEFAULT = 0.15  # Harter Stopp bei 15% Drawdown (Standard)
 
+# Heartbeat-Logging: schreibt auch ohne Trade ein CSV-Update pro neuer Kerze.
+# Dadurch bleibt das MT5-Dashboard frisch und springt nicht auf "STALE",
+# wenn nur wegen Regime-Filter keine Trades entstehen.
+HEARTBEAT_LOG_DEFAULT = True
+
 # Feature-Berechnung: Mindest-Barren für Warm-Up
 N_BARREN = 500  # SMA200 braucht 200, MTF braucht mehr → 500 als Buffer
 
-# Verfügbare Symbole
+# Verfügbare Symbole im Projekt (Forschung + Betrieb)
 SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+
+# AKTIVE PRODUKTIONS-SYMBOLE (Policy): Nur diese 2 Paare werden operativ gehandelt.
+# Alle anderen Paare bleiben Research-only, bis die KPI-Gates dauerhaft erfüllt sind.
+AKTIVE_SYMBOLE = ["USDCAD", "USDJPY"]
 
 # Regime-Namen (für Logging)
 REGIME_NAMEN = {
@@ -121,33 +128,73 @@ REGIME_NAMEN = {
 # Spalten, die beim Modell-Input AUSGESCHLOSSEN werden
 # (gleich wie in train_model.py und backtest.py!)
 AUSSCHLUSS_SPALTEN = {
-    "open", "high", "low", "close", "volume", "spread",
-    "sma_20", "sma_50", "sma_200", "ema_12", "ema_26",
-    "atr_14", "bb_upper", "bb_mid", "bb_lower", "obv",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "spread",
+    "sma_20",
+    "sma_50",
+    "sma_200",
+    "ema_12",
+    "ema_26",
+    "atr_14",
+    "bb_upper",
+    "bb_mid",
+    "bb_lower",
+    "obv",
     "label",
 }
 
 # Exakte Feature-Reihenfolge (identisch mit Trainings-CSV)
 # Das Modell erwartet genau diese 45 Spalten
 FEATURE_SPALTEN = [
-    "price_sma20_ratio", "price_sma50_ratio", "price_sma200_ratio",
-    "sma_20_50_cross", "sma_50_200_cross",
+    "price_sma20_ratio",
+    "price_sma50_ratio",
+    "price_sma200_ratio",
+    "sma_20_50_cross",
+    "sma_50_200_cross",
     "ema_cross",
-    "macd_line", "macd_signal", "macd_hist",
-    "rsi_14", "rsi_centered",
-    "stoch_k", "stoch_d", "stoch_cross",
-    "williams_r", "roc_10",
+    "macd_line",
+    "macd_signal",
+    "macd_hist",
+    "rsi_14",
+    "rsi_centered",
+    "stoch_k",
+    "stoch_d",
+    "stoch_cross",
+    "williams_r",
+    "roc_10",
     "atr_pct",
-    "bb_width", "bb_pct",
+    "bb_width",
+    "bb_pct",
     "hist_vol_20",
-    "obv_zscore", "volume_roc", "volume_ratio",
-    "return_1h", "return_4h", "return_24h",
-    "candle_body", "upper_wick", "lower_wick", "candle_dir", "hl_range",
-    "trend_h4", "rsi_h4", "trend_d1",
-    "hour", "day_of_week",
-    "session_london", "session_ny", "session_asia", "session_overlap",
-    "adx_14", "market_regime",
-    "fear_greed_value", "fear_greed_class", "btc_funding_rate",
+    "obv_zscore",
+    "volume_roc",
+    "volume_ratio",
+    "return_1h",
+    "return_4h",
+    "return_24h",
+    "candle_body",
+    "upper_wick",
+    "lower_wick",
+    "candle_dir",
+    "hl_range",
+    "trend_h4",
+    "rsi_h4",
+    "trend_d1",
+    "hour",
+    "day_of_week",
+    "session_london",
+    "session_ny",
+    "session_asia",
+    "session_overlap",
+    "adx_14",
+    "market_regime",
+    "fear_greed_value",
+    "fear_greed_class",
+    "btc_funding_rate",
 ]
 
 # ============================================================
@@ -175,11 +222,13 @@ def ind_macd(
     macd_signal_line = macd_line.ewm(
         span=signal, adjust=False, min_periods=signal
     ).mean()
-    return pd.DataFrame({
-        "macd_line": macd_line,
-        "macd_signal": macd_signal_line,
-        "macd_hist": macd_line - macd_signal_line,
-    })
+    return pd.DataFrame(
+        {
+            "macd_line": macd_line,
+            "macd_signal": macd_signal_line,
+            "macd_hist": macd_line - macd_signal_line,
+        }
+    )
 
 
 def ind_rsi(series: pd.Series, length: int = 14) -> pd.Series:
@@ -195,18 +244,19 @@ def ind_rsi(series: pd.Series, length: int = 14) -> pd.Series:
 
 
 def ind_stoch(
-    high: pd.Series, low: pd.Series, close: pd.Series,
-    k: int = 14, d: int = 3
+    high: pd.Series, low: pd.Series, close: pd.Series, k: int = 14, d: int = 3
 ) -> pd.DataFrame:
     """Stochastic Oscillator %K und %D."""
     low_min = low.rolling(window=k, min_periods=k).min()
     high_max = high.rolling(window=k, min_periods=k).max()
     band = (high_max - low_min).replace(0, np.nan)
     stoch_k = (close - low_min) / band * 100
-    return pd.DataFrame({
-        "stoch_k": stoch_k,
-        "stoch_d": stoch_k.rolling(window=d, min_periods=d).mean(),
-    })
+    return pd.DataFrame(
+        {
+            "stoch_k": stoch_k,
+            "stoch_d": stoch_k.rolling(window=d, min_periods=d).mean(),
+        }
+    )
 
 
 def ind_williams_r(
@@ -229,27 +279,28 @@ def ind_atr(
 ) -> pd.Series:
     """ATR – Average True Range (Wilder-Smoothing)."""
     prev_close = close.shift(1)
-    true_range = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
-    return true_range.ewm(
-        alpha=1 / length, adjust=False, min_periods=length
-    ).mean()
+    true_range = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
 
 
-def ind_bbands(
-    series: pd.Series, length: int = 20, std: float = 2.0
-) -> pd.DataFrame:
+def ind_bbands(series: pd.Series, length: int = 20, std: float = 2.0) -> pd.DataFrame:
     """Bollinger Bands: bb_upper, bb_mid, bb_lower."""
     bb_mid = series.rolling(window=length, min_periods=length).mean()
     bb_std = series.rolling(window=length, min_periods=length).std()
-    return pd.DataFrame({
-        "bb_upper": bb_mid + std * bb_std,
-        "bb_mid": bb_mid,
-        "bb_lower": bb_mid - std * bb_std,
-    })
+    return pd.DataFrame(
+        {
+            "bb_upper": bb_mid + std * bb_std,
+            "bb_mid": bb_mid,
+            "bb_lower": bb_mid - std * bb_std,
+        }
+    )
 
 
 def ind_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
@@ -280,11 +331,14 @@ def ind_adx(df: pd.DataFrame, length: int = 14) -> pd.Series:
     # Fallback: Manuelle Wilder-Implementierung
     alpha = 1.0 / length
     prev_close = df["close"].shift(1)
-    tr = pd.concat([
-        df["high"] - df["low"],
-        (df["high"] - prev_close).abs(),
-        (df["low"] - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            df["high"] - df["low"],
+            (df["high"] - prev_close).abs(),
+            (df["low"] - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
 
     up_move = df["high"].diff()
     down_move = -df["low"].diff()
@@ -297,12 +351,10 @@ def ind_adx(df: pd.DataFrame, length: int = 14) -> pd.Series:
 
     atr_s = tr.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
     plus_di = (
-        plus_dm.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
-        / atr_s
+        plus_dm.ewm(alpha=alpha, adjust=False, min_periods=length).mean() / atr_s
     ) * 100
     minus_di = (
-        minus_dm.ewm(alpha=alpha, adjust=False, min_periods=length).mean()
-        / atr_s
+        minus_dm.ewm(alpha=alpha, adjust=False, min_periods=length).mean() / atr_s
     ) * 100
     denom = (plus_di + minus_di).replace(0, np.nan)
     dx = ((plus_di - minus_di).abs() / denom) * 100
@@ -314,7 +366,9 @@ def ind_adx(df: pd.DataFrame, length: int = 14) -> pd.Series:
 # ============================================================
 
 
-def features_berechnen(df: pd.DataFrame) -> pd.DataFrame:  # pylint: disable=too-many-locals
+def features_berechnen(
+    df: pd.DataFrame,
+) -> pd.DataFrame:  # pylint: disable=too-many-locals
     """
     Berechnet alle 45 Model-Features aus OHLCV-Rohdaten.
 
@@ -336,9 +390,15 @@ def features_berechnen(df: pd.DataFrame) -> pd.DataFrame:  # pylint: disable=too
     result["sma_50"] = ind_sma(result["close"], 50)
     result["sma_200"] = ind_sma(result["close"], 200)
 
-    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result["sma_20"]
-    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result["sma_50"]
-    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result["sma_200"]
+    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result[
+        "sma_20"
+    ]
+    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result[
+        "sma_50"
+    ]
+    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result[
+        "sma_200"
+    ]
     result["sma_20_50_cross"] = np.sign(result["sma_20"] - result["sma_50"]).fillna(0)
     result["sma_50_200_cross"] = np.sign(result["sma_50"] - result["sma_200"]).fillna(0)
 
@@ -360,7 +420,9 @@ def features_berechnen(df: pd.DataFrame) -> pd.DataFrame:  # pylint: disable=too
     result["stoch_d"] = stoch["stoch_d"]
     result["stoch_cross"] = np.sign(result["stoch_k"] - result["stoch_d"]).fillna(0)
 
-    result["williams_r"] = ind_williams_r(result["high"], result["low"], result["close"])
+    result["williams_r"] = ind_williams_r(
+        result["high"], result["low"], result["close"]
+    )
     result["roc_10"] = ind_roc(result["close"], 10)
 
     # --- Volatilitäts-Features ---
@@ -407,11 +469,13 @@ def features_berechnen(df: pd.DataFrame) -> pd.DataFrame:  # pylint: disable=too
     close_h4 = close.resample("4h").last().dropna()
     trend_h4 = np.sign(ind_sma(close_h4, 20) - ind_sma(close_h4, 50)).fillna(0)
     result["trend_h4"] = trend_h4.shift(1).reindex(result.index, method="ffill")
-    result["rsi_h4"] = ind_rsi(close_h4, 14).shift(1).reindex(
-        result.index, method="ffill"
+    result["rsi_h4"] = (
+        ind_rsi(close_h4, 14).shift(1).reindex(result.index, method="ffill")
     )
 
-    close_d1 = close.resample("1d").last().dropna()
+    close_d1 = (
+        close.resample("1D").last().dropna()
+    )  # "1D" statt "1d" (pandas 2.x Konvention)
     trend_d1 = np.sign(ind_sma(close_d1, 20) - ind_sma(close_d1, 50)).fillna(0)
     result["trend_d1"] = trend_d1.shift(1).reindex(result.index, method="ffill")
 
@@ -583,7 +647,9 @@ def signal_generieren(
 
     # NaN auffüllen (Sicherheitsnetz)
     if x_features.isna().any().any():
-        logger.warning("NaN-Werte in Features – werden mit Median der letzten 50 Kerzen gefüllt")
+        logger.warning(
+            "NaN-Werte in Features – werden mit Median der letzten 50 Kerzen gefüllt"
+        )
         nan_fill = df[verfuegbare].iloc[-50:].median()
         x_features = x_features.fillna(nan_fill)
 
@@ -594,7 +660,7 @@ def signal_generieren(
 
     # Signal mit Schwellenwert-Filter
     if raw_pred == 2 and proba[2] >= schwelle:
-        return 2, float(proba[2]), aktuelles_regime   # Long-Signal
+        return 2, float(proba[2]), aktuelles_regime  # Long-Signal
     if raw_pred == 0 and proba[0] >= schwelle:
         return -1, float(proba[0]), aktuelles_regime  # Short-Signal
 
@@ -606,9 +672,7 @@ def signal_generieren(
 # ============================================================
 
 
-def mt5_verbinden(
-    server: str, login: int, password: str, pfad: str = ""
-) -> bool:
+def mt5_verbinden(server: str, login: int, password: str, pfad: str = "") -> bool:
     """
     Verbindet mit dem MT5-Terminal.
 
@@ -787,10 +851,10 @@ def order_senden(  # pylint: disable=too-many-arguments,too-many-positional-argu
         "volume": lot,
         "type": order_type,
         "price": preis,
-        "sl": sl_preis,          # Stop-Loss ist PFLICHT!
+        "sl": sl_preis,  # Stop-Loss ist PFLICHT!
         "tp": tp_preis,
-        "deviation": 20,         # Max. Slippage in Punkte
-        "magic": MAGIC_NUMBER,   # Eindeutige ID für diesen Bot
+        "deviation": 20,  # Max. Slippage in Punkte
+        "magic": MAGIC_NUMBER,  # Eindeutige ID für diesen Bot
         "comment": "ML-Phase6",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
@@ -798,9 +862,7 @@ def order_senden(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
     result = mt5.order_send(request)
     if result.retcode != mt5.TRADE_RETCODE_DONE:
-        logger.error(
-            f"Order fehlgeschlagen: Code={result.retcode} | {result.comment}"
-        )
+        logger.error(f"Order fehlgeschlagen: Code={result.retcode} | {result.comment}")
         return False
 
     logger.info(
@@ -823,11 +885,11 @@ def trade_loggen(
     paper_trading: bool,
 ) -> None:
     """
-    Schreibt jeden Trade-Versuch in eine CSV-Datei.
+    Schreibt Signal-/Heartbeat-Events in eine CSV-Datei.
 
     Args:
         symbol:        Handelssymbol
-        richtung:      2=Long, -1=Short, 0=Kein Trade
+        richtung:      2=Long, -1=Short, 0=Kein Trade (Heartbeat/No-Signal)
         prob:          Signal-Wahrscheinlichkeit
         regime:        Markt-Regime (0–3)
         paper_trading: True = Paper-Modus aktiv
@@ -893,8 +955,7 @@ def kill_switch_pruefen(
         logger.critical("=" * 65)
         logger.critical(f"[{symbol}] ⛔ KILL-SWITCH AUSGELÖST! [{modus}]")
         logger.critical(
-            f"[{symbol}] Drawdown: {drawdown_pct:.1%} "
-            f"(Limit: {max_dd_pct:.1%})"
+            f"[{symbol}] Drawdown: {drawdown_pct:.1%} " f"(Limit: {max_dd_pct:.1%})"
         )
         logger.critical(
             f"[{symbol}] Startkapital: {start_equity:.2f} | "
@@ -943,15 +1004,15 @@ def alle_positionen_schliessen(symbol: str) -> None:
             continue
 
         # Long-Position → mit Sell schließen; Short-Position → mit Buy schließen
-        if pos.type == mt5.ORDER_TYPE_BUY:   # type: ignore[union-attr]
+        if pos.type == mt5.ORDER_TYPE_BUY:  # type: ignore[union-attr]
             close_type = mt5.ORDER_TYPE_SELL  # type: ignore[union-attr]
             preis = tick.bid
         else:
-            close_type = mt5.ORDER_TYPE_BUY   # type: ignore[union-attr]
+            close_type = mt5.ORDER_TYPE_BUY  # type: ignore[union-attr]
             preis = tick.ask
 
         request = {
-            "action": mt5.TRADE_ACTION_DEAL,   # type: ignore[union-attr]
+            "action": mt5.TRADE_ACTION_DEAL,  # type: ignore[union-attr]
             "symbol": symbol,
             "volume": pos.volume,
             "type": close_type,
@@ -960,11 +1021,11 @@ def alle_positionen_schliessen(symbol: str) -> None:
             "deviation": 20,
             "magic": MAGIC_NUMBER,
             "comment": "Kill-Switch",
-            "type_time": mt5.ORDER_TIME_GTC,   # type: ignore[union-attr]
+            "type_time": mt5.ORDER_TIME_GTC,  # type: ignore[union-attr]
             "type_filling": mt5.ORDER_FILLING_IOC,  # type: ignore[union-attr]
         }
         result = mt5.order_send(request)  # type: ignore[union-attr]
-        if result.retcode == mt5.TRADE_RETCODE_DONE:   # type: ignore[union-attr]
+        if result.retcode == mt5.TRADE_RETCODE_DONE:  # type: ignore[union-attr]
             logger.info(f"[{symbol}] Position {pos.ticket} geschlossen ✓")
         else:
             logger.error(
@@ -1004,6 +1065,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     modell: object,
     kill_switch_dd: float = KILL_SWITCH_DD_DEFAULT,
     kapital_start: float = 10000.0,
+    heartbeat_log: bool = HEARTBEAT_LOG_DEFAULT,
 ) -> None:
     """
     Haupt-Schleife: Läuft dauerhaft und wartet auf neue H1-Kerzen.
@@ -1024,11 +1086,13 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         modell:          Geladenes LightGBM-Modell
         kill_switch_dd:  Max. Drawdown bis zum automatischen Stopp (Standard: 0.15 = 15%)
         kapital_start:   Startkapital für Paper-Tracking und Kill-Switch-Berechnung
+        heartbeat_log:   True = schreibe pro neuer Kerze einen CSV-Heartbeat
     """
     modus_str = "PAPER-TRADING" if paper_trading else "⚠️  LIVE-TRADING MIT ECHTEM GELD!"
     regime_str = (
         [REGIME_NAMEN.get(r, str(r)) for r in regime_erlaubt]
-        if regime_erlaubt else "alle"
+        if regime_erlaubt
+        else "alle"
     )
 
     logger.info("=" * 65)
@@ -1036,17 +1100,25 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     logger.info(f"Modus:          {modus_str}")
     logger.info(f"Schwelle:       {schwelle:.0%}")
     logger.info(f"Regime-Filter:  {regime_str}")
-    logger.info(f"TP/SL:          {TP_PCT:.1%} / {SL_PCT:.1%} (RRR={TP_PCT/SL_PCT:.1f}:1)")
+    logger.info(
+        f"TP/SL:          {TP_PCT:.1%} / {SL_PCT:.1%} (RRR={TP_PCT/SL_PCT:.1f}:1)"
+    )
     logger.info(f"Lot-Größe:      {lot}")
-    logger.info(f"Kill-Switch:    Drawdown > {kill_switch_dd:.0%} → automatischer Stopp")
+    logger.info(
+        f"Kill-Switch:    Drawdown > {kill_switch_dd:.0%} → automatischer Stopp"
+    )
     logger.info(f"Startkapital:   {kapital_start:,.2f} (für Kill-Switch-Berechnung)")
+    logger.info(
+        f"Heartbeat-Log:  {'aktiv' if heartbeat_log else 'aus'} "
+        "(CSV-Update pro Kerze)"
+    )
     logger.info(f"Logs:           {LOG_DIR}")
     logger.info("Warte auf neue H1-Kerze ...")
     logger.info("=" * 65)
 
     letzte_kerzen_zeit: Optional[datetime] = None
-    n_signale = 0   # Gesamt-Signale
-    n_trades = 0    # Ausgeführte Trades
+    n_signale = 0  # Gesamt-Signale
+    n_trades = 0  # Ausgeführte Trades
 
     # ---- Kill-Switch: Startkapital ermitteln ----
     # Im Live-Modus: echtes Kontostand von MT5 lesen
@@ -1056,9 +1128,13 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         if account:
             # Echtes Startkapital aus MT5-Konto
             start_equity = account.equity
-            logger.info(f"[{symbol}] MT5-Startkapital: {start_equity:,.2f} {account.currency}")
+            logger.info(
+                f"[{symbol}] MT5-Startkapital: {start_equity:,.2f} {account.currency}"
+            )
         else:
-            logger.warning(f"[{symbol}] MT5-Kontodaten nicht lesbar – Kill-Switch nutzt Startkapital {kapital_start}")
+            logger.warning(
+                f"[{symbol}] MT5-Kontodaten nicht lesbar – Kill-Switch nutzt Startkapital {kapital_start}"
+            )
             start_equity = kapital_start
     else:
         # Paper-Modus: konfiguriertes Startkapital verwenden
@@ -1103,7 +1179,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             # ---- Schritt 1: Daten von MT5 holen ----
             df = mt5_daten_holen(symbol)
             if df is None or len(df) < 250:
-                logger.warning(f"[{symbol}] Zu wenige Daten ({len(df) if df is not None else 0}) – übersprungen")
+                logger.warning(
+                    f"[{symbol}] Zu wenige Daten ({len(df) if df is not None else 0}) – übersprungen"
+                )
                 letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol)
                 time.sleep(30)
                 continue
@@ -1117,7 +1195,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             # NaN-Zeilen am Anfang (Warm-Up) entfernen
             df_clean = df.dropna(subset=FEATURE_SPALTEN)
             if len(df_clean) < 10:
-                logger.warning(f"[{symbol}] Nach NaN-Bereinigung zu wenige Zeilen – übersprungen")
+                logger.warning(
+                    f"[{symbol}] Nach NaN-Bereinigung zu wenige Zeilen – übersprungen"
+                )
                 letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol)
                 continue
 
@@ -1131,16 +1211,19 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 f"Regime={regime} ({regime_name})"
             )
 
-            # Trade loggen (auch wenn kein Signal)
+            # Signal/Heartbeat in CSV loggen
             if signal != 0:
                 n_signale += 1
+            if heartbeat_log or signal != 0:
                 trade_loggen(symbol, signal, prob, regime, paper_trading)
 
             # ---- Schritt 5: Trade ausführen ----
             if signal != 0:
                 # Offene Position prüfen (nur 1 Trade gleichzeitig!)
                 if mt5_offene_position(symbol):
-                    logger.info(f"[{symbol}] Bereits offene Position – kein neuer Trade")
+                    logger.info(
+                        f"[{symbol}] Bereits offene Position – kein neuer Trade"
+                    )
                 else:
                     erfolg = order_senden(
                         symbol, signal, lot, TP_PCT, SL_PCT, paper_trading
@@ -1159,16 +1242,24 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                         # Aber nach Kosten (Spread ~0.01%): leicht negativ
                         # → Für Kill-Switch: pauschale 0.1% Verlust pro Trade (konservativ)
                         if paper_trading:
-                            paper_kapital -= paper_kapital * 0.001  # 0.1% konservative Schätzung
+                            paper_kapital -= (
+                                paper_kapital * 0.001
+                            )  # 0.1% konservative Schätzung
             else:
-                logger.info(f"[{symbol}] Kein Trade-Signal (Prob={prob:.1%} < Schwelle={schwelle:.0%})")
+                logger.info(
+                    f"[{symbol}] Kein Trade-Signal (Prob={prob:.1%} < Schwelle={schwelle:.0%})"
+                )
 
             # Zeitstempel der verarbeiteten Kerze speichern
             letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol)
 
             # Statistik alle 24 Kerzen (ca. 1x täglich)
             if n_trades > 0 and n_trades % 24 == 0:
-                dd_aktuell = (start_equity - paper_kapital) / start_equity if paper_trading else 0.0
+                dd_aktuell = (
+                    (start_equity - paper_kapital) / start_equity
+                    if paper_trading
+                    else 0.0
+                )
                 logger.info(
                     f"[{symbol}] Status: {n_trades} Trades | {n_signale} Signale | "
                     f"Modus: {'Paper' if paper_trading else 'LIVE'} | "
@@ -1206,7 +1297,10 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         "--symbol",
         default="USDCAD",
         choices=SYMBOLE,
-        help="Handelssymbol (Standard: USDCAD – bestes Backtest-Ergebnis!)",
+        help=(
+            "Handelssymbol (Standard: USDCAD). "
+            "Aktive Betriebs-Symbole laut Policy: USDCAD, USDJPY"
+        ),
     )
     parser.add_argument(
         "--schwelle",
@@ -1265,6 +1359,16 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         help="Modell-Versions-Suffix (Standard: v1). Muss mit train_model.py übereinstimmen.",
     )
     parser.add_argument(
+        "--allow_research_symbol",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        help=(
+            "0 = Policy erzwingen (nur USDCAD/USDJPY handelbar, Standard), "
+            "1 = Forschungs-Override fuer andere Symbole (nur Paper-Modus empfohlen)."
+        ),
+    )
+    parser.add_argument(
         "--kill_switch_dd",
         type=float,
         default=KILL_SWITCH_DD_DEFAULT,
@@ -1283,6 +1387,16 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "Im Live-Modus wird das echte MT5-Kontokapital automatisch ausgelesen."
         ),
     )
+    parser.add_argument(
+        "--heartbeat_log",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        help=(
+            "1 = pro neuer Kerze Heartbeat in CSV schreiben (Standard), "
+            "0 = nur bei Signal/Trade schreiben."
+        ),
+    )
     args = parser.parse_args()
 
     # ---- Regime-Filter parsen ----
@@ -1291,7 +1405,9 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         try:
             regime_erlaubt = [int(r.strip()) for r in args.regime_filter.split(",")]
         except ValueError:
-            print(f"Ungültiger --regime_filter: '{args.regime_filter}'. Erwartet: z.B. '1,2'")
+            print(
+                f"Ungültiger --regime_filter: '{args.regime_filter}'. Erwartet: z.B. '1,2'"
+            )
             return
 
     # ---- Paper-Trading sicher stellen ----
@@ -1308,8 +1424,30 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             return
         print("⚠️ " * 20 + "\n")
 
-    # ---- Modell laden ----
+    # ---- Symbol-Policy prüfen (nur 2 aktive Paare) ----
     symbol = args.symbol.upper()
+    if symbol not in AKTIVE_SYMBOLE and not bool(args.allow_research_symbol):
+        print(
+            "\nPolicy-Block: Dieses Symbol ist aktuell Research-only.\n"
+            f"Aktive Betriebs-Symbole: {', '.join(AKTIVE_SYMBOLE)}\n"
+            "Wenn du bewusst testen willst, setze --allow_research_symbol 1 "
+            "(empfohlen nur mit --paper_trading 1)."
+        )
+        return
+
+    # Forschungs-Override nur im Paper-Modus zulassen
+    if (
+        symbol not in AKTIVE_SYMBOLE
+        and bool(args.allow_research_symbol)
+        and not paper_trading
+    ):
+        print(
+            "Research-Override darf nicht im Live-Modus laufen. "
+            "Bitte --paper_trading 1 verwenden."
+        )
+        return
+
+    # ---- Modell laden ----
     modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{args.version}.pkl"
     if not modell_pfad.exists():
         print(
@@ -1363,6 +1501,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         modell=modell,
         kill_switch_dd=args.kill_switch_dd,
         kapital_start=args.kapital_start,
+        heartbeat_log=bool(args.heartbeat_log),
     )
 
     # MT5 Verbindung beenden

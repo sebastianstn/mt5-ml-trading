@@ -50,7 +50,7 @@ mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
 ├── .github/
 │   └── copilot-instructions.md        # Instruktionen für GitHub Copilot
 ├── CLAUDE.md                          # Diese Datei – Instruktionen für Claude Code
-├── ROADMAP.md                         # Projektplan mit allen Phasen
+├── Roadmap.md                         # Projektplan mit allen Phasen
 ├── data/                              # Rohdaten (CSV-Dateien) – niemals in Git!
 ├── features/                          # Feature-Engineering Skripte
 │   └── feature_engineering.py
@@ -107,7 +107,7 @@ mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
 
 ## 🔄 Aktuelle Projektphase
 
-### → Phase 4: Labeling & Modelltraining
+### → Phase 7: Überwachung & Wartung (Paper-Trading läuft aktiv)
 
 Phasenübersicht:
 
@@ -115,13 +115,16 @@ Phasenübersicht:
 - ✅ Phase 1 – Umgebung & Datenbeschaffung
 - ✅ Phase 2 – Feature Engineering (56 Features, 7 Paare)
 - ✅ Phase 3 – Regime Detection (market_regime + adx_14 in allen CSVs)
-- 🔄 Phase 4 – Labeling & Modelltraining
-- ⬜ Phase 5 – Backtesting
-- ⬜ Phase 6 – Live-Integration (MT5)
-- ⬜ Phase 7 – Überwachung & Wartung
+- ✅ Phase 4 – Labeling & Modelltraining (LightGBM + XGBoost, 14 Modelle)
+- ✅ Phase 5 – Backtesting (USDCAD Sharpe=1.277, USDJPY Sharpe=1.073)
+- ✅ Phase 6 – Live-Integration (MT5 verbunden, Dashboard+Sync stabil)
+- 🔄 Phase 7 – Überwachung & Wartung (KPI-Gates, 12-GO-Wochen, Retraining)
+
+**Operative Policy aktuell:** Nur `USDCAD` und `USDJPY` sind aktiv im Paper-Betrieb.
+Alle anderen Symbole bleiben Research-only bis zur expliziten Freigabe.
 
 > **Tipp:** Aktualisiere die aktuelle Phase hier wenn du vorankommst,
-> damit Claude immer den richtigen Kontext hat. Details → `ROADMAP.md`
+> damit Claude immer den richtigen Kontext hat. Details → `Roadmap.md`
 
 ---
 
@@ -246,9 +249,9 @@ model = joblib.load(MODEL_DIR / "model_v1.pkl")
 - Antworte **auf Deutsch**
 - Erkläre Konzepte **einfach** (ich lerne noch)
 - Sei **direkt und konkret** – keine langen Einleitungen
-- Verweise auf die **nächste Aufgabe** in der Roadmap (`ROADMAP.md`)
+- Verweise auf die **nächste Aufgabe** in der Roadmap (`Roadmap.md`)
 - Sage immer klar, **auf welchem Gerät** (Linux-Server oder Windows Laptop) ein Befehl ausgeführt wird
 
 ---
 
-Letzte Aktualisierung: 2026-02-25
+Letzte Aktualisierung: 2026-03-01

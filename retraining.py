@@ -35,12 +35,12 @@ Ausgabe:  models/lgbm_SYMBOL_vN.pkl             (versioniertes Modell)
 import argparse
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
 # Datenverarbeitung
-import numpy as np
 import pandas as pd
 
 # ML
@@ -68,9 +68,9 @@ logger = logging.getLogger(__name__)
 # Pfade und Konstanten
 # ============================================================
 
-BASE_DIR   = Path(__file__).parent
-DATA_DIR   = BASE_DIR / "data"
-MODEL_DIR  = BASE_DIR / "models"
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+MODEL_DIR = BASE_DIR / "models"
 BACKTEST_DIR = BASE_DIR / "backtest"
 
 # Alle 7 Forex-Hauptpaare
@@ -78,20 +78,39 @@ SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
 # Gleiche Ausschluss-Spalten wie in train_model.py und backtest.py
 AUSSCHLUSS_SPALTEN = {
-    "open", "high", "low", "close", "volume", "spread",
-    "sma_20", "sma_50", "sma_200", "ema_12", "ema_26",
-    "atr_14", "bb_upper", "bb_mid", "bb_lower", "obv", "label",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "spread",
+    "sma_20",
+    "sma_50",
+    "sma_200",
+    "ema_12",
+    "ema_26",
+    "atr_14",
+    "bb_upper",
+    "bb_mid",
+    "bb_lower",
+    "obv",
+    "label",
 }
 
 # Zeitliche Aufteilung (MUSS mit train_model.py übereinstimmen!)
 TRAIN_BIS = "2021-12-31"  # Training: bis Ende 2021
-VAL_BIS   = "2022-12-31"  # Validierung: 2022 (für F1-Vergleich)
+VAL_BIS = "2022-12-31"  # Validierung: 2022 (für F1-Vergleich)
 # Test: 2023+ → NIEMALS für Retraining-Entscheidungen verwenden!
 
 # Standard-Retraining-Parameter
-OPTUNA_TRIALS     = 30    # Weniger als initiales Training (50), für monatliche Läufe
-SHARPE_GRENZWERT  = 0.5   # Trigger: Sharpe unter diesem Wert → Retraining empfohlen
-F1_TOLERANZ       = 0.01  # Toleranz: neues Modell wird deployed wenn F1 >= alt - 1%
+OPTUNA_TRIALS = 30  # Weniger als initiales Training (50), für monatliche Läufe
+SHARPE_GRENZWERT = 0.5  # Trigger: Sharpe unter diesem Wert → Retraining empfohlen
+F1_TOLERANZ = 0.01  # Toleranz: neues Modell wird deployed wenn F1 >= alt - 1%
+
+# Wichtiges Schema-Fix:
+# Retraining-Modelle nutzen EIGENES Versionsschema (rt1, rt2, ...),
+# damit keine Verwechslung mit Labeling-/Datenversionen (v1, v2, v3) entsteht.
+RETRAINING_VERSION_PREFIX = "rt"
 
 
 # ============================================================
@@ -126,7 +145,7 @@ def f1_history_laden(symbol: str) -> dict:
     pfad = f1_history_pfad(symbol)
     if not pfad.exists():
         # Noch keine Geschichte → leere Historie zurückgeben
-        logger.info(f"[{symbol}] Keine F1-Historie gefunden – starte frisch.")
+        logger.info("[%s] Keine F1-Historie gefunden – starte frisch.", symbol)
         return {}
     with open(pfad, encoding="utf-8") as f:
         return json.load(f)
@@ -150,7 +169,7 @@ def f1_history_speichern(symbol: str, version: str, f1: float) -> None:
     historie[f"{version}_datum"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     with open(pfad, "w", encoding="utf-8") as f:
         json.dump(historie, f, indent=2, ensure_ascii=False)
-    logger.info(f"[{symbol}] F1-Historie gespeichert: {pfad}")
+    logger.info("[%s] F1-Historie gespeichert: %s", symbol, pfad)
 
 
 def aktuellen_f1_laden(symbol: str) -> Tuple[Optional[float], Optional[str]]:
@@ -169,8 +188,13 @@ def aktuellen_f1_laden(symbol: str) -> Tuple[Optional[float], Optional[str]]:
     versions = {k: v for k, v in historie.items() if not k.endswith("_datum")}
     if not versions:
         return None, None
-    # Neueste Version = höchste Versionsnummer
-    neueste_version = max(versions.keys(), key=lambda v: int(v.lstrip("v")))
+
+    # Neueste Version = höchste Ziffer am Ende (unterstützt v3 UND rt3)
+    def _version_sort_key(version: str) -> int:
+        match = re.search(r"(\d+)$", version)
+        return int(match.group(1)) if match else -1
+
+    neueste_version = max(versions.keys(), key=_version_sort_key)
     return float(versions[neueste_version]), neueste_version
 
 
@@ -179,7 +203,9 @@ def aktuellen_f1_laden(symbol: str) -> Tuple[Optional[float], Optional[str]]:
 # ============================================================
 
 
-def naechste_versionsnummer(symbol: str) -> str:
+def naechste_versionsnummer(
+    symbol: str, prefix: str = RETRAINING_VERSION_PREFIX
+) -> str:
     """Berechnet die nächste Versionsnummer für das Modell.
 
     Sucht alle vorhandenen PKL-Dateien für dieses Symbol und gibt
@@ -188,25 +214,29 @@ def naechste_versionsnummer(symbol: str) -> str:
     Args:
         symbol: Handelssymbol (z.B. "EURUSD")
 
+    Args:
+        symbol: Handelssymbol (z.B. "EURUSD")
+        prefix: Versionsprefix (Standard: "rt" → rt1, rt2, ...)
+
     Returns:
-        Neue Versionsnummer als String, z.B. "v2" oder "v3"
+        Neue Versionsnummer als String, z.B. "rt2" oder "rt3"
     """
     sym_lower = symbol.lower()
     # Alle vorhandenen PKL-Dateien für dieses Symbol finden
-    vorhandene = list(MODEL_DIR.glob(f"lgbm_{sym_lower}_v*.pkl"))
+    vorhandene = list(MODEL_DIR.glob(f"lgbm_{sym_lower}_{prefix}*.pkl"))
     if not vorhandene:
         # Noch kein Modell vorhanden → erste Version
-        return "v1"
+        return f"{prefix}1"
     # Höchste Versionsnummer extrahieren
     versionen = []
     for pfad in vorhandene:
-        # Dateiname: lgbm_eurusd_v1.pkl → "v1"
-        teile = pfad.stem.split("_v")
-        if len(teile) == 2 and teile[1].isdigit():
-            versionen.append(int(teile[1]))
+        # Dateiname: lgbm_eurusd_rt1.pkl → "rt1"
+        match = re.search(rf"_{re.escape(prefix)}(\d+)$", pfad.stem)
+        if match:
+            versionen.append(int(match.group(1)))
     if not versionen:
-        return "v2"
-    return f"v{max(versionen) + 1}"
+        return f"{prefix}2"
+    return f"{prefix}{max(versionen) + 1}"
 
 
 def modell_pfad(symbol: str, version: str) -> Path:
@@ -245,8 +275,9 @@ def trigger_pruefen(symbol: str, sharpe_limit: float = SHARPE_GRENZWERT) -> bool
     if not zusammenfassung_pfad.exists():
         # Kein Backtest vorhanden → Retraining vorsichtshalber empfehlen
         logger.warning(
-            f"[{symbol}] Keine backtest_zusammenfassung.csv gefunden – "
-            f"Retraining wird empfohlen."
+            "[%s] Keine backtest_zusammenfassung.csv gefunden – "
+            "Retraining wird empfohlen.",
+            symbol,
         )
         return True
 
@@ -256,28 +287,31 @@ def trigger_pruefen(symbol: str, sharpe_limit: float = SHARPE_GRENZWERT) -> bool
         zeile = df[df["symbol"].str.upper() == symbol.upper()]
         if zeile.empty:
             logger.warning(
-                f"[{symbol}] Kein Eintrag in backtest_zusammenfassung.csv – "
-                f"Retraining wird empfohlen."
+                "[%s] Kein Eintrag in backtest_zusammenfassung.csv – "
+                "Retraining wird empfohlen.",
+                symbol,
             )
             return True
 
         sharpe = float(zeile["sharpe_ratio"].iloc[0])
         if sharpe < sharpe_limit:
             logger.info(
-                f"[{symbol}] Trigger ausgelöst: "
-                f"Sharpe={sharpe:.3f} < Limit={sharpe_limit:.2f} "
-                f"→ Retraining empfohlen"
+                "[%s] Trigger ausgelöst: Sharpe=%.3f < Limit=%.2f → Retraining empfohlen",
+                symbol,
+                sharpe,
+                sharpe_limit,
             )
             return True
         logger.info(
-            f"[{symbol}] Kein Trigger: "
-            f"Sharpe={sharpe:.3f} >= Limit={sharpe_limit:.2f} "
-            f"→ Modell noch OK"
+            "[%s] Kein Trigger: Sharpe=%.3f >= Limit=%.2f → Modell noch OK",
+            symbol,
+            sharpe,
+            sharpe_limit,
         )
         return False
 
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error(f"[{symbol}] Fehler beim Lesen der Zusammenfassung: {e}")
+        logger.error("[%s] Fehler beim Lesen der Zusammenfassung: %s", symbol, e)
         return True  # Im Zweifel trainieren
 
 
@@ -311,7 +345,7 @@ def daten_laden_und_aufteilen(
             f"Bitte zuerst features/labeling.py ausführen."
         )
 
-    logger.info(f"[{symbol}] Lade Daten: {pfad}")
+    logger.info("[%s] Lade Daten: %s", symbol, pfad)
     df = pd.read_csv(pfad, index_col=0, parse_dates=True)
 
     # Label-Spalte prüfen
@@ -321,27 +355,24 @@ def daten_laden_und_aufteilen(
     # Features auswählen (gleiche Logik wie train_model.py)
     feature_spalten = [c for c in df.columns if c not in AUSSCHLUSS_SPALTEN]
     logger.info(
-        f"[{symbol}] {len(feature_spalten)} Features | "
-        f"{len(df)} Kerzen gesamt"
+        "[%s] %s Features | %s Kerzen gesamt", symbol, len(feature_spalten), len(df)
     )
 
     # Zeitliche Aufteilung (KEINE Shuffle! Zeitreihen-Konvention)
     train_maske = df.index <= TRAIN_BIS
-    val_maske   = (df.index > TRAIN_BIS) & (df.index <= VAL_BIS)
+    val_maske = (df.index > TRAIN_BIS) & (df.index <= VAL_BIS)
     # test_maske = df.index > VAL_BIS  → NIEMALS verwenden!
 
     X = df[feature_spalten]
     y = df["label"]
 
     X_train, y_train = X[train_maske], y[train_maske]
-    X_val,   y_val   = X[val_maske],   y[val_maske]
+    X_val, y_val = X[val_maske], y[val_maske]
 
-    logger.info(
-        f"[{symbol}] Train: {len(X_train)} | Val: {len(X_val)} Kerzen"
-    )
+    logger.info("[%s] Train: %s | Val: %s Kerzen", symbol, len(X_train), len(X_val))
 
     # NaN-Werte entfernen (Rolling-Features erzeugen NaN am Anfang)
-    val_valid  = ~(X_val.isnull().any(axis=1)  | y_val.isnull())
+    val_valid = ~(X_val.isnull().any(axis=1) | y_val.isnull())
     train_valid = ~(X_train.isnull().any(axis=1) | y_train.isnull())
 
     return (
@@ -375,7 +406,7 @@ def neues_modell_trainieren(
     Returns:
         F1-Macro-Score auf dem Validierungs-Set (Wert zwischen 0 und 1)
     """
-    logger.info(f"[{symbol}] Starte Retraining → Version {version}")
+    logger.info("[%s] Starte Retraining → Version %s", symbol, version)
     start = datetime.now()
 
     # Daten laden und aufteilen
@@ -385,24 +416,25 @@ def neues_modell_trainieren(
     def objective(trial: optuna.Trial) -> float:
         """Optuna-Zielfunktion: maximiert F1-Macro auf Val-Set."""
         params = {
-            "objective":     "multiclass",
-            "num_class":     3,            # Short=0, Neutral=1, Long=2
-            "metric":        "multi_logloss",
-            "verbosity":     -1,
-            "n_estimators":  trial.suggest_int("n_estimators", 100, 500),
+            "objective": "multiclass",
+            "num_class": 3,  # Short=0, Neutral=1, Long=2
+            "metric": "multi_logloss",
+            "verbosity": -1,
+            "n_estimators": trial.suggest_int("n_estimators", 100, 500),
             "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
-            "max_depth":     trial.suggest_int("max_depth", 3, 8),
-            "num_leaves":    trial.suggest_int("num_leaves", 20, 100),
-            "subsample":     trial.suggest_float("subsample", 0.6, 1.0),
+            "max_depth": trial.suggest_int("max_depth", 3, 8),
+            "num_leaves": trial.suggest_int("num_leaves", 20, 100),
+            "subsample": trial.suggest_float("subsample", 0.6, 1.0),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
-            "reg_alpha":     trial.suggest_float("reg_alpha", 1e-4, 10.0, log=True),
-            "reg_lambda":    trial.suggest_float("reg_lambda", 1e-4, 10.0, log=True),
+            "reg_alpha": trial.suggest_float("reg_alpha", 1e-4, 10.0, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 1e-4, 10.0, log=True),
             "min_child_samples": trial.suggest_int("min_child_samples", 10, 100),
-            "random_state":  42,
+            "random_state": 42,
         }
         modell = lgb.LGBMClassifier(**params)
         modell.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=[(X_val, y_val)],
             callbacks=[lgb.early_stopping(30, verbose=False)],
         )
@@ -410,30 +442,33 @@ def neues_modell_trainieren(
         return float(f1_score(y_val, y_pred, average="macro"))
 
     # ── Optuna-Optimierung starten ───────────────────────────
-    logger.info(f"[{symbol}] Optuna Retraining: {trials} Trials ...")
+    logger.info("[%s] Optuna Retraining: %s Trials ...", symbol, trials)
     study = optuna.create_study(
         direction="maximize",
         sampler=optuna.samplers.TPESampler(seed=42),
     )
     study.optimize(objective, n_trials=trials, show_progress_bar=False)
 
-    bestes_f1    = study.best_value
+    bestes_f1 = study.best_value
     beste_params = study.best_params
-    dauer_sek    = int((datetime.now() - start).total_seconds())
+    dauer_sek = int((datetime.now() - start).total_seconds())
 
     logger.info(
-        f"[{symbol}] Optuna abgeschlossen: "
-        f"F1={bestes_f1:.4f} | Trials={trials} | "
-        f"Dauer={dauer_sek // 60}m {dauer_sek % 60}s"
+        "[%s] Optuna abgeschlossen: F1=%.4f | Trials=%s | Dauer=%sm %ss",
+        symbol,
+        bestes_f1,
+        trials,
+        dauer_sek // 60,
+        dauer_sek % 60,
     )
 
     # ── Bestes Modell final trainieren und temporär speichern ─
     final_params = {
-        "objective":     "multiclass",
-        "num_class":     3,
-        "metric":        "multi_logloss",
-        "verbosity":     -1,
-        "random_state":  42,
+        "objective": "multiclass",
+        "num_class": 3,
+        "metric": "multi_logloss",
+        "verbosity": -1,
+        "random_state": 42,
         **beste_params,
     }
     finales_modell = lgb.LGBMClassifier(**final_params)
@@ -443,7 +478,7 @@ def neues_modell_trainieren(
     temp_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}_temp.pkl"
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(finales_modell, temp_pfad)
-    logger.info(f"[{symbol}] Temp-Modell gespeichert: {temp_pfad}")
+    logger.info("[%s] Temp-Modell gespeichert: %s", symbol, temp_pfad)
 
     return bestes_f1
 
@@ -481,14 +516,20 @@ def modelle_vergleichen(
     grenzwert = f1_alt - toleranz
     if f1_neu >= grenzwert:
         logger.info(
-            f"  F1: {f1_neu:.4f} >= {grenzwert:.4f} "
-            f"(Alt={f1_alt:.4f} - Toleranz={toleranz}) → Deployment empfohlen"
+            "  F1: %.4f >= %.4f (Alt=%.4f - Toleranz=%s) → Deployment empfohlen",
+            f1_neu,
+            grenzwert,
+            f1_alt,
+            toleranz,
         )
         return True
 
     logger.info(
-        f"  F1: {f1_neu:.4f} < {grenzwert:.4f} "
-        f"(Alt={f1_alt:.4f} - Toleranz={toleranz}) → Kein Deployment"
+        "  F1: %.4f < %.4f (Alt=%.4f - Toleranz=%s) → Kein Deployment",
+        f1_neu,
+        grenzwert,
+        f1_alt,
+        toleranz,
     )
     return False
 
@@ -504,16 +545,16 @@ def modell_deployen(symbol: str, version: str, f1: float) -> None:
         version: Neue Versionsnummer (z.B. "v2")
         f1:      F1-Score des neuen Modells
     """
-    temp_pfad    = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}_temp.pkl"
-    ziel_pfad    = modell_pfad(symbol, version)
+    temp_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}_temp.pkl"
+    ziel_pfad = modell_pfad(symbol, version)
 
     if not temp_pfad.exists():
-        logger.error(f"[{symbol}] Temp-Modell nicht gefunden: {temp_pfad}")
+        logger.error("[%s] Temp-Modell nicht gefunden: %s", symbol, temp_pfad)
         return
 
     # Umbenennen (Deployment)
     temp_pfad.rename(ziel_pfad)
-    logger.info(f"[{symbol}] ✅ Modell deployed: {ziel_pfad}")
+    logger.info("[%s] ✅ Modell deployed: %s", symbol, ziel_pfad)
 
     # F1-Historie speichern
     f1_history_speichern(symbol, version, f1)
@@ -529,7 +570,7 @@ def temp_modell_loeschen(symbol: str, version: str) -> None:
     temp_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}_temp.pkl"
     if temp_pfad.exists():
         temp_pfad.unlink()
-        logger.info(f"[{symbol}] Temp-Modell gelöscht: {temp_pfad}")
+        logger.info("[%s] Temp-Modell gelöscht: %s", symbol, temp_pfad)
 
 
 # ============================================================
@@ -554,18 +595,18 @@ def symbol_retraining(
     Returns:
         Dict mit Ergebnis-Infos (deployed, f1_neu, f1_alt, version, grund)
     """
-    logger.info(f"\n{'=' * 60}")
-    logger.info(f"  Retraining – {symbol}")
-    logger.info(f"{'=' * 60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("  Retraining – %s", symbol)
+    logger.info("%s", "=" * 60)
 
     ergebnis = {
-        "symbol":    symbol,
+        "symbol": symbol,
         "trainiert": False,
-        "deployed":  False,
-        "f1_neu":    None,
-        "f1_alt":    None,
-        "version":   None,
-        "grund":     "",
+        "deployed": False,
+        "f1_neu": None,
+        "f1_alt": None,
+        "version": None,
+        "grund": "",
     }
 
     # ── Schritt 1: Trigger prüfen ───────────────────────────
@@ -573,40 +614,42 @@ def symbol_retraining(
         braucht_retraining = trigger_pruefen(symbol, sharpe_limit)
         if not braucht_retraining:
             ergebnis["grund"] = "Kein Trigger (Sharpe OK)"
-            logger.info(f"[{symbol}] Kein Retraining nötig.")
+            logger.info("[%s] Kein Retraining nötig.", symbol)
             return ergebnis
     else:
-        logger.info(f"[{symbol}] --erzwingen gesetzt → überspringe Trigger-Prüfung")
+        logger.info("[%s] --erzwingen gesetzt → überspringe Trigger-Prüfung", symbol)
 
     # ── Schritt 2: Alte F1 laden ────────────────────────────
     f1_alt, version_alt = aktuellen_f1_laden(symbol)
     if f1_alt is not None:
-        logger.info(f"[{symbol}] Altes Modell: Version={version_alt} | F1={f1_alt:.4f}")
+        logger.info(
+            "[%s] Altes Modell: Version=%s | F1=%.4f", symbol, version_alt, f1_alt
+        )
     else:
-        logger.info(f"[{symbol}] Kein altes F1 in Historie → erstes Retraining")
+        logger.info("[%s] Kein altes F1 in Historie → erstes Retraining", symbol)
     ergebnis["f1_alt"] = f1_alt
 
-    # ── Schritt 3: Nächste Versionsnummer bestimmen ─────────
+    # ── Schritt 3: Nächste Retraining-Versionsnummer bestimmen ─────────
     neue_version = naechste_versionsnummer(symbol)
-    logger.info(f"[{symbol}] Neue Versionsnummer: {neue_version}")
+    logger.info("[%s] Neue Versionsnummer: %s", symbol, neue_version)
     ergebnis["version"] = neue_version
 
     # ── Schritt 4: Neues Modell trainieren ──────────────────
     try:
         f1_neu = neues_modell_trainieren(symbol, neue_version, trials)
         ergebnis["trainiert"] = True
-        ergebnis["f1_neu"]    = f1_neu
+        ergebnis["f1_neu"] = f1_neu
     except FileNotFoundError as e:
-        logger.error(f"[{symbol}] Daten fehlen: {e}")
+        logger.error("[%s] Daten fehlen: %s", symbol, e)
         ergebnis["grund"] = "Fehler: Datei nicht gefunden"
         return ergebnis
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error(f"[{symbol}] Trainingsfehler: {e}", exc_info=True)
+        logger.error("[%s] Trainingsfehler: %s", symbol, e, exc_info=True)
         ergebnis["grund"] = f"Fehler: {e}"
         return ergebnis
 
     # ── Schritt 5: Vergleich und Deployment-Entscheidung ────
-    logger.info(f"[{symbol}] Vergleiche Modelle:")
+    logger.info("[%s] Vergleiche Modelle:", symbol)
     soll_deployen = modelle_vergleichen(f1_neu, f1_alt)
 
     if soll_deployen:
@@ -617,14 +660,14 @@ def symbol_retraining(
         ergebnis["grund"] = (
             f"Deployed {neue_version}: F1={f1_neu:.4f} (Alt: {f1_alt_str})"
         )
-        logger.info(f"[{symbol}] ✅ DEPLOYED: {neue_version} (F1={f1_neu:.4f})")
+        logger.info("[%s] ✅ DEPLOYED: %s (F1=%.4f)", symbol, neue_version, f1_neu)
     else:
         temp_modell_loeschen(symbol, neue_version)
         ergebnis["grund"] = (
             f"Kein Deployment: F1_neu={f1_neu:.4f} < F1_alt={f1_alt:.4f} "
             f"- Toleranz={F1_TOLERANZ}"
         )
-        logger.info(f"[{symbol}] ❌ NICHT deployed (altes Modell bleibt aktiv)")
+        logger.info("[%s] ❌ NICHT deployed (altes Modell bleibt aktiv)", symbol)
 
     return ergebnis
 
@@ -702,17 +745,19 @@ def main() -> None:
         return
 
     start_zeit = datetime.now()
-    logger.info("=" * 60)
+    logger.info("%s", "=" * 60)
     logger.info("MT5 ML-Trading – Retraining-Pipeline")
-    logger.info(f"Symbole:       {', '.join(ziel_symbole)}")
-    logger.info(f"Erzwingen:     {'Ja' if args.erzwingen else 'Nein'}")
-    logger.info(f"Sharpe-Limit:  {args.sharpe_limit:.2f}")
-    logger.info(f"Optuna-Trials: {args.trials}")
-    logger.info(f"F1-Toleranz:   {args.toleranz:.2f} ({args.toleranz*100:.0f}%%)")
+    logger.info("Symbole:       %s", ", ".join(ziel_symbole))
+    logger.info("Erzwingen:     %s", "Ja" if args.erzwingen else "Nein")
+    logger.info("Sharpe-Limit:  %.2f", args.sharpe_limit)
+    logger.info("Optuna-Trials: %s", args.trials)
     logger.info(
-        f"HINWEIS: Test-Set (2023+) wird NIEMALS für Retraining verwendet!"
+        "Version-Schema: %sN (entkoppelt von Datenversion vN)",
+        RETRAINING_VERSION_PREFIX,
     )
-    logger.info("=" * 60)
+    logger.info("F1-Toleranz:   %.2f (%s%%)", args.toleranz, f"{args.toleranz*100:.0f}")
+    logger.info("HINWEIS: Test-Set (2023+) wird NIEMALS für Retraining verwendet!")
+    logger.info("%s", "=" * 60)
 
     # Retraining für alle Ziel-Symbole
     alle_ergebnisse = []
@@ -736,12 +781,12 @@ def main() -> None:
     )
     print("─" * 65)
 
-    n_deployed  = 0
+    n_deployed = 0
     n_trainiert = 0
     for e in alle_ergebnisse:
         f1_alt_str = f"{e['f1_alt']:.4f}" if e["f1_alt"] is not None else "  N/A "
         f1_neu_str = f"{e['f1_neu']:.4f}" if e["f1_neu"] is not None else "  N/A "
-        deployed_icon = "✅" if e["deployed"]  else "─"
+        deployed_icon = "✅" if e["deployed"] else "─"
         trainiert_icon = "✅" if e["trainiert"] else "─"
         if e["deployed"]:
             n_deployed += 1
@@ -760,15 +805,13 @@ def main() -> None:
 
     # Nächste Schritte
     if n_deployed > 0:
-        print(
-            "\nNächster Schritt: Backtest mit dem neuen Modell ausführen:"
-        )
+        print("\nNächster Schritt: Backtest mit dem neuen Modell ausführen:")
         for e in alle_ergebnisse:
             if e["deployed"]:
                 print(
                     f"  python backtest/backtest.py "
                     f"--symbol {e['symbol']} "
-                    f"--version {e['version']} "
+                    f"--version v1 --model_version {e['version']} "
                     f"--schwelle 0.60 --regime_filter 1,2"
                 )
     else:

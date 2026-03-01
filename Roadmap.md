@@ -1,6 +1,8 @@
 # 🗺️ MT5 ML-Trading-System – Roadmap
 
-**Hauptwährungspaare:** `EURUSD`, `GBPUSD`, `USDJPY`, `AUDUSD`, `USDCAD`, `USDCHF`, `NZDUSD`
+**Research-Universum:** `EURUSD`, `GBPUSD`, `USDJPY`, `AUDUSD`, `USDCAD`, `USDCHF`, `NZDUSD`
+
+**Aktive operative Paare (Paper):** `USDCAD`, `USDJPY`
 
 **Ziel:** Ein automatisches Handelssystem mit XGBoost/LightGBM + Regime-Detection, das in MetaTrader 5 live handelt.
 
@@ -342,31 +344,33 @@
 
 ---
 
-## 🔄 PHASE 6 – Live-Integration (MT5)
+## ✅ PHASE 6 – Live-Integration (MT5)
 
 **Ziel:** System läuft automatisch auf dem Windows 11 Laptop und handelt live
 
-### ⛔ Voraussetzungen (VOR Phase 6 prüfen!)
+### ⛔ Voraussetzungen (vor Echtgeld-Betrieb prüfen)
 
-- [ ] Dynamisches Risikomanagement implementiert und getestet (Phase 5)
-- [ ] Transaction Cost Sensitivity Test bestanden (Review-Punkt 3)
-- [ ] Fallback für externe APIs implementiert (Review-Punkt 4)
-- [ ] Out-of-Sample Reality-Check durchgeführt (Review-Punkt 10)
-- [ ] Go/No-Go basierend auf Profit Factor definiert (Review-Punkt 1)
-- [ ] Kill-Switch bei Max. Drawdown 15–20% implementiert (Review-Punkt 8)
+- [x] Dynamisches Risikomanagement implementiert und getestet (Phase 5)
+- [x] Transaction Cost Sensitivity Test bestanden (Review-Punkt 3)
+- [x] Fallback für externe APIs implementiert (Review-Punkt 4)
+- [x] Out-of-Sample Reality-Check durchgeführt (Review-Punkt 10)
+- [x] Go/No-Go-Kriterien inkl. Profit Factor definiert (Review-Punkt 1)
+- [x] Kill-Switch bei Max. Drawdown implementiert (Review-Punkt 8)
 
 ### Infrastruktur
 
 - [x] MT5 Terminal auf Windows 11 Laptop installiert
-- [ ] `pip install -r requirements-laptop.txt` auf Laptop
-- [ ] Modelle (.pkl) vom Linux-Server auf Laptop übertragen (`scp`)
-- [ ] Laptop-Schlaf/Ruhemodus deaktivieren
+- [x] `pip install -r requirements-laptop.txt` auf Laptop
+- [x] Modelle (.pkl) vom Linux-Server auf Laptop übertragen
+- [x] Laptop-Schlaf/Ruhemodus deaktivieren
 - [ ] ⚠️ Langfristig Windows-VPS für 24/7-Betrieb evaluieren (~5 €/Monat)
 
 ### CI/CD & Monitoring
 
-- [ ] Automatisiertes Deployment (Modell-Update Server → Laptop)
-- [ ] Health-Checks und automatisierte Neustarts bei Fehlern
+- [x] MT5-Dashboard + CSV-Sync aufgebaut (`live/mt5/*`)
+- [x] Autostart-Sync via Task Scheduler dokumentiert/automatisiert
+- [ ] Vollautomatisches Deployment (Modell-Update Server → Laptop)
+- [ ] Erweiterte Health-Checks und automatisierte Neustarts bei Fehlern
 
 ### Live-Skript
 
@@ -389,19 +393,30 @@ Jede neue H1-Kerze:
 - [x] Stop-Loss ist Pflicht in jeder echten Order
 - [x] **Fallback bei API-Ausfall** implementiert: Fear & Greed → 50/Neutral, BTC Funding → 0.0 (Review-Punkt 4)
 - [x] **Kill-Switch bei Max. Drawdown** implementiert in `live_trader.py`: `--kill_switch_dd 0.15` (Review-Punkt 8)
+- [x] **Heartbeat-Logging** implementiert (`--heartbeat_log 1`) für Dashboard-Datenfrische
+- [x] **Operative Policy**: nur `USDCAD` + `USDJPY` aktiv, andere Paare research-only
 
-### Paper-Trading
+### Paper-Trading (laufend)
 
+- [x] Start Paper-Trading erfolgt (ab 2026-02-28)
 - [ ] **Mindestens 3 Monate** Paper-Trading laufen lassen (Review-Punkt 9):
 
 ```bash
 # Auf Windows Laptop ausführen!
 python live/live_trader.py --symbol USDCAD --schwelle 0.60 --regime_filter 1,2   # H1-Modell
 python live/live_trader.py --symbol USDJPY --schwelle 0.60 --regime_filter 1     # H1-Modell (nur Aufwärtstrend)
-python live/live_trader.py --symbol USDCHF --schwelle 0.60 --regime_filter 2     # H4-Modell (nur Abwärtstrend) – Kandidat
+python live/live_trader.py --symbol USDCHF --schwelle 0.60 --regime_filter 2     # Research-only Kandidat (nicht operativ)
 ```
 
-> ✅ **Phase 6 abgeschlossen, wenn:** System läuft **3 Monate** stabil im Paper-Trading mit positiver Performance nach realistischen Kosten.
+> ✅ **Phase 6 abgeschlossen:** MT5-Integration + stabiler Paper-Betrieb gestartet.
+> Für Echtgeld-Freigabe gilt weiterhin das 90-Tage-/12-GO-Wochen-Gate aus Phase 7.
+
+### 📅 4-Wochen-Umsetzungsplan (direkt ab Start)
+
+- [x] Woche 1 gestartet und Betriebskette stabilisiert
+- [ ] Woche 1–4 nach `reports/paper_trading_4w_execution_plan.md` vollständig durchführen
+- [ ] Wöchentliche Done-Definitionen objektiv abhaken
+- [ ] Nach Woche 4 Zwischenentscheidung dokumentieren: Stabil halten vs. kontrolliertes Feintuning
 
 ---
 
@@ -445,9 +460,9 @@ python live/live_trader.py --symbol USDCHF --schwelle 0.60 --regime_filter 2    
 | 4 | Labeling & Training | ✅ Abgeschlossen |
 | 5 | Backtesting | ✅ Abgeschlossen |
 | B | H4-Experiment (Bonus) | ✅ Abgeschlossen |
-| 6 | Live-Integration | 🔄 In Arbeit (live_trader.py fertig, Laptop-Setup offen) |
-| 7 | Wartung | 🔄 In Arbeit (retraining.py fertig, Monitoring offen) |
+| 6 | Live-Integration | ✅ Abgeschlossen (Paper-Betrieb aktiv) |
+| 7 | Wartung | 🔄 In Arbeit (Monitoring-/KPI-Gates laufen) |
 
 > Status: ⬜ Offen | 🔄 In Arbeit | ✅ Abgeschlossen
 
-**Letzte Aktualisierung:** 2026-02-28 – H4-Experiment abgeschlossen, USDCHF H4 als 3. Kandidat identifiziert
+**Letzte Aktualisierung:** 2026-03-01 – Phase 6 abgeschlossen, Phase 7 aktiv (USDCAD/USDJPY Paper-Betrieb)

@@ -1,0 +1,17 @@
+[MASTER]
+ignore=__pycache__,.venv
+
+[MESSAGES CONTROL]
+# Projektweit vorerst deaktiviert, da viele Python-Skripte als CLI/Analyse-Tools gebaut sind.
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring
+
+[FORMAT]
+# Einheitliche Zeilenlänge für dieses Projekt.
+max-line-length=140
+
+[LOGGING]
+# Erzwingt logger.info("... %s", wert) statt f-strings im Logging.
+logging-format-style=old

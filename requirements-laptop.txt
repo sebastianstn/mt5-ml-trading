@@ -20,6 +20,7 @@ numpy>=1.24.0
 
 # ML-Modelle ausführen (muss gleiche Version wie Server haben!)
 lightgbm>=4.6.0  # Server-Version: 4.6.0 – gleiche Major.Minor verwenden!
+scikit-learn>=1.3.0  # Pflicht! joblib braucht sklearn zum Deserialisieren der Modelle
 joblib>=1.3.0
 
 # HTTP-Anfragen (für Fear & Greed + BTC Funding Rate APIs)

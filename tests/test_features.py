@@ -11,12 +11,6 @@ Verwendung:
 
 import numpy as np
 import pandas as pd
-import pytest
-import sys
-from pathlib import Path
-
-# Projektwurzel zum Suchpfad hinzufügen
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from features.labeling import double_barrier_label
 
@@ -70,10 +64,14 @@ class TestDoubleBarrierLabel:
         """Label 1 wenn TP-Schranke (oben) zuerst erreicht wird."""
         # Preis steigt sofort auf TP-Niveau
         close = np.array([1.0000] * 10)
-        high = np.array([1.0000, 1.0040, 1.0040, 1.0040, 1.0040, 1.0040, 1.0, 1.0, 1.0, 1.0])
+        high = np.array(
+            [1.0000, 1.0040, 1.0040, 1.0040, 1.0040, 1.0040, 1.0, 1.0, 1.0, 1.0]
+        )
         low = np.array([1.0000] * 10)
         # TP = 1.0 * 1.003 = 1.003 → high[1]=1.004 > TP → Label 1
-        labels = double_barrier_label(close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5)
+        labels = double_barrier_label(
+            close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5
+        )
         assert labels[0] == 1
 
     def test_short_signal_korrekt(self):
@@ -81,18 +79,24 @@ class TestDoubleBarrierLabel:
         # Preis fällt sofort auf SL-Niveau
         close = np.array([1.0000] * 10)
         high = np.array([1.0000] * 10)
-        low = np.array([1.0000, 0.9965, 0.9965, 0.9965, 0.9965, 0.9965, 1.0, 1.0, 1.0, 1.0])
+        low = np.array(
+            [1.0000, 0.9965, 0.9965, 0.9965, 0.9965, 0.9965, 1.0, 1.0, 1.0, 1.0]
+        )
         # SL = 1.0 * (1 - 0.003) = 0.997 → low[1]=0.9965 < SL → Label -1
-        labels = double_barrier_label(close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5)
+        labels = double_barrier_label(
+            close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5
+        )
         assert labels[0] == -1
 
     def test_kein_signal(self):
         """Label 0 wenn weder TP noch SL innerhalb Horizon erreicht."""
         # Preise bleiben konstant, keine Schranke wird erreicht
         close = np.ones(10) * 1.0
-        high = np.ones(10) * 1.001   # weit unter TP (1.003)
-        low = np.ones(10) * 0.999    # weit über SL (0.997)
-        labels = double_barrier_label(close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5)
+        high = np.ones(10) * 1.001  # weit unter TP (1.003)
+        low = np.ones(10) * 0.999  # weit über SL (0.997)
+        labels = double_barrier_label(
+            close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5
+        )
         assert labels[0] == 0
 
     def test_nur_gueltige_werte(self):
@@ -119,7 +123,9 @@ class TestDoubleBarrierLabel:
         high = close * (1 + np.abs(rng.normal(0, 0.001, n)))
         low = close * (1 - np.abs(rng.normal(0, 0.001, n)))
 
-        labels = double_barrier_label(close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5)
+        labels = double_barrier_label(
+            close, high, low, tp_pct=0.003, sl_pct=0.003, horizon=5
+        )
         gueltig = labels[~np.isnan(labels)]
 
         n_long = np.sum(gueltig == 1)

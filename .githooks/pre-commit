@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Projektwurzel robust bestimmen (funktioniert in .githooks UND .git/hooks).
+if REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+elif [[ -d "$(dirname "${BASH_SOURCE[0]}")/../../reports" ]]; then
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+else
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+
+echo "[pre-commit] Starte Doc-Drift-Guard ..."
+
+# Bevorzugt die Projekt-venv, falls vorhanden.
+if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+elif [[ -x "${REPO_ROOT}/.venv/Scripts/python.exe" ]]; then
+  PYTHON_BIN="${REPO_ROOT}/.venv/Scripts/python.exe"
+elif [[ -x "${REPO_ROOT}/venv/bin/python" ]]; then
+  PYTHON_BIN="${REPO_ROOT}/venv/bin/python"
+elif [[ -x "${REPO_ROOT}/venv/Scripts/python.exe" ]]; then
+  PYTHON_BIN="${REPO_ROOT}/venv/Scripts/python.exe"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+elif command -v py >/dev/null 2>&1; then
+  PYTHON_BIN="py -3"
+else
+  echo "[pre-commit] FEHLER: Kein Python-Interpreter gefunden." >&2
+  exit 1
+fi
+
+if [[ "${PYTHON_BIN}" == "py -3" ]]; then
+  py -3 "${REPO_ROOT}/reports/doc_drift_guard.py"
+else
+  "${PYTHON_BIN}" "${REPO_ROOT}/reports/doc_drift_guard.py"
+fi
+
+echo "[pre-commit] Doc-Drift-Guard erfolgreich."

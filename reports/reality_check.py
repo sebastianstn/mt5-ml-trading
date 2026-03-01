@@ -54,10 +54,10 @@ logger = logging.getLogger(__name__)
 # Pfade und Konstanten
 # ============================================================
 
-BASE_DIR     = Path(__file__).parent.parent
+BASE_DIR = Path(__file__).parent.parent
 BACKTEST_DIR = BASE_DIR / "backtest"
-REPORTS_DIR  = Path(__file__).parent
-PLOTS_DIR    = BASE_DIR / "plots"
+REPORTS_DIR = Path(__file__).parent
+PLOTS_DIR = BASE_DIR / "plots"
 
 SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
@@ -70,9 +70,9 @@ REGIME_NAMEN = {
 }
 
 # Zielwerte für die Bewertung (gleiche Maßstäbe wie Roadmap)
-ZIEL_PROB_MIN    = 0.60   # Durchschnittliche Signal-Wahrscheinlichkeit ≥ 0.60
-ZIEL_WIN_RATE    = 0.45   # Win-Rate ≥ 45% (bei 1:1 RRR)
-ZIEL_MAX_SL_RATE = 0.60   # SL-Exit-Rate ≤ 60% (unter 60% = OK)
+ZIEL_PROB_MIN = 0.60  # Durchschnittliche Signal-Wahrscheinlichkeit ≥ 0.60
+ZIEL_WIN_RATE = 0.45  # Win-Rate ≥ 45% (bei 1:1 RRR)
+ZIEL_MAX_SL_RATE = 0.60  # SL-Exit-Rate ≤ 60% (unter 60% = OK)
 
 
 # ============================================================
@@ -96,15 +96,17 @@ def trades_laden(
     pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
     if not pfad.exists():
         logger.warning(
-            f"[{symbol}] Keine Trades-CSV gefunden: {pfad}\n"
-            f"  Bitte zuerst backtest.py ausführen."
+            "[%s] Keine Trades-CSV gefunden: %s\n"
+            "  Bitte zuerst backtest.py ausführen.",
+            symbol,
+            pfad,
         )
         return None
 
     df = pd.read_csv(pfad, index_col=0, parse_dates=True)
 
     if df.empty:
-        logger.warning(f"[{symbol}] Trades-CSV ist leer.")
+        logger.warning("[%s] Trades-CSV ist leer.", symbol)
         return None
 
     # Zeitzone normalisieren (backtest.py speichert mit UTC-Offset)
@@ -117,16 +119,21 @@ def trades_laden(
 
     if df_gefiltert.empty:
         logger.warning(
-            f"[{symbol}] Keine Trades in den letzten {monate} Monaten. "
-            f"Letzter Trade: {df.index[-1].strftime('%Y-%m-%d')}"
+            "[%s] Keine Trades in den letzten %s Monaten. Letzter Trade: %s",
+            symbol,
+            monate,
+            df.index[-1].strftime("%Y-%m-%d"),
         )
         # Wenn keine aktuellen Trades: alle Trades zurückgeben (für älteren Zeitraum)
-        logger.info(f"[{symbol}] Verwende alle {len(df)} vorhandenen Trades.")
+        logger.info("[%s] Verwende alle %s vorhandenen Trades.", symbol, len(df))
         return df
 
     logger.info(
-        f"[{symbol}] {len(df_gefiltert)}/{len(df)} Trades "
-        f"(letzte {monate} Monate)"
+        "[%s] %s/%s Trades (letzte %s Monate)",
+        symbol,
+        len(df_gefiltert),
+        len(df),
+        monate,
     )
     return df_gefiltert
 
@@ -149,22 +156,22 @@ def signal_verteilung_analysieren(df: pd.DataFrame) -> dict:
         Dict mit Verteilungs-Metriken.
     """
     n_total = len(df)
-    n_long  = (df["richtung"] == "Long").sum()
+    n_long = (df["richtung"] == "Long").sum()
     n_short = (df["richtung"] == "Short").sum()
 
-    long_pct  = n_long  / n_total * 100 if n_total > 0 else 0.0
+    long_pct = n_long / n_total * 100 if n_total > 0 else 0.0
     short_pct = n_short / n_total * 100 if n_total > 0 else 0.0
 
     # Balance-Score: 0.5 = perfekt ausgeglichen, 0.0/1.0 = einseitig
     balance = min(long_pct, short_pct) / 50  # 1.0 = perfekt balanced
 
     return {
-        "n_total":   n_total,
-        "n_long":    int(n_long),
-        "n_short":   int(n_short),
-        "long_pct":  round(long_pct, 1),
+        "n_total": n_total,
+        "n_long": int(n_long),
+        "n_short": int(n_short),
+        "long_pct": round(long_pct, 1),
         "short_pct": round(short_pct, 1),
-        "balance":   round(balance, 3),  # 0.0 = einseitig, 1.0 = perfekt
+        "balance": round(balance, 3),  # 0.0 = einseitig, 1.0 = perfekt
     }
 
 
@@ -185,10 +192,10 @@ def wahrscheinlichkeit_analysieren(df: pd.DataFrame) -> dict:
 
     prob = df["prob"]
     return {
-        "avg_prob":    round(float(prob.mean()), 4),
+        "avg_prob": round(float(prob.mean()), 4),
         "median_prob": round(float(prob.median()), 4),
-        "min_prob":    round(float(prob.min()), 4),
-        "max_prob":    round(float(prob.max()), 4),
+        "min_prob": round(float(prob.min()), 4),
+        "max_prob": round(float(prob.max()), 4),
         "n_ueber_065": int((prob >= 0.65).sum()),
         "pct_ueber_065": round((prob >= 0.65).mean() * 100, 1),
     }
@@ -221,9 +228,9 @@ def regime_verteilung_analysieren(df: pd.DataFrame) -> dict:
         n = (df_clean["market_regime"] == regime_nr).sum()
         pct = n / len(df_clean) * 100 if len(df_clean) > 0 else 0.0
         verteilung[regime_nr] = {
-            "name":  regime_name,
-            "n":     int(n),
-            "pct":   round(pct, 1),
+            "name": regime_name,
+            "n": int(n),
+            "pct": round(pct, 1),
         }
     return verteilung
 
@@ -247,23 +254,23 @@ def exit_typen_analysieren(df: pd.DataFrame) -> dict:
     if "exit_grund" not in df.columns:
         return {}
 
-    n_total   = len(df)
-    n_tp      = (df["exit_grund"] == "tp").sum()
-    n_sl      = (df["exit_grund"] == "sl").sum()
+    n_total = len(df)
+    n_tp = (df["exit_grund"] == "tp").sum()
+    n_sl = (df["exit_grund"] == "sl").sum()
     n_horizon = (df["exit_grund"] == "horizon").sum()
 
-    tp_pct  = n_tp      / n_total * 100 if n_total > 0 else 0.0
-    sl_pct  = n_sl      / n_total * 100 if n_total > 0 else 0.0
+    tp_pct = n_tp / n_total * 100 if n_total > 0 else 0.0
+    sl_pct = n_sl / n_total * 100 if n_total > 0 else 0.0
     hor_pct = n_horizon / n_total * 100 if n_total > 0 else 0.0
 
     return {
-        "n_tp":      int(n_tp),
-        "n_sl":      int(n_sl),
+        "n_tp": int(n_tp),
+        "n_sl": int(n_sl),
         "n_horizon": int(n_horizon),
-        "tp_pct":    round(tp_pct, 1),
-        "sl_pct":    round(sl_pct, 1),
-        "hor_pct":   round(hor_pct, 1),
-        "sl_ok":     sl_pct <= (ZIEL_MAX_SL_RATE * 100),
+        "tp_pct": round(tp_pct, 1),
+        "sl_pct": round(sl_pct, 1),
+        "hor_pct": round(hor_pct, 1),
+        "sl_ok": sl_pct <= (ZIEL_MAX_SL_RATE * 100),
     }
 
 
@@ -286,15 +293,19 @@ def monatlicher_pnl_analysieren(df: pd.DataFrame) -> pd.DataFrame:
     df_copy = df.copy()
     df_copy["monat"] = df_copy.index.to_period("M")
 
-    monatlich = (
-        df_copy.groupby("monat")
-        .agg(
-            n_trades=("pnl_pct", "count"),
-            pnl_pct=("pnl_pct", "sum"),
-            win_rate=("gewinn", "mean"),
-        )
-        .reset_index()
-    )
+    agg_map = {
+        "n_trades": ("pnl_pct", "count"),
+        "pnl_pct": ("pnl_pct", "sum"),
+    }
+    # Falls die Spalte "gewinn" fehlt, setzen wir die Win-Rate später auf NaN.
+    if "gewinn" in df_copy.columns:
+        agg_map["win_rate"] = ("gewinn", "mean")
+
+    monatlich = df_copy.groupby("monat").agg(**agg_map).reset_index()
+
+    if "win_rate" not in monatlich.columns:
+        monatlich["win_rate"] = float("nan")
+
     monatlich["pnl_pct"] *= 100  # In Prozent umrechnen
     monatlich["win_rate"] *= 100
 
@@ -333,8 +344,15 @@ def reality_check_plotten(
         monatlich_df: Ergebnis aus monatlicher_pnl_analysieren()
     """
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    trend_trades = sum(
+        regime_info.get(regime_nr, {}).get("n", 0) for regime_nr in (1, 2)
+    )
+    trend_anteil = (trend_trades / len(df) * 100) if len(df) > 0 else 0.0
     fig.suptitle(
-        f"Reality-Check: {symbol} – Letzte Trades-Analyse",
+        (
+            f"Reality-Check: {symbol} – Letzte Trades-Analyse "
+            f"(Trend-Regime 1+2: {trend_anteil:.1f}%)"
+        ),
         fontsize=14,
         fontweight="bold",
     )
@@ -352,8 +370,13 @@ def reality_check_plotten(
         ax1.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 0.3,
-            f"{wert}\n({wert/signal_info['n_total']*100:.0f}%%)",
-            ha="center", va="bottom", fontsize=11,
+            (
+                f"{wert}\n"
+                f"({(wert/signal_info['n_total']*100 if signal_info['n_total'] else 0):.0f}%%)"
+            ),
+            ha="center",
+            va="bottom",
+            fontsize=11,
         )
     balance_farbe = "#2ecc71" if signal_info["balance"] >= 0.7 else "#e74c3c"
     ax1.set_title(
@@ -363,10 +386,14 @@ def reality_check_plotten(
     ax1.set_ylabel("Anzahl Trades")
     ax1.set_ylim(0, max(werte) * 1.2 + 1)
     ax1.text(
-        0.5, 0.95,
+        0.5,
+        0.95,
         "OK: Ausgeglichen" if signal_info["balance"] >= 0.7 else "!! Einseitig",
-        transform=ax1.transAxes, ha="center", va="top",
-        fontsize=10, color=balance_farbe,
+        transform=ax1.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+        color=balance_farbe,
     )
 
     # ── Subplot 2: Wahrscheinlichkeits-Histogramm ────────────
@@ -394,7 +421,9 @@ def reality_check_plotten(
             label=f"Ziel≥{ZIEL_PROB_MIN}",
         )
         ax2.legend(fontsize=9)
-    ax2.set_title(f"Signal-Wahrscheinlichkeit (Ø={prob_info.get('avg_prob', 0):.3f})", fontsize=11)
+    ax2.set_title(
+        f"Signal-Wahrscheinlichkeit (Ø={prob_info.get('avg_prob', 0):.3f})", fontsize=11
+    )
     ax2.set_xlabel("Wahrscheinlichkeit")
     ax2.set_ylabel("Häufigkeit")
 
@@ -442,11 +471,7 @@ def reality_check_plotten(
                 startangle=90,
                 pctdistance=0.75,
             )
-    sl_bewertung = (
-        "SL-Rate OK"
-        if exit_info.get("sl_ok", True)
-        else "!! SL-Rate hoch!"
-    )
+    sl_bewertung = "SL-Rate OK" if exit_info.get("sl_ok", True) else "!! SL-Rate hoch!"
     ax4.set_title(f"Exit-Typen ({sl_bewertung})", fontsize=11)
 
     plt.tight_layout()
@@ -454,7 +479,7 @@ def reality_check_plotten(
     plot_pfad = PLOTS_DIR / f"{symbol}_reality_check.png"
     plt.savefig(plot_pfad, dpi=150, bbox_inches="tight")
     plt.close()
-    logger.info(f"[{symbol}] Plot gespeichert: {plot_pfad}")
+    logger.info("[%s] Plot gespeichert: %s", symbol, plot_pfad)
 
 
 # ============================================================
@@ -559,7 +584,7 @@ def bericht_schreiben(  # pylint: disable=too-many-arguments
     # Gesamt-P&L
     if "pnl_pct" in df.columns:
         gesamt_pnl = df["pnl_pct"].sum() * 100
-        win_rate   = df["gewinn"].mean() * 100 if "gewinn" in df.columns else 0.0
+        win_rate = df["gewinn"].mean() * 100 if "gewinn" in df.columns else 0.0
         zeilen += [
             "",
             f"   Gesamt-P&L:     {gesamt_pnl:+.2f}%%",
@@ -584,7 +609,9 @@ def bericht_schreiben(  # pylint: disable=too-many-arguments
         probleme.append("Einseitige Signal-Verteilung (Long/Short Bias)")
 
     if prob_info.get("avg_prob", 0) >= ZIEL_PROB_MIN:
-        staerken.append(f"Hohe Ø-Wahrscheinlichkeit ({prob_info.get('avg_prob', 0):.3f})")
+        staerken.append(
+            f"Hohe Ø-Wahrscheinlichkeit ({prob_info.get('avg_prob', 0):.3f})"
+        )
     else:
         probleme.append(
             f"Niedrige Ø-Wahrscheinlichkeit ({prob_info.get('avg_prob', 0):.3f} < {ZIEL_PROB_MIN})"
@@ -600,7 +627,9 @@ def bericht_schreiben(  # pylint: disable=too-many-arguments
         if win_rate >= ZIEL_WIN_RATE * 100:
             staerken.append(f"Win-Rate OK ({win_rate:.0f}%%)")
         else:
-            probleme.append(f"Win-Rate unter Ziel ({win_rate:.0f}%% < {ZIEL_WIN_RATE*100:.0f}%%)")
+            probleme.append(
+                f"Win-Rate unter Ziel ({win_rate:.0f}%% < {ZIEL_WIN_RATE*100:.0f}%%)"
+            )
 
     zeilen.append("Stärken:")
     for s in staerken:
@@ -622,7 +651,7 @@ def bericht_schreiben(  # pylint: disable=too-many-arguments
     with open(bericht_pfad, "w", encoding="utf-8") as f:
         f.write("\n".join(zeilen))
 
-    logger.info(f"[{symbol}] Bericht gespeichert: {bericht_pfad}")
+    logger.info("[%s] Bericht gespeichert: %s", symbol, bericht_pfad)
 
     # Auch auf der Konsole ausgeben
     print("\n".join(zeilen))
@@ -643,9 +672,9 @@ def symbol_reality_check(symbol: str, monate: int = 3) -> bool:
     Returns:
         True wenn die Analyse erfolgreich war, False bei Fehler.
     """
-    logger.info(f"\n{'=' * 60}")
-    logger.info(f"  Reality-Check – {symbol} (letzte {monate} Monate)")
-    logger.info(f"{'=' * 60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("  Reality-Check – %s (letzte %s Monate)", symbol, monate)
+    logger.info("%s", "=" * 60)
 
     # Trades laden
     df = trades_laden(symbol, monate)
@@ -653,26 +682,33 @@ def symbol_reality_check(symbol: str, monate: int = 3) -> bool:
         return False
 
     # Alle Analysen durchführen
-    signal_info  = signal_verteilung_analysieren(df)
-    prob_info    = wahrscheinlichkeit_analysieren(df)
-    exit_info    = exit_typen_analysieren(df)
-    regime_info  = regime_verteilung_analysieren(df)
+    signal_info = signal_verteilung_analysieren(df)
+    prob_info = wahrscheinlichkeit_analysieren(df)
+    exit_info = exit_typen_analysieren(df)
+    regime_info = regime_verteilung_analysieren(df)
     monatlich_df = monatlicher_pnl_analysieren(df)
 
     # Plot erstellen
     reality_check_plotten(
-        df, symbol,
-        signal_info, prob_info,
-        exit_info, regime_info,
+        df,
+        symbol,
+        signal_info,
+        prob_info,
+        exit_info,
+        regime_info,
         monatlich_df,
     )
 
     # Text-Bericht schreiben
     bericht_schreiben(
-        symbol, monate,
-        signal_info, prob_info,
-        exit_info, regime_info,
-        monatlich_df, df,
+        symbol,
+        monate,
+        signal_info,
+        prob_info,
+        exit_info,
+        regime_info,
+        monatlich_df,
+        df,
     )
 
     return True
@@ -727,11 +763,11 @@ def main() -> None:
                 return
 
     start_zeit = datetime.now()
-    logger.info("=" * 60)
+    logger.info("%s", "=" * 60)
     logger.info("MT5 ML-Trading – Reality-Check Pipeline")
-    logger.info(f"Symbole: {', '.join(ziel_symbole)}")
-    logger.info(f"Zeitraum: letzte {args.monate} Monate")
-    logger.info("=" * 60)
+    logger.info("Symbole: %s", ", ".join(ziel_symbole))
+    logger.info("Zeitraum: letzte %s Monate", args.monate)
+    logger.info("%s", "=" * 60)
 
     n_erfolgreich = 0
     for symbol in ziel_symbole:

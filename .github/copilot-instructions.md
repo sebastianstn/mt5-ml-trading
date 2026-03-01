@@ -30,16 +30,16 @@ Ein ML-gestütztes Trading-System mit **XGBoost** und **LightGBM**, das Marktpha
 
 mt5_ml_trading/
 ├── .github/
-│   └── copilot-instructions.md    # Diese Datei
-├── data/                          # Rohdaten (CSV-Dateien)
-├── features/                      # Feature-Engineering Skripte
-│   └── feature_engineering.py
-├── models/                        # Gespeicherte Modelle (.pkl)
-├── backtest/                      # Backtesting Skripte
-│   └── backtest.py
-├── live/                          # Live-Trading Skripte
-│   └── live_trader.py
-├── notebooks/                     # Jupyter Notebooks zum Experimentieren
+│ └── copilot-instructions.md # Diese Datei
+├── data/ # Rohdaten (CSV-Dateien)
+├── features/ # Feature-Engineering Skripte
+│ └── feature_engineering.py
+├── models/ # Gespeicherte Modelle (.pkl)
+├── backtest/ # Backtesting Skripte
+│ └── backtest.py
+├── live/ # Live-Trading Skripte
+│ └── live_trader.py
+├── notebooks/ # Jupyter Notebooks zum Experimentieren
 └── README.md
 
 ---
@@ -80,17 +80,20 @@ mt5_ml_trading/
 
 ## 🔄 Aktuelle Projektphase
 
-### → Phase 1: Umgebung & Datenbeschaffung
+### → Phase 7: Überwachung & Wartung (Paper-Trading läuft aktiv)
 
 Phasenübersicht:
 
-1. ✅ / ⬜ Phase 1 – Umgebung & Datenbeschaffung
-2. ⬜ Phase 2 – Feature Engineering
-3. ⬜ Phase 3 – Regime Detection
-4. ⬜ Phase 4 – Labeling & Modelltraining
-5. ⬜ Phase 5 – Backtesting
-6. ⬜ Phase 6 – Live-Integration (MT5)
-7. ⬜ Phase 7 – Überwachung & Wartung
+1. ✅ Phase 1 – Umgebung & Datenbeschaffung
+2. ✅ Phase 2 – Feature Engineering
+3. ✅ Phase 3 – Regime Detection
+4. ✅ Phase 4 – Labeling & Modelltraining
+5. ✅ Phase 5 – Backtesting
+6. ✅ Phase 6 – Live-Integration (MT5, Paper aktiv)
+7. 🔄 Phase 7 – Überwachung & Wartung
+
+**Operative Policy aktuell:** Nur `USDCAD` und `USDJPY` sind aktiv im Paper-Betrieb.
+Alle anderen Symbole bleiben Research-only bis zur expliziten Freigabe.
 
 > **Tipp:** Aktualisiere die Phase hier wenn du vorankommst,
 > damit Copilot immer den richtigen Kontext hat.
@@ -197,4 +200,4 @@ def meine_funktion(df: pd.DataFrame, parameter: int = 14) -> pd.DataFrame:
 - Antworte **auf Deutsch**
 - Erkläre Konzepte **einfach** (ich lerne noch)
 - Sei **direkt und konkret** – keine langen Einleitungen
-- Verweise auf die **nächste Aufgabe** in der Roadmap (ROADMAP.md)
+- Verweise auf die **nächste Aufgabe** in der Roadmap (`Roadmap.md`)

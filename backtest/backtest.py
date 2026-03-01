@@ -31,6 +31,7 @@ Verwendung:
     python backtest/backtest.py --symbol alle
     python backtest/backtest.py --symbol alle --tp_pct 0.006 --sl_pct 0.003
     python backtest/backtest.py --symbol alle --regime_filter 1,2
+    python backtest/backtest.py --symbol USDCAD --version v1 --model_version rt1
 
     # Dynamische Positionsgrößenberechnung (1%-Risiko-Regel):
     python backtest/backtest.py --symbol EURUSD --kapital 10000 --risiko_pct 0.01
@@ -223,9 +224,7 @@ class RisikoConfig:
 # ============================================================
 
 
-def labeled_pfad(
-    symbol: str, version: str = "v1", timeframe: str = "H1"
-) -> Path:
+def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Path:
     """
     Gibt den Pfad zum gelabelten CSV zurück (konsistent mit anderen Skripten).
 
@@ -286,10 +285,13 @@ def daten_laden(
     """
     pfad = labeled_pfad(symbol, version, timeframe)
     if not pfad.exists():
-        hilfe = "h4_pipeline.py" if timeframe == "H4" else f"labeling.py --version {version}"
+        hilfe = (
+            "h4_pipeline.py"
+            if timeframe == "H4"
+            else f"labeling.py --version {version}"
+        )
         raise FileNotFoundError(
-            f"Datei nicht gefunden: {pfad}\n"
-            f"Zuerst {hilfe} ausführen!"
+            f"Datei nicht gefunden: {pfad}\n" f"Zuerst {hilfe} ausführen!"
         )
 
     logger.info(f"[{symbol}] Lade {pfad.name} ...")
@@ -333,6 +335,7 @@ def signale_generieren(  # pylint: disable=too-many-locals
     symbol: str,
     schwelle: float = 0.55,
     version: str = "v1",
+    model_version: Optional[str] = None,
     timeframe: str = "H1",
 ) -> pd.DataFrame:
     """
@@ -351,25 +354,26 @@ def signale_generieren(  # pylint: disable=too-many-locals
         df:        Test-Set DataFrame mit Features und OHLC
         symbol:    Handelssymbol
         schwelle:  Mindest-Wahrscheinlichkeit für einen Trade (Standard: 0.55)
-        version:   Versions-String für das Modell-File (Standard: "v1")
+        version:   Datenversions-String (Standard: "v1")
+        model_version: Modellversions-String (optional). Wenn None, wird `version` verwendet.
         timeframe: Zeitrahmen für den Modell-Dateinamen – "H1" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit zusätzlichen Spalten: signal, prob_signal
     """
     # Modell laden (versioniertes Modell-File, abhängig vom Zeitrahmen)
+    aktive_modell_version = model_version or version
     if timeframe == "H4":
-        modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_H4_{version}.pkl"
+        modell_pfad = (
+            MODEL_DIR / f"lgbm_{symbol.lower()}_H4_{aktive_modell_version}.pkl"
+        )
     else:
-        modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}.pkl"
+        modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{aktive_modell_version}.pkl"
 
     if not modell_pfad.exists():
-        hilfe = (
-            f"train_model.py --symbol {symbol} --timeframe {timeframe}"
-        )
+        hilfe = f"train_model.py --symbol {symbol} --timeframe {timeframe}"
         raise FileNotFoundError(
-            f"Modell nicht gefunden: {modell_pfad}\n"
-            f"Zuerst {hilfe} ausführen!"
+            f"Modell nicht gefunden: {modell_pfad}\n" f"Zuerst {hilfe} ausführen!"
         )
     logger.info(f"[{symbol}] Lade Modell: {modell_pfad.name}")
     modell = joblib.load(modell_pfad)
@@ -437,7 +441,8 @@ def signale_generieren(  # pylint: disable=too-many-locals
 # ============================================================
 
 
-def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches,too-many-statements
+def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     df: pd.DataFrame,
     eintritts_index: int,
     richtung: int,
@@ -678,7 +683,9 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
         DataFrame mit allen simulierten Trades.
     """
     # Spread-Kosten mit optionalem Multiplikator für Sensitivity Test
-    spread_kosten = SPREAD_KOSTEN.get(symbol, 0.000150) * spread_faktor  # Fallback: 1.5 Pips
+    spread_kosten = (
+        SPREAD_KOSTEN.get(symbol, 0.000150) * spread_faktor
+    )  # Fallback: 1.5 Pips
     if spread_faktor != 1.0:
         logger.info(
             f"[{symbol}] ⚡ Spread-Stress-Test: Faktor={spread_faktor}× "
@@ -708,7 +715,7 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
         )
 
     # Swap-Sätze aus den globalen Dicts für dieses Symbol holen
-    swap_long_satz = SWAP_KOSTEN_LONG.get(symbol, -0.000030)   # Fallback: -3 Pips
+    swap_long_satz = SWAP_KOSTEN_LONG.get(symbol, -0.000030)  # Fallback: -3 Pips
     swap_short_satz = SWAP_KOSTEN_SHORT.get(symbol, -0.000015)  # Fallback: -1.5 Pips
     if swap_aktiv:
         logger.info(
@@ -719,7 +726,7 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
 
     trades = []  # Ergebnis-Liste
     n_gefiltert_regime = 0  # Zähler: übersprungene Trades wegen Regime-Filter
-    n_swap_trades = 0       # Zähler: Trades mit Swap-Kosten
+    n_swap_trades = 0  # Zähler: Trades mit Swap-Kosten
     i = 0  # Aktueller Balken-Index
 
     while i < len(df) - horizon:
@@ -747,8 +754,15 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
             # stunden_pro_bar: 1 für H1 (Standard), 4 für H4 (für Swap-Kostenberechnung)
             stunden_pro_bar = 4 if timeframe == "H4" else 1
             ergebnis = trade_simulieren(
-                df, i, signal, spread_kosten, tp_pct, sl_pct, horizon,
-                risiko_config=cfg, atr_wert=atr_wert,
+                df,
+                i,
+                signal,
+                spread_kosten,
+                tp_pct,
+                sl_pct,
+                horizon,
+                risiko_config=cfg,
+                atr_wert=atr_wert,
                 swap_aktiv=swap_aktiv,
                 swap_long=swap_long_satz,
                 swap_short=swap_short_satz,
@@ -893,8 +907,7 @@ def kennzahlen_berechnen(  # pylint: disable=too-many-locals
     # Feature 1: Absoluter P&L (nur wenn Positionsgrößen berechnet wurden)
     # ────────────────────────────────────────────────────────
     hat_absolut = (
-        "pnl_absolut" in trades_df.columns
-        and trades_df["pnl_absolut"].abs().sum() > 0
+        "pnl_absolut" in trades_df.columns and trades_df["pnl_absolut"].abs().sum() > 0
     )
     if hat_absolut:
         pnl_abs = trades_df["pnl_absolut"].values
@@ -1086,7 +1099,9 @@ def regime_matrix_erstellen(ziel_symbole: list) -> Optional[pd.DataFrame]:
                 {
                     "symbol": symbol,
                     "regime": regime_nr,
-                    "regime_name": REGIME_NAMEN.get(int(regime_nr), f"Regime {regime_nr}"),
+                    "regime_name": REGIME_NAMEN.get(
+                        int(regime_nr), f"Regime {regime_nr}"
+                    ),
                     "n_trades": n,
                     "win_rate_pct": round(win_rate, 1),
                     "gesamtrendite_pct": round(rendite, 2),
@@ -1095,7 +1110,9 @@ def regime_matrix_erstellen(ziel_symbole: list) -> Optional[pd.DataFrame]:
             )
 
     if not alle_daten:
-        logger.warning("Keine Regime-Daten vorhanden – Matrix kann nicht erstellt werden")
+        logger.warning(
+            "Keine Regime-Daten vorhanden – Matrix kann nicht erstellt werden"
+        )
         return None
 
     return pd.DataFrame(alle_daten)
@@ -1117,7 +1134,7 @@ def regime_matrix_drucken(matrix_df: pd.DataFrame, regime_info: str) -> None:
 
     # Header ausgeben
     print(f"\n{'═' * 80}")
-    print(f"REGIME-PERFORMANCE-MATRIX – Welches Regime ist profitabel?")
+    print("REGIME-PERFORMANCE-MATRIX – Welches Regime ist profitabel?")
     print(f"Regime-Filter beim Backtest: {regime_info}")
     print(f"{'═' * 80}")
 
@@ -1357,7 +1374,9 @@ def equity_kurve_plotten(
 # ============================================================
 
 
-def regime_plotten(regime_df: pd.DataFrame, symbol: str) -> None:  # pylint: disable=too-many-locals
+def regime_plotten(
+    regime_df: pd.DataFrame, symbol: str
+) -> None:  # pylint: disable=too-many-locals
     """
     Erstellt einen Balkenplot der Performance nach Market-Regime.
 
@@ -1614,12 +1633,10 @@ def perioden_vergleich_plotten(  # pylint: disable=too-many-locals,too-many-stat
 
     perioden = perioden_df["periode"]
     farben_rendite = [
-        "#2ECC71" if r >= 0 else "#E74C3C"
-        for r in perioden_df["gesamtrendite_pct"]
+        "#2ECC71" if r >= 0 else "#E74C3C" for r in perioden_df["gesamtrendite_pct"]
     ]
     farben_wr = [
-        "#2ECC71" if w >= 50 else "#E74C3C"
-        for w in perioden_df["win_rate_pct"]
+        "#2ECC71" if w >= 50 else "#E74C3C" for w in perioden_df["win_rate_pct"]
     ]
 
     # Plot 1: Gesamtrendite pro Jahr
@@ -1731,6 +1748,7 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
     sl_pct: float = SL_PCT,
     regime_erlaubt: Optional[list] = None,
     version: str = "v1",
+    model_version: Optional[str] = None,
     horizon: int = HORIZON,
     risiko_config: Optional[RisikoConfig] = None,
     zeitraum_von: Optional[str] = None,
@@ -1757,7 +1775,8 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
         tp_pct:         Take-Profit-Abstand (Standard: TP_PCT = 0.3%)
         sl_pct:         Stop-Loss-Abstand   (Standard: SL_PCT = 0.3%)
         regime_erlaubt: Nur in diesen Regimes handeln (None = alle)
-        version:        Versions-String für Modell- und Datei-Pfade (Standard: "v1")
+        version:        Datenversions-String für gelabelte CSVs (Standard: "v1")
+        model_version:  Modellversions-String für das PKL (optional, sonst = version)
         horizon:        Zeitschranke in Kerzen (muss mit labeling.py übereinstimmen!)
         risiko_config:  Dynamische Positionsgröße + ATR-SL (Standard: None = einfacher Modus)
         zeitraum_von:   Optionaler Startzeitpunkt (z.B. "2023-01-01")
@@ -1785,7 +1804,8 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
     )
     logger.info(f"\n{'=' * 65}")
     logger.info(
-        f"Backtest – {symbol} ({version}) | Schwelle: {schwelle:.0%} | "
+        f"Backtest – {symbol} (Daten={version}, Modell={model_version or version}) | "
+        f"Schwelle: {schwelle:.0%} | "
         f"TP={tp_pct:.2%} / SL={sl_pct:.2%} | Horizon={horizon} | "
         f"{regime_info}{atr_info}{kapital_info}"
     )
@@ -1796,12 +1816,25 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
         df = daten_laden(symbol, version, zeitraum_von, zeitraum_bis, timeframe)
 
         # Schritt 2: Signale generieren (versioniertes Modell, passend zum Zeitrahmen)
-        df = signale_generieren(df, symbol, schwelle, version, timeframe)
+        df = signale_generieren(
+            df,
+            symbol,
+            schwelle,
+            version,
+            model_version=model_version,
+            timeframe=timeframe,
+        )
 
         # Schritt 3: Trades simulieren (inkl. Risikomanagement + Spread-Faktor + Swap)
         trades_df = trades_simulieren(
-            df, symbol, schwelle, tp_pct, sl_pct,
-            regime_erlaubt, horizon, risiko_config,
+            df,
+            symbol,
+            schwelle,
+            tp_pct,
+            sl_pct,
+            regime_erlaubt,
+            horizon,
+            risiko_config,
             spread_faktor=spread_faktor,
             swap_aktiv=swap_aktiv,
             timeframe=timeframe,
@@ -1857,7 +1890,9 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
 # ============================================================
 
 
-def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+def main() -> (
+    None
+):  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Backtest für ein oder alle Symbole."""
 
     parser = argparse.ArgumentParser(
@@ -1913,9 +1948,18 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
         "--version",
         default="v1",
         help=(
-            "Versions-Suffix für Modell- und Datei-Pfade (Standard: v1). "
-            "Muss mit --version aus labeling.py und train_model.py übereinstimmen. "
+            "Datenversions-Suffix für gelabelte CSVs (Standard: v1). "
+            "Muss mit --version aus labeling.py übereinstimmen. "
             "v1 = Original | v2 = Horizon=10 | v3 = TP/SL=0.15%%"
+        ),
+    )
+    parser.add_argument(
+        "--model_version",
+        default=None,
+        help=(
+            "Optionales Modellversions-Suffix (z.B. rt1). "
+            "Wenn nicht gesetzt, wird --version verwendet. "
+            "Nutze dies fuer Retraining-Modelle mit eigenem Schema."
         ),
     )
     parser.add_argument(
@@ -2063,13 +2107,17 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
             return
 
     # RisikoConfig aus CLI-Argumenten zusammenbauen
-    risiko_config = RisikoConfig(
-        kapital=args.kapital,
-        risiko_pct=args.risiko_pct,
-        kontrakt_groesse=args.kontrakt_groesse,
-        atr_sl=args.atr_sl,
-        atr_faktor=args.atr_faktor,
-    ) if (args.kapital > 0 or args.atr_sl) else None
+    risiko_config = (
+        RisikoConfig(
+            kapital=args.kapital,
+            risiko_pct=args.risiko_pct,
+            kontrakt_groesse=args.kontrakt_groesse,
+            atr_sl=args.atr_sl,
+            atr_faktor=args.atr_faktor,
+        )
+        if (args.kapital > 0 or args.atr_sl)
+        else None
+    )
 
     # Backtest-Ausgabe-Ordner anlegen
     BACKTEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -2085,7 +2133,8 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     logger.info("   Diese Auswertung ist FINAL – Modell danach nicht mehr anpassen!")
     logger.info("=" * 65)
     logger.info(
-        f"Symbole: {', '.join(ziel_symbole)} | Version: {args.version} "
+        f"Symbole: {', '.join(ziel_symbole)} | Daten-Version: {args.version} "
+        f"| Modell-Version: {args.model_version or args.version} "
         f"| Zeitrahmen: {args.timeframe}"
     )
     logger.info(f"Schwellenwert: {args.schwelle:.0%}")
@@ -2097,9 +2146,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     logger.info(f"Horizon: {args.horizon} {args.timeframe}-Barren")
     if risiko_config:
         if risiko_config.atr_sl:
-            logger.info(
-                f"ATR-SL: aktiv (Faktor={risiko_config.atr_faktor}×ATR_14)"
-            )
+            logger.info(f"ATR-SL: aktiv (Faktor={risiko_config.atr_faktor}×ATR_14)")
         if risiko_config.kapital > 0:
             logger.info(
                 f"Kapital: {risiko_config.kapital:,.0f} | "
@@ -2130,6 +2177,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
             args.sl_pct,
             regime_erlaubt,
             args.version,
+            args.model_version,
             args.horizon,
             risiko_config=risiko_config,
             zeitraum_von=args.zeitraum_von,
@@ -2146,14 +2194,14 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     # Wenn das beste Paar deutlich über dem Durchschnitt liegt, besteht das
     # Risiko dass wir die Strategie auf Basis von Zufall optimiert haben.
     if len(alle_kennzahlen) >= 2:
-        renditen  = [k["gesamtrendite_pct"] for k in alle_kennzahlen]
-        sharpes   = [k["sharpe_ratio"]      for k in alle_kennzahlen]
-        drawdowns = [k["max_drawdown_pct"]  for k in alle_kennzahlen]
-        gfs       = [k["gewinnfaktor"]      for k in alle_kennzahlen]
+        renditen = [k["gesamtrendite_pct"] for k in alle_kennzahlen]
+        sharpes = [k["sharpe_ratio"] for k in alle_kennzahlen]
+        drawdowns = [k["max_drawdown_pct"] for k in alle_kennzahlen]
+        gfs = [k["gewinnfaktor"] for k in alle_kennzahlen]
 
-        avg_rendite  = float(np.mean(renditen))
-        avg_sharpe   = float(np.mean(sharpes))
-        avg_gf       = float(np.mean(gfs))
+        avg_rendite = float(np.mean(renditen))
+        avg_sharpe = float(np.mean(sharpes))
+        avg_gf = float(np.mean(gfs))
         avg_drawdown = float(np.mean(drawdowns))
 
         print(f"\n{'─'*75}")
@@ -2170,9 +2218,9 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
             f"DD={avg_drawdown:+.2f}%"
         )
         # Die 2 besten Paare nach Sharpe Ratio hervorheben
-        beste = sorted(
-            alle_kennzahlen, key=lambda x: x["sharpe_ratio"], reverse=True
-        )[:2]
+        beste = sorted(alle_kennzahlen, key=lambda x: x["sharpe_ratio"], reverse=True)[
+            :2
+        ]
         for b in beste:
             print(
                 f"  Bestes [{b['symbol']:6}]:      "
@@ -2208,7 +2256,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
             matrix_pfad = BACKTEST_DIR / "regime_performance_matrix.csv"
             matrix_df.to_csv(matrix_pfad, index=False)
             print(f"Matrix CSV: {matrix_pfad}")
-            print(f"Matrix PNG: plots/regime_performance_matrix.png")
+            print("Matrix PNG: plots/regime_performance_matrix.png")
 
     # Gesamtzusammenfassung
     ende_zeit = datetime.now()
@@ -2217,9 +2265,14 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     print("\n" + "=" * 75)
     stress_label = (
         f" – ⚡ SPREAD-STRESS-TEST ({args.spread_faktor}× Kosten)"
-        if args.spread_faktor != 1.0 else ""
+        if args.spread_faktor != 1.0
+        else ""
     )
-    print(f"BACKTEST ABGESCHLOSSEN – Zusammenfassung ({args.version}){stress_label}")
+    print(
+        "BACKTEST ABGESCHLOSSEN – Zusammenfassung "
+        f"(Daten={args.version}, Modell={args.model_version or args.version})"
+        f"{stress_label}"
+    )
     print(
         f"TP={args.tp_pct:.2%} | SL={args.sl_pct:.2%} | "
         f"RRR={args.tp_pct/args.sl_pct:.1f}:1 | "
@@ -2266,12 +2319,14 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches,too-man
     # Gesamtzusammenfassung als versioniertes CSV speichern
     if alle_kennzahlen:
         zusammenfassung_df = pd.DataFrame(alle_kennzahlen)
+        aktive_modell_version = args.model_version or args.version
         # Versionsunabhängiger Name für v1 (rückwärtskompatibel), sonst mit Suffix
-        if args.version == "v1":
+        if args.version == "v1" and aktive_modell_version == "v1":
             zusammenfassung_pfad = BACKTEST_DIR / "backtest_zusammenfassung.csv"
         else:
-            zusammenfassung_pfad = (
-                BACKTEST_DIR / f"backtest_zusammenfassung_{args.version}.csv"
+            zusammenfassung_pfad = BACKTEST_DIR / (
+                f"backtest_zusammenfassung_"
+                f"data-{args.version}_model-{aktive_modell_version}.csv"
             )
         zusammenfassung_df.to_csv(zusammenfassung_pfad, index=False)
         print(f"\nZusammenfassung gespeichert: {zusammenfassung_pfad}")

@@ -45,6 +45,7 @@ Danach Trader starten (Paper-Modus):
 - `USDJPY`: Schwelle 0.60, Regime `1`
 
 Details inkl. Dashboard-Sync: `live/mt5/README_MT5_Dashboard.md`.
+Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
 
 ---
 

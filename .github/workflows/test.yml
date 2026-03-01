@@ -32,6 +32,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements-server.txt
+            requirements-laptop.txt
 
       # 3. Nur Test-Abhängigkeiten installieren (kein MT5, kein vectorbt)
       - name: Test-Abhängigkeiten installieren
@@ -63,7 +66,7 @@ jobs:
             --disable=C0114,C0115,C0116 \
             --disable=R0913,R0914,R0801 \
             --fail-under=7.0
-        continue-on-error: true  # Pylint-Warnungen blockieren nicht den Build
+        continue-on-error: true # Pylint-Warnungen blockieren nicht den Build
 
       # 7. pytest – Unit-Tests ausführen
       - name: pytest – Unit-Tests

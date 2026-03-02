@@ -110,6 +110,25 @@ HEARTBEAT_LOG_DEFAULT = True
 # Feature-Berechnung: Mindest-Barren für Warm-Up
 N_BARREN = 500  # SMA200 braucht 200, MTF braucht mehr → 500 als Buffer
 
+# Zeitrahmen-Konfiguration (für Migration H1 → M30 → M15)
+TIMEFRAME_CONFIG = {
+    "H1": {
+        "mt5_name": "TIMEFRAME_H1",
+        "bars_per_hour": 1,
+        "minutes_per_bar": 60,
+    },
+    "M30": {
+        "mt5_name": "TIMEFRAME_M30",
+        "bars_per_hour": 2,
+        "minutes_per_bar": 30,
+    },
+    "M15": {
+        "mt5_name": "TIMEFRAME_M15",
+        "bars_per_hour": 4,
+        "minutes_per_bar": 15,
+    },
+}
+
 # Verfügbare Symbole im Projekt (Forschung + Betrieb)
 SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
@@ -368,6 +387,7 @@ def ind_adx(df: pd.DataFrame, length: int = 14) -> pd.Series:
 
 def features_berechnen(
     df: pd.DataFrame,
+    timeframe: str = "H1",
 ) -> pd.DataFrame:  # pylint: disable=too-many-locals
     """
     Berechnet alle 45 Model-Features aus OHLCV-Rohdaten.
@@ -384,6 +404,12 @@ def features_berechnen(
         DataFrame mit allen 45 Features (ohne NaN-Zeilen am Anfang)
     """
     result = df.copy()
+
+    # Bars pro Stunde für zeitäquivalente Fenster bestimmen.
+    # Beispiel: return_1h = shift(1) bei H1, aber shift(2) bei M30.
+    bars_per_hour = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+        "bars_per_hour"
+    ]
 
     # --- Trend-Features ---
     result["sma_20"] = ind_sma(result["close"], 20)
@@ -438,7 +464,8 @@ def features_berechnen(
     result["bb_pct"] = (result["close"] - result["bb_lower"]) / band_range
 
     log_ret = np.log(result["close"] / result["close"].shift(1))
-    result["hist_vol_20"] = log_ret.rolling(20).std() * np.sqrt(252 * 24)
+    bars_per_day = 24 * bars_per_hour
+    result["hist_vol_20"] = log_ret.rolling(20).std() * np.sqrt(252 * bars_per_day)
 
     # --- Volumen-Features ---
     result["obv"] = ind_obv(result["close"], result["volume"])
@@ -450,9 +477,12 @@ def features_berechnen(
     result["volume_ratio"] = result["volume"] / vol_sma
 
     # --- Kerzenmuster-Features ---
-    result["return_1h"] = np.log(result["close"] / result["close"].shift(1))
-    result["return_4h"] = np.log(result["close"] / result["close"].shift(4))
-    result["return_24h"] = np.log(result["close"] / result["close"].shift(24))
+    shift_1h = 1 * bars_per_hour
+    shift_4h = 4 * bars_per_hour
+    shift_24h = 24 * bars_per_hour
+    result["return_1h"] = np.log(result["close"] / result["close"].shift(shift_1h))
+    result["return_4h"] = np.log(result["close"] / result["close"].shift(shift_4h))
+    result["return_24h"] = np.log(result["close"] / result["close"].shift(shift_24h))
 
     atr_safe = result["atr_14"].replace(0, np.nan)
     body_top = result[["close", "open"]].max(axis=1)
@@ -714,13 +744,57 @@ def mt5_verbinden(server: str, login: int, password: str, pfad: str = "") -> boo
     return True
 
 
-def mt5_daten_holen(symbol: str, n_barren: int = N_BARREN) -> Optional[pd.DataFrame]:
+def mt5_timeframe_konstante(timeframe: str) -> Optional[int]:
     """
-    Holt die letzten H1-Barren von MT5.
+    Übersetzt den String-Zeitrahmen in die passende MT5-Konstante.
+
+    Args:
+        timeframe: Zeitrahmen als String ("H1", "M30" oder "M15")
+
+    Returns:
+        MT5-Timeframe-Konstante oder None bei unbekanntem Zeitrahmen.
+    """
+    if not MT5_VERFUEGBAR:
+        return None
+
+    cfg = TIMEFRAME_CONFIG.get(timeframe)
+    if cfg is None:
+        return None
+
+    konst_name = cfg["mt5_name"]
+    return getattr(mt5, konst_name, None)
+
+
+def n_barren_fuer_timeframe(timeframe: str) -> int:
+    """
+    Berechnet die benötigte Barrenanzahl für denselben Zeit-Buffer je Zeitrahmen.
+
+    H1 nutzt standardmäßig 500 Bars. Für kleinere Timeframes (M30/M15)
+    werden entsprechend mehr Bars geladen, um denselben Zeitbereich abzudecken.
+
+    Args:
+        timeframe: Zeitrahmen ("H1", "M30" oder "M15")
+
+    Returns:
+        Empfohlene Barrenanzahl.
+    """
+    bars_per_hour = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+        "bars_per_hour"
+    ]
+    return N_BARREN * bars_per_hour
+
+
+def mt5_daten_holen(
+    symbol: str,
+    timeframe: str = "H1",
+    n_barren: Optional[int] = None,
+) -> Optional[pd.DataFrame]:
+    """
+    Holt die letzten Barren im gewählten Zeitrahmen von MT5.
 
     Args:
         symbol:   Handelssymbol (z.B. "USDCAD")
-        n_barren: Anzahl der H1-Barren (Standard: 500)
+        n_barren: Anzahl der Barren (None = automatisch je Zeitrahmen)
 
     Returns:
         OHLCV DataFrame mit UTC-DatetimeIndex oder None bei Fehler.
@@ -730,7 +804,16 @@ def mt5_daten_holen(symbol: str, n_barren: int = N_BARREN) -> Optional[pd.DataFr
         return None
 
     # Barren von Position 0 (aktuelle Kerze) bis n-1
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, n_barren)
+    tf_const = mt5_timeframe_konstante(timeframe)
+    if tf_const is None:
+        logger.error(f"Unbekannter oder nicht verfügbarer Zeitrahmen: {timeframe}")
+        return None
+
+    n_bars_effektiv = (
+        n_barren if n_barren is not None else n_barren_fuer_timeframe(timeframe)
+    )
+
+    rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
     if rates is None:
         logger.error(f"[{symbol}] Keine Daten von MT5: {mt5.last_error()}")
         return None
@@ -745,9 +828,9 @@ def mt5_daten_holen(symbol: str, n_barren: int = N_BARREN) -> Optional[pd.DataFr
     return df[["open", "high", "low", "close", "volume"]]
 
 
-def mt5_letzte_kerze_uhrzeit(symbol: str) -> Optional[datetime]:
+def mt5_letzte_kerze_uhrzeit(symbol: str, timeframe: str = "H1") -> Optional[datetime]:
     """
-    Gibt die Öffnungszeit der letzten H1-Kerze zurück.
+    Gibt die Öffnungszeit der letzten geschlossenen Kerze zurück.
 
     Args:
         symbol: Handelssymbol
@@ -757,7 +840,10 @@ def mt5_letzte_kerze_uhrzeit(symbol: str) -> Optional[datetime]:
     """
     if not MT5_VERFUEGBAR:
         return None
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 2)
+    tf_const = mt5_timeframe_konstante(timeframe)
+    if tf_const is None:
+        return None
+    rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, 2)
     if rates is None:
         return None
     # Index 1 = letzte geschlossene Kerze
@@ -1039,7 +1125,11 @@ def alle_positionen_schliessen(symbol: str) -> None:
 # ============================================================
 
 
-def neue_kerze_abwarten(symbol: str, letzte_kerzen_zeit: Optional[datetime]) -> bool:
+def neue_kerze_abwarten(
+    symbol: str,
+    letzte_kerzen_zeit: Optional[datetime],
+    timeframe: str = "H1",
+) -> bool:
     """
     Prüft ob eine neue H1-Kerze geöffnet wurde.
 
@@ -1050,7 +1140,7 @@ def neue_kerze_abwarten(symbol: str, letzte_kerzen_zeit: Optional[datetime]) -> 
     Returns:
         True wenn neue Kerze verfügbar.
     """
-    aktuelle_kerze = mt5_letzte_kerze_uhrzeit(symbol)
+    aktuelle_kerze = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
     if aktuelle_kerze is None:
         return False
     return letzte_kerzen_zeit is None or aktuelle_kerze != letzte_kerzen_zeit
@@ -1066,9 +1156,10 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     kill_switch_dd: float = KILL_SWITCH_DD_DEFAULT,
     kapital_start: float = 10000.0,
     heartbeat_log: bool = HEARTBEAT_LOG_DEFAULT,
+    timeframe: str = "H1",
 ) -> None:
     """
-    Haupt-Schleife: Läuft dauerhaft und wartet auf neue H1-Kerzen.
+    Haupt-Schleife: Läuft dauerhaft und wartet auf neue Kerzen im gewählten Zeitrahmen.
 
     Bei jeder neuen Kerze:
     1. MT5-Daten holen
@@ -1113,7 +1204,8 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         "(CSV-Update pro Kerze)"
     )
     logger.info(f"Logs:           {LOG_DIR}")
-    logger.info("Warte auf neue H1-Kerze ...")
+    logger.info(f"Zeitrahmen:     {timeframe}")
+    logger.info(f"Warte auf neue {timeframe}-Kerze ...")
     logger.info("=" * 65)
 
     letzte_kerzen_zeit: Optional[datetime] = None
@@ -1147,13 +1239,13 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     while True:
         try:
             # Neue Kerze abwarten (prüfe alle 15 Sekunden)
-            if not neue_kerze_abwarten(symbol, letzte_kerzen_zeit):
+            if not neue_kerze_abwarten(symbol, letzte_kerzen_zeit, timeframe):
                 time.sleep(15)
                 continue
 
             # Neue Kerze erkannt!
             jetzt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            logger.info(f"\n[{symbol}] Neue H1-Kerze | {jetzt} UTC")
+            logger.info(f"\n[{symbol}] Neue {timeframe}-Kerze | {jetzt} UTC")
 
             # ---- Kill-Switch prüfen ----
             # Im Live-Modus: aktuellen MT5-Kontostand lesen
@@ -1177,17 +1269,23 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 break  # Trading-Schleife beenden
 
             # ---- Schritt 1: Daten von MT5 holen ----
-            df = mt5_daten_holen(symbol)
-            if df is None or len(df) < 250:
+            df = mt5_daten_holen(symbol, timeframe=timeframe)
+            min_bars = (
+                250
+                * TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+                    "bars_per_hour"
+                ]
+            )
+            if df is None or len(df) < min_bars:
                 logger.warning(
                     f"[{symbol}] Zu wenige Daten ({len(df) if df is not None else 0}) – übersprungen"
                 )
-                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol)
+                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
                 time.sleep(30)
                 continue
 
             # ---- Schritt 2: Features berechnen ----
-            df = features_berechnen(df)
+            df = features_berechnen(df, timeframe=timeframe)
 
             # ---- Schritt 3: Externe Features (Fear & Greed, BTC) ----
             df = externe_features_einfuegen(df)
@@ -1198,7 +1296,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 logger.warning(
                     f"[{symbol}] Nach NaN-Bereinigung zu wenige Zeilen – übersprungen"
                 )
-                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol)
+                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
                 continue
 
             # ---- Schritt 4: Signal generieren ----
@@ -1251,7 +1349,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 )
 
             # Zeitstempel der verarbeiteten Kerze speichern
-            letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol)
+            letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
 
             # Statistik alle 24 Kerzen (ca. 1x täglich)
             if n_trades > 0 and n_trades % 24 == 0:
@@ -1359,6 +1457,16 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         help="Modell-Versions-Suffix (Standard: v1). Muss mit train_model.py übereinstimmen.",
     )
     parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "M30", "M15"],
+        help=(
+            "Zeitrahmen für Datenabruf und Modell (Standard: H1). "
+            "M30/M15 erfordern separat trainierte Modelle: "
+            "lgbm_SYMBOL_TIMEFRAME_VERSION.pkl"
+        ),
+    )
+    parser.add_argument(
         "--allow_research_symbol",
         type=int,
         default=0,
@@ -1448,13 +1556,24 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         return
 
     # ---- Modell laden ----
-    modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{args.version}.pkl"
+    timeframe = args.timeframe.upper()
+    if timeframe == "H1":
+        modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{args.version}.pkl"
+    else:
+        modell_pfad = (
+            MODEL_DIR / f"lgbm_{symbol.lower()}_{timeframe}_{args.version}.pkl"
+        )
     if not modell_pfad.exists():
+        modell_name_hinweis = (
+            f"lgbm_{symbol.lower()}_{args.version}.pkl"
+            if timeframe == "H1"
+            else f"lgbm_{symbol.lower()}_{timeframe}_{args.version}.pkl"
+        )
         print(
             f"Modell nicht gefunden: {modell_pfad}\n"
             f"Bitte Modell vom Linux-Server übertragen:\n"
             f"  scp SERVER:/mnt/1T-Data/XGBoost-LightGBM/models/"
-            f"lgbm_{symbol.lower()}_{args.version}.pkl ./models/"
+            f"{modell_name_hinweis} ./models/"
         )
         return
 
@@ -1502,6 +1621,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         kill_switch_dd=args.kill_switch_dd,
         kapital_start=args.kapital_start,
         heartbeat_log=bool(args.heartbeat_log),
+        timeframe=timeframe,
     )
 
     # MT5 Verbindung beenden

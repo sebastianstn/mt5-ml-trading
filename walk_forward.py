@@ -167,13 +167,26 @@ STABILITAETS_SCHWELLE = 0.10
 # ============================================================
 
 
-def labeled_pfad(symbol: str, version: str = "v1") -> Path:
+def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Path:
     """
     Gibt den Pfad zum gelabelten CSV zurück (konsistent mit labeling.py + train_model.py).
 
-    v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
-    v2 → data/SYMBOL_H1_labeled_v2.csv
-    v3 → data/SYMBOL_H1_labeled_v3.csv
+    H1:
+        v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
+        v2 → data/SYMBOL_H1_labeled_v2.csv
+        v3 → data/SYMBOL_H1_labeled_v3.csv
+    M30:
+        v1 → data/SYMBOL_M30_labeled.csv
+        v2 → data/SYMBOL_M30_labeled_v2.csv
+        v3 → data/SYMBOL_M30_labeled_v3.csv
+    M60:
+        v1 → data/SYMBOL_M60_labeled.csv
+        v2 → data/SYMBOL_M60_labeled_v2.csv
+        v3 → data/SYMBOL_M60_labeled_v3.csv
+    M15:
+        v1 → data/SYMBOL_M15_labeled.csv
+        v2 → data/SYMBOL_M15_labeled_v2.csv
+        v3 → data/SYMBOL_M15_labeled_v3.csv
 
     Args:
         symbol:  Handelssymbol (z.B. "EURUSD")
@@ -183,11 +196,13 @@ def labeled_pfad(symbol: str, version: str = "v1") -> Path:
         Path zum gelabelten CSV
     """
     if version == "v1":
-        return DATA_DIR / f"{symbol}_H1_labeled.csv"
-    return DATA_DIR / f"{symbol}_H1_labeled_{version}.csv"
+        return DATA_DIR / f"{symbol}_{timeframe}_labeled.csv"
+    return DATA_DIR / f"{symbol}_{timeframe}_labeled_{version}.csv"
 
 
-def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
+def daten_laden(
+    symbol: str, version: str = "v1", timeframe: str = "H1"
+) -> pd.DataFrame:
     """
     Lädt den gelabelten Feature-DataFrame für ein Symbol.
 
@@ -201,7 +216,7 @@ def daten_laden(symbol: str, version: str = "v1") -> pd.DataFrame:
     Raises:
         FileNotFoundError: Wenn die gelabelte CSV nicht existiert.
     """
-    pfad = labeled_pfad(symbol, version)
+    pfad = labeled_pfad(symbol, version, timeframe)
     if not pfad.exists():
         raise FileNotFoundError(
             f"Datei nicht gefunden: {pfad}\n"
@@ -531,7 +546,9 @@ def ergebnisse_visualisieren(ergebnisse: List[Dict], symbol: str) -> None:
 # ============================================================
 
 
-def walk_forward_analyse(symbol: str, version: str = "v1") -> bool:
+def walk_forward_analyse(
+    symbol: str, version: str = "v1", timeframe: str = "H1"
+) -> bool:
     """
     Führt die vollständige Walk-Forward-Analyse für ein Symbol durch.
 
@@ -557,7 +574,7 @@ def walk_forward_analyse(symbol: str, version: str = "v1") -> bool:
     logger.info("=" * 60)
 
     # Daten laden und aufbereiten (versionierter Pfad)
-    df = daten_laden(symbol, version)
+    df = daten_laden(symbol, version, timeframe)
     X, y = features_aufbereiten(df)
     logger.info(f"[{symbol}] Features: {len(X.columns)} Spalten")
 
@@ -637,6 +654,15 @@ def main() -> None:
             "Muss mit --version in labeling.py und train_model.py übereinstimmen."
         ),
     )
+    parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "M60", "M30", "M15"],
+        help=(
+            "Zeitrahmen der gelabelten Eingabedaten (Standard: H1). "
+            "Beispiel: --timeframe M60"
+        ),
+    )
     args = parser.parse_args()
 
     SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
@@ -653,13 +679,15 @@ def main() -> None:
 
     start_zeit = datetime.now()
     logger.info(f"Start: {start_zeit.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Symbole: {', '.join(ziel_symbole)} | Version: {args.version}")
+    logger.info(
+        f"Symbole: {', '.join(ziel_symbole)} | Version: {args.version} | TF: {args.timeframe}"
+    )
 
     gesamt_ergebnisse = []
 
     for symbol in ziel_symbole:
         try:
-            ist_stabil = walk_forward_analyse(symbol, args.version)
+            ist_stabil = walk_forward_analyse(symbol, args.version, args.timeframe)
             gesamt_ergebnisse.append((symbol, ist_stabil))
         except FileNotFoundError as e:
             logger.error(str(e))
@@ -688,7 +716,9 @@ def main() -> None:
     print(f"\n{stabil_anzahl}/{len(gesamt_ergebnisse)} Modelle stabil")
     print(f"Laufzeit: {dauer_sek // 60}m {dauer_sek % 60}s")
     print("\nPlots gespeichert: plots/SYMBOL_walk_forward.png")
-    print(f"\nNächster Schritt: backtest.py --symbol alle --version {args.version} ausführen")
+    print(
+        f"\nNächster Schritt: backtest.py --symbol alle --version {args.version} ausführen"
+    )
     print("=" * 60)
 
 

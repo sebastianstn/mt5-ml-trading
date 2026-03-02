@@ -195,7 +195,7 @@ def double_barrier_label_rrr(
 
         for j in range(1, horizon + 1):
             h = high[i + j]
-            l = low[i + j]
+            low_j = low[i + j]
 
             # Long-TP zuerst prüfen (Kurs stieg tp_pct)
             if h >= long_tp:
@@ -203,12 +203,12 @@ def double_barrier_label_rrr(
                 break
 
             # Short-TP prüfen (Kurs fiel tp_pct)
-            if l <= short_tp:
+            if low_j <= short_tp:
                 label = -1  # Short würde TP treffen → Short Signal
                 break
 
             # Adverse Bewegungen (SL-Level) → kein profitabler Trade möglich
-            if l <= long_sl or h >= short_sl:
+            if low_j <= long_sl or h >= short_sl:
                 label = 0  # Long-SL oder Short-SL getroffen → Kein Signal
                 break
 
@@ -257,7 +257,7 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
         anteil = verteilung.get(label_nr, 0) / anz
         if anteil < 0.10:
             logger.warning(
-                "[%s] Klasse %s nur %s%%! " "TP/SL-Schwellen oder Horizon anpassen?",
+                "[%s] Klasse %s nur %s%%! TP/SL-Schwellen oder Horizon anpassen?",
                 symbol,
                 label_nr,
                 f"{anteil * 100:.1f}",
@@ -269,13 +269,26 @@ def label_verteilung_pruefen(df: pd.DataFrame, symbol: str) -> None:
 # ============================================================
 
 
-def labeled_pfad(symbol: str, version: str = "v1") -> Path:
+def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Path:
     """
     Gibt den Ausgabepfad für das gelabelte CSV zurück.
 
-    v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
-    v2 → data/SYMBOL_H1_labeled_v2.csv     (Option A: Horizon=10)
-    v3 → data/SYMBOL_H1_labeled_v3.csv     (Option B: TP/SL=0.15%)
+    H1:
+        v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
+        v2 → data/SYMBOL_H1_labeled_v2.csv     (Option A: Horizon=10)
+        v3 → data/SYMBOL_H1_labeled_v3.csv     (Option B: TP/SL=0.15%)
+    M30:
+        v1 → data/SYMBOL_M30_labeled.csv
+        v2 → data/SYMBOL_M30_labeled_v2.csv
+        v3 → data/SYMBOL_M30_labeled_v3.csv
+    M60:
+        v1 → data/SYMBOL_M60_labeled.csv
+        v2 → data/SYMBOL_M60_labeled_v2.csv
+        v3 → data/SYMBOL_M60_labeled_v3.csv
+    M15:
+        v1 → data/SYMBOL_M15_labeled.csv
+        v2 → data/SYMBOL_M15_labeled_v2.csv
+        v3 → data/SYMBOL_M15_labeled_v3.csv
 
     Args:
         symbol: Handelssymbol (z.B. "EURUSD")
@@ -286,8 +299,8 @@ def labeled_pfad(symbol: str, version: str = "v1") -> Path:
     """
     if version == "v1":
         # Rückwärtskompatibel: kein Versions-Suffix für v1
-        return DATA_DIR / f"{symbol}_H1_labeled.csv"
-    return DATA_DIR / f"{symbol}_H1_labeled_{version}.csv"
+        return DATA_DIR / f"{symbol}_{timeframe}_labeled.csv"
+    return DATA_DIR / f"{symbol}_{timeframe}_labeled_{version}.csv"
 
 
 def symbol_labeln(
@@ -297,6 +310,7 @@ def symbol_labeln(
     horizon: int = HORIZON,
     version: str = "v1",
     modus: str = "standard",
+    timeframe: str = "H1",
 ) -> bool:
     """
     Vollständiger Labeling-Ablauf für ein Symbol.
@@ -318,14 +332,14 @@ def symbol_labeln(
     Returns:
         True wenn erfolgreich, False bei Fehler.
     """
-    eingabe_pfad = DATA_DIR / f"{symbol}_H1_features.csv"
-    ausgabe_pfad = labeled_pfad(symbol, version)
+    eingabe_pfad = DATA_DIR / f"{symbol}_{timeframe}_features.csv"
+    ausgabe_pfad = labeled_pfad(symbol, version, timeframe)
 
     # Datei prüfen
     if not eingabe_pfad.exists():
         logger.error("[%s] Nicht gefunden: %s", symbol, eingabe_pfad)
         logger.error(
-            "[%s] Zuerst feature_engineering.py und " "regime_detection.py ausführen!",
+            "[%s] Zuerst feature_engineering.py und regime_detection.py ausführen!",
             symbol,
         )
         return False
@@ -469,6 +483,18 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "M60", "M30", "M15"],
+        help=(
+            "Zeitrahmen der Feature-Datei (Standard: H1). "
+            "H1 → SYMBOL_H1_features.csv | "
+            "M60 → SYMBOL_M60_features.csv | "
+            "M30 → SYMBOL_M30_features.csv | "
+            "M15 → SYMBOL_M15_features.csv"
+        ),
+    )
+    parser.add_argument(
         "--modus",
         default="standard",
         choices=["standard", "rrr"],
@@ -494,12 +520,13 @@ def main() -> None:
     logger.info("=" * 60)
     logger.info("Phase 4 – Labeling – gestartet")
     logger.info(
-        "Parameter: TP=%s, SL=%s, Horizon=%s H1-Barren | Version: %s | Modus: %s",
+        "Parameter: TP=%s, SL=%s, Horizon=%s Barren | Version: %s | Modus: %s | TF: %s",
         f"{args.tp_pct:.2%}",
         f"{args.sl_pct:.2%}",
         args.horizon,
         args.version,
         args.modus.upper(),
+        args.timeframe,
     )
     logger.info("Symbole: %s", ", ".join(ziel_symbole))
     logger.info("=" * 60)
@@ -518,6 +545,7 @@ def main() -> None:
             horizon=args.horizon,
             version=args.version,
             modus=args.modus,
+            timeframe=args.timeframe,
         )
         ergebnisse.append((symbol, "OK" if erfolg else "FEHLER"))
 
@@ -537,7 +565,7 @@ def main() -> None:
     print(f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich gelabelt.")
 
     # Ausgabe-Dateiname anzeigen
-    beispiel_pfad = labeled_pfad("EURUSD", args.version)
+    beispiel_pfad = labeled_pfad("EURUSD", args.version, args.timeframe)
     symbol_name = beispiel_pfad.name.replace("EURUSD", "SYMBOL")
     print(f"\nGelabelte Daten in: {DATA_DIR}/{symbol_name}")
     print(

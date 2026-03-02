@@ -19,6 +19,7 @@ Verwendung:
     source venv/bin/activate
     python features/feature_engineering.py
 """
+
 # pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
@@ -39,6 +40,14 @@ logger = logging.getLogger(__name__)
 # Pfade
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
+
+# Zeitzonen-neutrale Timeframe-Konfiguration (für H1/M60/M30/M15 Migration)
+TIMEFRAME_CONFIG = {
+    "H1": {"bars_per_hour": 1},
+    "M60": {"bars_per_hour": 1},
+    "M30": {"bars_per_hour": 2},
+    "M15": {"bars_per_hour": 4},
+}
 
 
 # ============================================================
@@ -111,9 +120,7 @@ def ind_macd(
     ema_fast = ind_ema(series, fast)
     ema_slow = ind_ema(series, slow)
     macd_line = ema_fast - ema_slow
-    macd_signal = macd_line.ewm(
-        span=signal, adjust=False, min_periods=signal
-    ).mean()
+    macd_signal = macd_line.ewm(span=signal, adjust=False, min_periods=signal).mean()
     macd_hist = macd_line - macd_signal
 
     return pd.DataFrame(
@@ -148,12 +155,8 @@ def ind_rsi(series: pd.Series, length: int = 14) -> pd.Series:
     loss = -delta.clip(upper=0)
 
     # Wilder-Smoothing: alpha = 1/length (entspricht EMA mit span=2*length-1)
-    avg_gain = gain.ewm(
-        alpha=1 / length, adjust=False, min_periods=length
-    ).mean()
-    avg_loss = loss.ewm(
-        alpha=1 / length, adjust=False, min_periods=length
-    ).mean()
+    avg_gain = gain.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+    avg_loss = loss.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
@@ -278,9 +281,7 @@ def ind_atr(
 
     true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     # Wilder-Smoothing: identisch zu MetaTrader
-    atr = true_range.ewm(
-        alpha=1 / length, adjust=False, min_periods=length
-    ).mean()
+    atr = true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
     return atr
 
 
@@ -393,32 +394,26 @@ def trend_features(df: pd.DataFrame) -> pd.DataFrame:
     result["sma_200"] = ind_sma(result["close"], 200)
 
     # Preis-zu-SMA Ratio: positive Werte = Preis über dem SMA (bullish)
-    result["price_sma20_ratio"] = (
-        result["close"] - result["sma_20"]
-    ) / result["sma_20"]
-    result["price_sma50_ratio"] = (
-        result["close"] - result["sma_50"]
-    ) / result["sma_50"]
-    result["price_sma200_ratio"] = (
-        result["close"] - result["sma_200"]
-    ) / result["sma_200"]
+    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result[
+        "sma_20"
+    ]
+    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result[
+        "sma_50"
+    ]
+    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result[
+        "sma_200"
+    ]
 
     # SMA-Crossover: 1 = SMA20 über SMA50 (bullish), -1 = bearish
-    result["sma_20_50_cross"] = np.sign(
-        result["sma_20"] - result["sma_50"]
-    ).fillna(0)
-    result["sma_50_200_cross"] = np.sign(
-        result["sma_50"] - result["sma_200"]
-    ).fillna(0)
+    result["sma_20_50_cross"] = np.sign(result["sma_20"] - result["sma_50"]).fillna(0)
+    result["sma_50_200_cross"] = np.sign(result["sma_50"] - result["sma_200"]).fillna(0)
 
     # --- Exponential Moving Averages ---
     result["ema_12"] = ind_ema(result["close"], 12)
     result["ema_26"] = ind_ema(result["close"], 26)
 
     # EMA Crossover: 1 = EMA12 über EMA26 (bullish Signal)
-    result["ema_cross"] = np.sign(result["ema_12"] - result["ema_26"]).fillna(
-        0
-    )
+    result["ema_cross"] = np.sign(result["ema_12"] - result["ema_26"]).fillna(0)
 
     # --- MACD (12, 26, 9) ---
     macd = ind_macd(result["close"], fast=12, slow=26, signal=9)
@@ -458,14 +453,10 @@ def momentum_features(df: pd.DataFrame) -> pd.DataFrame:
     result["rsi_centered"] = result["rsi_14"] - 50
 
     # --- Stochastic Oscillator (14, 3) ---
-    stoch = ind_stoch(
-        result["high"], result["low"], result["close"], k=14, d=3
-    )
+    stoch = ind_stoch(result["high"], result["low"], result["close"], k=14, d=3)
     result["stoch_k"] = stoch["stoch_k"]
     result["stoch_d"] = stoch["stoch_d"]
-    result["stoch_cross"] = np.sign(
-        result["stoch_k"] - result["stoch_d"]
-    ).fillna(0)
+    result["stoch_cross"] = np.sign(result["stoch_k"] - result["stoch_d"]).fillna(0)
 
     # --- Williams %R (14) ---
     result["williams_r"] = ind_williams_r(
@@ -476,8 +467,7 @@ def momentum_features(df: pd.DataFrame) -> pd.DataFrame:
     result["roc_10"] = ind_roc(result["close"], length=10)
 
     logger.info(
-        "Momentum-Features: RSI(14), Stochastic(14,3), "
-        "Williams %%%%R(14), ROC(10) ✓"
+        "Momentum-Features: RSI(14), Stochastic(14,3), " "Williams %%%%R(14), ROC(10) ✓"
     )
     return result
 
@@ -487,7 +477,7 @@ def momentum_features(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 
-def volatility_features(df: pd.DataFrame) -> pd.DataFrame:
+def volatility_features(df: pd.DataFrame, timeframe: str = "H1") -> pd.DataFrame:
     """
     Berechnet Volatilitäts-Indikatoren.
 
@@ -517,22 +507,23 @@ def volatility_features(df: pd.DataFrame) -> pd.DataFrame:
     result["bb_lower"] = bbands["bb_lower"]
 
     # BB Width: Breite der Bänder (hoch = volatile Phase)
-    result["bb_width"] = (result["bb_upper"] - result["bb_lower"]) / result[
-        "bb_mid"
-    ]
+    result["bb_width"] = (result["bb_upper"] - result["bb_lower"]) / result["bb_mid"]
 
     # BB %B: Wo liegt der Preis? 0 = am unteren Band, 1 = am oberen Band
     band_range = (result["bb_upper"] - result["bb_lower"]).replace(0, np.nan)
     result["bb_pct"] = (result["close"] - result["bb_lower"]) / band_range
 
     # --- Historische Volatilität (Rolling 20 Perioden) ---
-    # Annualisierte Volatilität der Log-Returns (252 Tage * 24 Stunden)
+    # Annualisierte Volatilität der Log-Returns.
+    # H1/M60: 252*24 Bars/Jahr, M30: 252*48 Bars/Jahr, M15: 252*96 Bars/Jahr.
     log_returns = np.log(result["close"] / result["close"].shift(1))
-    result["hist_vol_20"] = log_returns.rolling(20).std() * np.sqrt(252 * 24)
+    bars_per_hour = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+        "bars_per_hour"
+    ]
+    bars_per_day = 24 * bars_per_hour
+    result["hist_vol_20"] = log_returns.rolling(20).std() * np.sqrt(252 * bars_per_day)
 
-    logger.info(
-        "Volatilitäts-Features: ATR(14), Bollinger Bands(20,2), Hist.Vol(20) ✓"
-    )
+    logger.info("Volatilitäts-Features: ATR(14), Bollinger Bands(20,2), Hist.Vol(20) ✓")
     return result
 
 
@@ -572,9 +563,7 @@ def volume_features(df: pd.DataFrame) -> pd.DataFrame:
     vol_sma_20 = result["volume"].rolling(20).mean().replace(0, np.nan)
     result["volume_ratio"] = result["volume"] / vol_sma_20
 
-    logger.info(
-        "Volumen-Features: OBV, OBV Z-Score, Volume ROC(14), Volume Ratio ✓"
-    )
+    logger.info("Volumen-Features: OBV, OBV Z-Score, Volume ROC(14), Volume Ratio ✓")
     return result
 
 
@@ -583,7 +572,7 @@ def volume_features(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 
-def kerzenmuster_features(df: pd.DataFrame) -> pd.DataFrame:
+def kerzenmuster_features(df: pd.DataFrame, timeframe: str = "H1") -> pd.DataFrame:
     """
     Berechnet Features basierend auf der Kerzenstruktur.
 
@@ -612,10 +601,17 @@ def kerzenmuster_features(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     atr = result["atr_14"].replace(0, np.nan)
 
-    # --- Log-Returns ---
-    result["return_1h"] = np.log(result["close"] / result["close"].shift(1))
-    result["return_4h"] = np.log(result["close"] / result["close"].shift(4))
-    result["return_24h"] = np.log(result["close"] / result["close"].shift(24))
+    # --- Log-Returns mit zeitäquivalenten Fenstern ---
+    # H1/M60: 1/4/24 Bars, M30: 2/8/48 Bars, M15: 4/16/96 Bars.
+    bars_per_hour = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+        "bars_per_hour"
+    ]
+    shift_1h = 1 * bars_per_hour
+    shift_4h = 4 * bars_per_hour
+    shift_24h = 24 * bars_per_hour
+    result["return_1h"] = np.log(result["close"] / result["close"].shift(shift_1h))
+    result["return_4h"] = np.log(result["close"] / result["close"].shift(shift_4h))
+    result["return_24h"] = np.log(result["close"] / result["close"].shift(shift_24h))
 
     # --- Kerzenstruktur (normalisiert durch ATR) ---
     body_top = result[["close", "open"]].max(axis=1)
@@ -631,9 +627,7 @@ def kerzenmuster_features(df: pd.DataFrame) -> pd.DataFrame:
     # High-Low-Range (normalisiert durch Close-Preis)
     result["hl_range"] = (result["high"] - result["low"]) / result["close"]
 
-    logger.info(
-        "Kerzenmuster-Features: Returns(1h,4h,24h), Körper, Wicks, HL-Range ✓"
-    )
+    logger.info("Kerzenmuster-Features: Returns(1h,4h,24h), Körper, Wicks, HL-Range ✓")
     return result
 
 
@@ -766,7 +760,7 @@ def nan_bereinigung(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 
-def features_berechnen(symbol: str) -> bool:
+def features_berechnen(symbol: str, timeframe: str = "H1") -> bool:
     """
     Berechnet alle Features für ein Symbol und speichert das Ergebnis.
 
@@ -776,7 +770,7 @@ def features_berechnen(symbol: str) -> bool:
     Returns:
         True wenn erfolgreich, False bei Fehler.
     """
-    eingabe = DATA_DIR / f"{symbol}_H1.csv"
+    eingabe = DATA_DIR / f"{symbol}_{timeframe}.csv"
     if not eingabe.exists():
         logger.error("%s: Datei nicht gefunden: %s", symbol, eingabe)
         return False
@@ -789,9 +783,9 @@ def features_berechnen(symbol: str) -> bool:
         df = daten_laden(eingabe)
         df = trend_features(df)
         df = momentum_features(df)
-        df = volatility_features(df)  # ← erstellt atr_14
+        df = volatility_features(df, timeframe=timeframe)  # ← erstellt atr_14
         df = volume_features(df)
-        df = kerzenmuster_features(df)  # ← verwendet atr_14
+        df = kerzenmuster_features(df, timeframe=timeframe)  # ← verwendet atr_14
         df = multitimeframe_features(df)
         df = zeitbasierte_features(df)
         df = nan_bereinigung(df)
@@ -804,17 +798,33 @@ def features_berechnen(symbol: str) -> bool:
         return False
 
     # Ergebnis speichern
-    ausgabe = DATA_DIR / f"{symbol}_H1_features.csv"
+    ausgabe = DATA_DIR / f"{symbol}_{timeframe}_features.csv"
     df.to_csv(ausgabe)
     groesse_mb = ausgabe.stat().st_size / (1024 * 1024)
-    logger.info(
-        "%s: gespeichert → %s (%.1f MB)", symbol, ausgabe.name, groesse_mb
-    )
+    logger.info("%s: gespeichert → %s (%.1f MB)", symbol, ausgabe.name, groesse_mb)
     return True
 
 
 def main() -> None:
-    """Hauptablauf: Features für alle 7 Forex-Symbole berechnen."""
+    """Hauptablauf: Features für ein oder mehrere Symbole berechnen."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Feature Engineering für H1/M60/M30/M15-Daten"
+    )
+    parser.add_argument(
+        "--symbol",
+        default="alle",
+        help=("Handelssymbol oder 'alle' (Standard). " "Beispiel: --symbol USDCAD"),
+    )
+    parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "M60", "M30", "M15"],
+        help="Zeitrahmen der Eingabe-CSV (Standard: H1).",
+    )
+    args = parser.parse_args()
+
     symbole = [
         "EURUSD",
         "GBPUSD",
@@ -825,17 +835,27 @@ def main() -> None:
         "NZDUSD",
     ]
 
+    if args.symbol.lower() == "alle":
+        ziel_symbole = symbole
+    elif args.symbol.upper() in symbole:
+        ziel_symbole = [args.symbol.upper()]
+    else:
+        print(f"Unbekanntes Symbol: {args.symbol}")
+        print(f"Verfügbar: {', '.join(symbole)} oder 'alle'")
+        return
+
     logger.info("=" * 60)
-    logger.info("Feature Engineering – %s Symbole", len(symbole))
+    logger.info("Feature Engineering – %s Symbole", len(ziel_symbole))
+    logger.info("Zeitrahmen: %s", args.timeframe)
     logger.info("Gerät: Linux-Server")
     logger.info("=" * 60)
 
     ergebnisse = []
-    for symbol in symbole:
+    for symbol in ziel_symbole:
         logger.info("\n%s", "─" * 40)
         logger.info("Verarbeite: %s", symbol)
         logger.info("%s", "─" * 40)
-        ok = features_berechnen(symbol)
+        ok = features_berechnen(symbol, timeframe=args.timeframe)
         ergebnisse.append((symbol, "OK" if ok else "FEHLER"))
 
     # Abschluss-Zusammenfassung
@@ -844,9 +864,9 @@ def main() -> None:
     print("=" * 60)
     for symbol, status in ergebnisse:
         mark = "✓" if status == "OK" else "✗"
-        print(f"  {mark} {symbol}_H1_features.csv")
+        print(f"  {mark} {symbol}_{args.timeframe}_features.csv")
     erfolge = sum(1 for _, s in ergebnisse if s == "OK")
-    print(f"\n{erfolge}/{len(symbole)} Symbole erfolgreich verarbeitet.")
+    print(f"\n{erfolge}/{len(ziel_symbole)} Symbole erfolgreich verarbeitet.")
     print("=" * 60)
 
 

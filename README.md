@@ -103,6 +103,7 @@ Phase 7 sauber ausführen:
 2. Wöchentlichen KPI-Report erzeugen (`reports/weekly_kpi_report.py`)
 3. 12 konsekutive GO-Wochen für Eskalationsfreigabe aufbauen
 4. Dokumente regelmäßig mit Guard prüfen (`reports/doc_drift_guard.py` + `reports/doc_sync_checklist.md`)
+5. Tägliche Monitoring-Mail senden (`reports/daily_performance_email.py --tage 1`)
 
 ---
 

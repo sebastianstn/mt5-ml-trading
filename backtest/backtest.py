@@ -107,7 +107,7 @@ SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 # Labeling-Parameter (MÜSSEN mit features/labeling.py übereinstimmen!)
 TP_PCT = 0.003  # Take-Profit: 0.3% (identisch mit labeling.py)
 SL_PCT = 0.003  # Stop-Loss:   0.3% (identisch mit labeling.py)
-HORIZON = 5  # Zeitschranke: 5 H1-Kerzen
+HORIZON = 5  # Zeitschranke: 5 Kerzen (im gewählten Zeitrahmen)
 
 # Spread-Kosten pro Trade (als Anteil des Eintrittspreises)
 # Realistisch: ~1–2 Pips je nach Symbol und Broker
@@ -231,6 +231,15 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
     H1 (Standard):
         v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
         v2 → data/SYMBOL_H1_labeled_v2.csv
+    M30:
+        v1 → data/SYMBOL_M30_labeled.csv
+        v2 → data/SYMBOL_M30_labeled_v2.csv
+    M60:
+        v1 → data/SYMBOL_M60_labeled.csv
+        v2 → data/SYMBOL_M60_labeled_v2.csv
+    M15:
+        v1 → data/SYMBOL_M15_labeled.csv
+        v2 → data/SYMBOL_M15_labeled_v2.csv
     H4:
         v1 → data/SYMBOL_H4_labeled.csv
         v2 → data/SYMBOL_H4_labeled_v2.csv
@@ -238,7 +247,7 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
     Args:
         symbol:    Handelssymbol (z.B. "EURUSD")
         version:   Versions-String (Standard: "v1")
-        timeframe: Zeitrahmen – "H1" oder "H4" (Standard: "H1")
+        timeframe: Zeitrahmen – "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         Path zum gelabelten CSV
@@ -247,6 +256,21 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
         if version == "v1":
             return DATA_DIR / f"{symbol}_H4_labeled.csv"
         return DATA_DIR / f"{symbol}_H4_labeled_{version}.csv"
+
+    if timeframe == "M30":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_M30_labeled.csv"
+        return DATA_DIR / f"{symbol}_M30_labeled_{version}.csv"
+
+    if timeframe == "M60":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_M60_labeled.csv"
+        return DATA_DIR / f"{symbol}_M60_labeled_{version}.csv"
+
+    if timeframe == "M15":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_M15_labeled.csv"
+        return DATA_DIR / f"{symbol}_M15_labeled_{version}.csv"
 
     # H1 (Standard, rückwärtskompatibel)
     if version == "v1":
@@ -275,7 +299,7 @@ def daten_laden(
         version:      Versions-String für den Datei-Pfad (Standard: "v1")
         zeitraum_von: Optional – Startdatum für den Teilzeitraum (z.B. "2023-01-01")
         zeitraum_bis: Optional – Enddatum für den Teilzeitraum (z.B. "2023-12-31")
-        timeframe:    Zeitrahmen der Daten – "H1" oder "H4" (Standard: "H1")
+        timeframe:    Zeitrahmen der Daten – "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit Features, OHLC-Preisen, label und market_regime.
@@ -347,8 +371,11 @@ def signale_generieren(  # pylint: disable=too-many-locals
     - Kein Signal:  Klasse 1 (Neutral) ODER Wahrscheinlichkeit zu niedrig
 
     Modell-Dateiname:
-        H1: lgbm_SYMBOL_v1.pkl      (Standard)
-        H4: lgbm_SYMBOL_H4_v1.pkl  (H4-Experiment)
+        H1:  lgbm_SYMBOL_v1.pkl       (Standard)
+        M30: lgbm_SYMBOL_M30_v1.pkl
+        M60: lgbm_SYMBOL_M60_v1.pkl
+        M15: lgbm_SYMBOL_M15_v1.pkl
+        H4:  lgbm_SYMBOL_H4_v1.pkl
 
     Args:
         df:        Test-Set DataFrame mit Features und OHLC
@@ -356,19 +383,19 @@ def signale_generieren(  # pylint: disable=too-many-locals
         schwelle:  Mindest-Wahrscheinlichkeit für einen Trade (Standard: 0.55)
         version:   Datenversions-String (Standard: "v1")
         model_version: Modellversions-String (optional). Wenn None, wird `version` verwendet.
-        timeframe: Zeitrahmen für den Modell-Dateinamen – "H1" oder "H4" (Standard: "H1")
+        timeframe: Zeitrahmen für den Modell-Dateinamen – "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit zusätzlichen Spalten: signal, prob_signal
     """
     # Modell laden (versioniertes Modell-File, abhängig vom Zeitrahmen)
     aktive_modell_version = model_version or version
-    if timeframe == "H4":
-        modell_pfad = (
-            MODEL_DIR / f"lgbm_{symbol.lower()}_H4_{aktive_modell_version}.pkl"
-        )
-    else:
+    if timeframe == "H1":
         modell_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{aktive_modell_version}.pkl"
+    else:
+        modell_pfad = (
+            MODEL_DIR / f"lgbm_{symbol.lower()}_{timeframe}_{aktive_modell_version}.pkl"
+        )
 
     if not modell_pfad.exists():
         hilfe = f"train_model.py --symbol {symbol} --timeframe {timeframe}"
@@ -456,7 +483,7 @@ def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-
     swap_long: float = 0.0,
     swap_short: float = 0.0,
     entry_time: Optional[pd.Timestamp] = None,
-    stunden_pro_bar: int = 1,
+    stunden_pro_bar: float = 1.0,
 ) -> dict:
     """
     Simuliert einen einzelnen Trade mit Double-Barrier Exit.
@@ -751,8 +778,15 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
             atr_wert = float(df["atr_14"].iloc[i]) if atr_sl_aktiv else 0.0
 
             # Trade simulieren (mit konfigurierbarem TP/SL, ATR, Positionsgröße und Swap)
-            # stunden_pro_bar: 1 für H1 (Standard), 4 für H4 (für Swap-Kostenberechnung)
-            stunden_pro_bar = 4 if timeframe == "H4" else 1
+            # stunden_pro_bar für Swap-Kostenberechnung je Zeitrahmen.
+            if timeframe == "H4":
+                stunden_pro_bar = 4.0
+            elif timeframe == "M30":
+                stunden_pro_bar = 0.5
+            elif timeframe == "M15":
+                stunden_pro_bar = 0.25
+            else:
+                stunden_pro_bar = 1.0
             ergebnis = trade_simulieren(
                 df,
                 i,
@@ -1048,7 +1082,10 @@ def regime_analyse(trades_df: pd.DataFrame, symbol: str) -> Optional[pd.DataFram
 # ============================================================
 
 
-def regime_matrix_erstellen(ziel_symbole: list) -> Optional[pd.DataFrame]:
+def regime_matrix_erstellen(
+    ziel_symbole: list,
+    timeframe: str = "H1",
+) -> Optional[pd.DataFrame]:
     """
     Liest alle gespeicherten Trade-CSVs und erstellt eine Regime-Performance-Matrix.
 
@@ -1067,7 +1104,10 @@ def regime_matrix_erstellen(ziel_symbole: list) -> Optional[pd.DataFrame]:
 
     for symbol in ziel_symbole:
         # Trade-CSV laden (wird am Ende von symbol_backtest() gespeichert)
-        trade_pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
+        if timeframe == "H1":
+            trade_pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
+        else:
+            trade_pfad = BACKTEST_DIR / f"{symbol}_{timeframe}_trades.csv"
         if not trade_pfad.exists():
             logger.warning(f"[{symbol}] Trade-CSV nicht gefunden: {trade_pfad}")
             continue
@@ -1868,7 +1908,10 @@ def symbol_backtest(  # pylint: disable=too-many-arguments,too-many-positional-a
 
         # Schritt 7: Trade-Log als CSV speichern
         BACKTEST_DIR.mkdir(parents=True, exist_ok=True)
-        trade_pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
+        if timeframe == "H1":
+            trade_pfad = BACKTEST_DIR / f"{symbol}_trades.csv"
+        else:
+            trade_pfad = BACKTEST_DIR / f"{symbol}_{timeframe}_trades.csv"
         trades_df.to_csv(trade_pfad)
         logger.info(
             f"[{symbol}] Trade-Log gespeichert: "
@@ -1967,7 +2010,7 @@ def main() -> (
         type=int,
         default=HORIZON,
         help=(
-            f"Zeitschranke in H1-Kerzen (Standard: {HORIZON}). "
+            f"Zeitschranke in Kerzen des gewählten Zeitrahmens (Standard: {HORIZON}). "
             "Muss mit --horizon aus labeling.py übereinstimmen! "
             "Option A (v2): --horizon 10"
         ),
@@ -2070,12 +2113,15 @@ def main() -> (
     parser.add_argument(
         "--timeframe",
         default="H1",
-        choices=["H1", "H4"],
+        choices=["H1", "M60", "M30", "M15", "H4"],
         help=(
             "Zeitrahmen für Daten und Modell (Standard: H1). "
             "H1 → SYMBOL_H1_labeled.csv + lgbm_SYMBOL_v1.pkl | "
+            "M60 → SYMBOL_M60_labeled.csv + lgbm_SYMBOL_M60_v1.pkl | "
+            "M30 → SYMBOL_M30_labeled.csv + lgbm_SYMBOL_M30_v1.pkl | "
+            "M15 → SYMBOL_M15_labeled.csv + lgbm_SYMBOL_M15_v1.pkl | "
             "H4 → SYMBOL_H4_labeled.csv + lgbm_SYMBOL_H4_v1.pkl. "
-            "Vor H4 zuerst h4_pipeline.py + train_model.py --timeframe H4 ausführen!"
+            "Vor H4, M60, M30 oder M15 zuerst die passende Datenpipeline + train_model.py ausführen!"
         ),
     )
 
@@ -2246,7 +2292,7 @@ def main() -> (
     # Zeigt für jede Symbol/Regime-Kombination die Performance an.
     # Ermöglicht eine datengetriebene Entscheidung für --regime_filter.
     if len(ziel_symbole) >= 2:
-        matrix_df = regime_matrix_erstellen(ziel_symbole)
+        matrix_df = regime_matrix_erstellen(ziel_symbole, timeframe=args.timeframe)
         if matrix_df is not None:
             # Tabelle im Terminal ausgeben
             regime_matrix_drucken(matrix_df, regime_info)
@@ -2336,7 +2382,10 @@ def main() -> (
     print("          plots/SYMBOL_backtest_monatlich.png")
     print("          plots/SYMBOL_backtest_perioden.png")
     print("          plots/regime_performance_matrix.png  ← NEU: Regime-Vergleich")
-    print("Trades:   backtest/SYMBOL_trades.csv")
+    if args.timeframe == "H1":
+        print("Trades:   backtest/SYMBOL_trades.csv")
+    else:
+        print(f"Trades:   backtest/SYMBOL_{args.timeframe}_trades.csv")
     print("Matrix:   backtest/regime_performance_matrix.csv  ← NEU: Regime-Daten")
     print(f"Laufzeit: {dauer_sek // 60}m {dauer_sek % 60}s")
 

@@ -7,17 +7,18 @@ WICHTIG: Dieses Skript läuft NUR auf dem Windows 11 Laptop!
 Verwendung:
     python data_loader.py
 
-Ergebnis:
-    data/EURUSD_H1.csv  – Euro / US-Dollar
-    data/GBPUSD_H1.csv  – Britisches Pfund / US-Dollar
-    data/USDJPY_H1.csv  – US-Dollar / Japanischer Yen
-    data/AUDUSD_H1.csv  – Australischer Dollar / US-Dollar
-    data/USDCAD_H1.csv  – US-Dollar / Kanadischer Dollar
-    data/USDCHF_H1.csv  – US-Dollar / Schweizer Franken
-    data/NZDUSD_H1.csv  – Neuseeland-Dollar / US-Dollar
+Ergebnis (je nach --timeframe):
+    data/EURUSD_H1.csv   oder data/EURUSD_M60.csv
+    data/GBPUSD_H1.csv   oder data/GBPUSD_M60.csv
+    data/USDJPY_H1.csv   oder data/USDJPY_M60.csv
+    data/AUDUSD_H1.csv   oder data/AUDUSD_M60.csv
+    data/USDCAD_H1.csv   oder data/USDCAD_M60.csv
+    data/USDCHF_H1.csv   oder data/USDCHF_M60.csv
+    data/NZDUSD_H1.csv   oder data/NZDUSD_M60.csv
 """
 
 # Standard-Bibliotheken
+import argparse
 import logging
 import sys
 from pathlib import Path
@@ -77,7 +78,7 @@ def mt5_verbinden() -> bool:
         return False
 
     # Zugangsdaten aus .env lesen
-    login = int(os.getenv("MT5_LOGIN", 0))
+    login = int(os.getenv("MT5_LOGIN", "0"))
     password = os.getenv("MT5_PASSWORD", "")
     server = os.getenv("MT5_SERVER", "")
 
@@ -113,6 +114,7 @@ def mt5_verbinden() -> bool:
 def daten_laden(
     symbol: str = "EURUSD",
     timeframe: int = mt5.TIMEFRAME_H1,
+    timeframe_name: str = "H1",
     anzahl_kerzen: int = 50000,
 ) -> Optional[pd.DataFrame]:
     """
@@ -121,6 +123,7 @@ def daten_laden(
     Args:
         symbol: Handelssymbol (Standard: "EURUSD")
         timeframe: MT5-Timeframe-Konstante (Standard: TIMEFRAME_H1)
+        timeframe_name: Timeframe-Label für Logging/Dateiname (z.B. H1, M30, M15, M60)
         anzahl_kerzen: Maximale Anzahl Kerzen (Standard: 50000 ≈ 5+ Jahre auf H1)
 
     Returns:
@@ -140,7 +143,7 @@ def daten_laden(
             return None
 
     # Rohdaten abrufen (von Pos 0 = aktuellste Kerze rückwärts)
-    logger.info(f"Lade {anzahl_kerzen:,} Kerzen für {symbol} H1 ...")
+    logger.info(f"Lade {anzahl_kerzen:,} Kerzen für {symbol} {timeframe_name} ...")
     rohdaten = mt5.copy_rates_from_pos(symbol, timeframe, 0, anzahl_kerzen)
 
     if rohdaten is None or len(rohdaten) == 0:
@@ -275,12 +278,57 @@ def daten_speichern(
 
 def main() -> None:
     """Hauptablauf: MT5 verbinden → Daten für alle Symbole laden → speichern."""
+    parser = argparse.ArgumentParser(description="MT5 historische Daten laden")
+    parser.add_argument(
+        "--symbol",
+        default="alle",
+        help=(
+            "Einzelnes Symbol (z.B. NZDUSD) oder 'alle' (Standard). "
+            "Mögliche Werte: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD"
+        ),
+    )
+    parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "M60", "M30", "M15"],
+        help="Zu ladender Zeitrahmen (Standard: H1).",
+    )
+    parser.add_argument(
+        "--bars",
+        type=int,
+        default=50000,
+        help="Anzahl zu ladender Kerzen (Standard: 50000).",
+    )
+    args = parser.parse_args()
+
     # Symbole die geladen werden sollen (H1, 50.000 Kerzen ≈ 5+ Jahre)
     SYMBOLE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
+    # Zielsymbole bestimmen
+    if args.symbol.lower() == "alle":
+        ziel_symbole = SYMBOLE
+    elif args.symbol.upper() in SYMBOLE:
+        ziel_symbole = [args.symbol.upper()]
+    else:
+        print(f"Unbekanntes Symbol: {args.symbol}")
+        print(f"Verfügbar: {', '.join(SYMBOLE)} oder 'alle'")
+        return
+
+    if args.timeframe == "M30":
+        timeframe_const = mt5.TIMEFRAME_M30
+    elif args.timeframe == "M15":
+        timeframe_const = mt5.TIMEFRAME_M15
+    elif args.timeframe == "M60":
+        # MT5 nutzt für 60 Minuten TIMEFRAME_H1.
+        # Wir behalten dennoch den Dateinamen-Suffix _M60 für klare Pipeline-Trennung.
+        timeframe_const = mt5.TIMEFRAME_H1
+    else:
+        timeframe_const = mt5.TIMEFRAME_H1
+
     logger.info("=" * 60)
     logger.info("MT5 Data Loader – gestartet")
-    logger.info(f"Symbole: {', '.join(SYMBOLE)}")
+    logger.info(f"Symbole: {', '.join(ziel_symbole)}")
+    logger.info(f"Zeitrahmen: {args.timeframe} | Bars: {args.bars:,}")
     logger.info("Gerät: Windows 11 Laptop (MT5 muss geöffnet sein!)")
     logger.info("=" * 60)
 
@@ -292,7 +340,7 @@ def main() -> None:
     ergebnisse = []  # Zusammenfassung am Ende
 
     try:
-        for symbol in SYMBOLE:
+        for symbol in ziel_symbole:
             logger.info(f"\n{'─' * 40}")
             logger.info(f"Verarbeite: {symbol}")
             logger.info(f"{'─' * 40}")
@@ -300,8 +348,9 @@ def main() -> None:
             # Daten laden
             df = daten_laden(
                 symbol=symbol,
-                timeframe=mt5.TIMEFRAME_H1,
-                anzahl_kerzen=50000,
+                timeframe=timeframe_const,
+                timeframe_name=args.timeframe,
+                anzahl_kerzen=args.bars,
             )
 
             if df is None:
@@ -312,10 +361,12 @@ def main() -> None:
             # Datenqualität prüfen
             qualitaet_ok = daten_validieren(df, symbol)
             if not qualitaet_ok:
-                logger.warning(f"{symbol}: Datenqualitäts-Probleme – trotzdem gespeichert.")
+                logger.warning(
+                    f"{symbol}: Datenqualitäts-Probleme – trotzdem gespeichert."
+                )
 
             # Als CSV speichern
-            dateipfad = daten_speichern(df, symbol, "H1")
+            dateipfad = daten_speichern(df, symbol, args.timeframe)
             ergebnisse.append((symbol, "OK", len(df), dateipfad))
 
     finally:
@@ -334,7 +385,7 @@ def main() -> None:
             print(f"  ✗ {symbol}: FEHLER")
 
     erfolge = [r for r in ergebnisse if r[1] == "OK"]
-    print(f"\n{len(erfolge)}/{len(SYMBOLE)} Symbole erfolgreich geladen.")
+    print(f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich geladen.")
     print("\nNächster Schritt: Alle CSV auf den Linux-Server übertragen.")
     print("Befehl (in PowerShell aus dem data/-Ordner):")
     print("  cd C:\\Users\\Sebastian Setnescu\\mt5-trading\\data")

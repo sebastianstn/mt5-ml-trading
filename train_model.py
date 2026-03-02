@@ -31,11 +31,14 @@ Ausgabe:  models/lgbm_SYMBOL_v1.pkl
           plots/SYMBOL_confusion_matrix.png
 """
 
+# pylint: disable=logging-fstring-interpolation,logging-not-lazy,wrong-import-position
+
 # Standard-Bibliotheken
 import argparse
 import logging
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 # Datenverarbeitung
 import numpy as np
@@ -57,8 +60,6 @@ from sklearn.utils.class_weight import compute_sample_weight
 # Hyperparameter-Optimierung
 import optuna
 
-optuna.logging.set_verbosity(optuna.logging.WARNING)  # Nur Warnungen im Log
-
 # Modell speichern
 import joblib
 
@@ -66,8 +67,10 @@ import joblib
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import seaborn as sns
+import matplotlib.pyplot as plt  # noqa: E402
+import seaborn as sns  # noqa: E402
+
+optuna.logging.set_verbosity(optuna.logging.WARNING)  # Nur Warnungen im Log
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -128,6 +131,15 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
         v1 → data/SYMBOL_H1_labeled.csv        (Original, rückwärtskompatibel)
         v2 → data/SYMBOL_H1_labeled_v2.csv
         v3 → data/SYMBOL_H1_labeled_v3.csv
+    M30:
+        v1 → data/SYMBOL_M30_labeled.csv
+        v2 → data/SYMBOL_M30_labeled_v2.csv
+    M60:
+        v1 → data/SYMBOL_M60_labeled.csv
+        v2 → data/SYMBOL_M60_labeled_v2.csv
+    M15:
+        v1 → data/SYMBOL_M15_labeled.csv
+        v2 → data/SYMBOL_M15_labeled_v2.csv
     H4:
         v1 → data/SYMBOL_H4_labeled.csv
         v2 → data/SYMBOL_H4_labeled_v2.csv
@@ -135,7 +147,7 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
     Args:
         symbol:    Handelssymbol (z.B. "EURUSD")
         version:   Versions-String (Standard: "v1")
-        timeframe: Zeitrahmen der Daten – "H1" oder "H4" (Standard: "H1")
+        timeframe: Zeitrahmen der Daten – "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         Path zum gelabelten CSV
@@ -144,6 +156,21 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
         if version == "v1":
             return DATA_DIR / f"{symbol}_H4_labeled.csv"
         return DATA_DIR / f"{symbol}_H4_labeled_{version}.csv"
+
+    if timeframe == "M30":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_M30_labeled.csv"
+        return DATA_DIR / f"{symbol}_M30_labeled_{version}.csv"
+
+    if timeframe == "M60":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_M60_labeled.csv"
+        return DATA_DIR / f"{symbol}_M60_labeled_{version}.csv"
+
+    if timeframe == "M15":
+        if version == "v1":
+            return DATA_DIR / f"{symbol}_M15_labeled.csv"
+        return DATA_DIR / f"{symbol}_M15_labeled_{version}.csv"
 
     # H1 (Standard, rückwärtskompatibel)
     if version == "v1":
@@ -160,7 +187,7 @@ def daten_laden(
     Args:
         symbol:    Handelssymbol (z.B. "EURUSD")
         version:   Versions-String für den Datei-Pfad (Standard: "v1")
-        timeframe: Zeitrahmen – "H1" oder "H4" (Standard: "H1")
+        timeframe: Zeitrahmen – "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         DataFrame mit Features und 'label'-Spalte.
@@ -170,10 +197,13 @@ def daten_laden(
     """
     pfad = labeled_pfad(symbol, version, timeframe)
     if not pfad.exists():
-        hilfe = "h4_pipeline.py" if timeframe == "H4" else f"labeling.py --version {version}"
+        hilfe = (
+            "h4_pipeline.py"
+            if timeframe == "H4"
+            else f"labeling.py --version {version}"
+        )
         raise FileNotFoundError(
-            f"Datei nicht gefunden: {pfad}\n"
-            f"Zuerst {hilfe} ausführen!"
+            f"Datei nicht gefunden: {pfad}\n" f"Zuerst {hilfe} ausführen!"
         )
 
     logger.info(f"Lade {pfad.name} ...")
@@ -209,6 +239,17 @@ def features_und_ziel(
 
     # Labels umkodieren: {-1, 0, 1} → {0, 1, 2}
     y = df["label"].map({-1: 0, 0: 1, 1: 2})
+
+    # Sicherheitscheck: Nur bekannte Labelwerte zulassen (verhindert stille NaNs)
+    if y.isna().any():
+        ungueltige = sorted(df.loc[y.isna(), "label"].unique().tolist())
+        raise ValueError(
+            "Ungültige Labelwerte gefunden. Erwartet sind nur -1, 0, 1. "
+            f"Gefunden: {ungueltige}"
+        )
+
+    # Für sklearn/XGBoost explizit als Integer führen
+    y = y.astype(int)
 
     logger.info(f"Features: {len(feature_spalten)} Spalten")
     logger.info(f"Feature-Spalten: {feature_spalten}")
@@ -253,21 +294,50 @@ def daten_aufteilen(
     Returns:
         Tuple (X_train, X_val, X_test, y_train, y_val, y_test)
     """
-    # Zeitstempel-Grenzen
-    train_maske = X.index <= train_bis
-    val_maske = (X.index > train_bis) & (X.index <= val_bis)
-    test_maske = X.index > val_bis
+    # Zeitstempel-Grenzen in denselben Zeitzonen-Kontext bringen
+    train_cutoff = pd.Timestamp(train_bis)
+    val_cutoff = pd.Timestamp(val_bis)
+    index_tz = getattr(X.index, "tz", None)
+    if index_tz is not None:
+        train_cutoff = train_cutoff.tz_localize(index_tz)
+        val_cutoff = val_cutoff.tz_localize(index_tz)
+
+    # Primär-Split: feste Kalenderschnitte (historisch)
+    train_maske = X.index <= train_cutoff
+    val_maske = (X.index > train_cutoff) & (X.index <= val_cutoff)
+    test_maske = X.index > val_cutoff
 
     X_train, y_train = X[train_maske], y[train_maske]
     X_val, y_val = X[val_maske], y[val_maske]
     X_test, y_test = X[test_maske], y[test_maske]
 
+    # Fallback für neue Datensätze (z. B. nur 2024+): chronologischer 70/15/15-Split
+    if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:
+        gesamt = len(X)
+        if gesamt < 3:
+            raise ValueError(
+                f"Zu wenig Daten für zeitlichen Split: {gesamt} Zeilen (mindestens 3 erforderlich)."
+            )
+
+        train_ende = max(1, int(gesamt * 0.70))
+        val_ende = max(train_ende + 1, int(gesamt * 0.85))
+        val_ende = min(val_ende, gesamt - 1)
+
+        X_train, y_train = X.iloc[:train_ende], y.iloc[:train_ende]
+        X_val, y_val = X.iloc[train_ende:val_ende], y.iloc[train_ende:val_ende]
+        X_test, y_test = X.iloc[val_ende:], y.iloc[val_ende:]
+
+        logger.warning(
+            "Feste Datums-Splits ergaben leere Teilmengen. "
+            "Fallback aktiv: chronologisch 70/15/15 ohne Shuffle."
+        )
+
     # Aufteilung protokollieren
     gesamt = len(X)
-    for name, X_teil, y_teil in [
-        ("Training  ", X_train, y_train),
-        ("Validation", X_val, y_val),
-        ("Test      ", X_test, y_test),
+    for name, X_teil in [
+        ("Training  ", X_train),
+        ("Validation", X_val),
+        ("Test      ", X_test),
     ]:
         anteil = len(X_teil) / gesamt * 100
         von = X_teil.index[0].date() if len(X_teil) > 0 else "–"
@@ -276,7 +346,7 @@ def daten_aufteilen(
             f"  {name}: {len(X_teil):6,} Kerzen ({anteil:.0f}%) | " f"{von} bis {bis}"
         )
 
-    logger.info(f"  TEST-SET: NICHT anfassen bis zur finalen Evaluation!")
+    logger.info("  TEST-SET: NICHT anfassen bis zur finalen Evaluation!")
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 
@@ -300,17 +370,26 @@ def gewichte_berechnen(y_train: pd.Series) -> np.ndarray:
     Returns:
         Sample-Gewicht-Array (ein Wert pro Trainingsbeispiel)
     """
+    # Früher, klarer Fehler statt kryptischem sklearn-Traceback
+    if y_train.empty:
+        raise ValueError(
+            "Training-Set ist leer. Zeitliche Aufteilung prüfen (z. B. Fallback-Split verwenden)."
+        )
+
+    # Sicherheit: Integer-Klassen für stabile Gewicht-Berechnung
+    y_train = y_train.astype(int)
     gewichte = compute_sample_weight(class_weight="balanced", y=y_train)
 
     # Verteilung protokollieren
     verteilung = y_train.value_counts().sort_index()
     logger.info("Klassen-Verteilung Training:")
     for klasse, anzahl in verteilung.items():
-        name = KLASSEN_NAMEN[klasse]
+        klasse_int = int(str(klasse))
+        name = KLASSEN_NAMEN.get(klasse_int, str(klasse_int))
         anteil = anzahl / len(y_train)
-        mittl_gewicht = gewichte[y_train == klasse].mean()
+        mittl_gewicht = gewichte[y_train == klasse_int].mean()
         logger.info(
-            f"  Klasse {klasse} ({name:7s}): {anzahl:6,} ({anteil:.1%}) "
+            f"  Klasse {klasse_int} ({name:7s}): {anzahl:6,} ({anteil:.1%}) "
             f"→ Gewicht: {mittl_gewicht:.2f}"
         )
     return gewichte
@@ -488,8 +567,8 @@ def optuna_xgboost(
             verbose=False,
         )
 
-        y_pred = modell.predict(X_val)
-        return f1_score(y_val, y_pred, average="macro")
+        y_pred = np.asarray(modell.predict(X_val))
+        return float(f1_score(y_val, y_pred, average="macro"))
 
     # Optuna-Studie erstellen (maximize F1)
     studie = optuna.create_study(
@@ -586,8 +665,8 @@ def optuna_lightgbm(
             callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(-1)],
         )
 
-        y_pred = modell.predict(X_val)
-        return f1_score(y_val, y_pred, average="macro")
+        y_pred = np.asarray(modell.predict(X_val))
+        return float(f1_score(y_val, y_pred, average="macro"))
 
     # Optuna-Studie erstellen
     studie = optuna.create_study(
@@ -649,11 +728,11 @@ def modell_evaluieren(
     Returns:
         F1-Macro-Score
     """
-    y_pred = modell.predict(X)
+    y_pred = np.asarray(modell.predict(X))
 
     acc = accuracy_score(y, y_pred)
-    f1_macro = f1_score(y, y_pred, average="macro")
-    f1_weighted = f1_score(y, y_pred, average="weighted")
+    f1_macro = float(f1_score(y, y_pred, average="macro"))
+    f1_weighted = float(f1_score(y, y_pred, average="weighted"))
 
     logger.info(f"\n{'─' * 50}")
     logger.info(f"{modell_name} – Ergebnisse ({datensatz})")
@@ -678,7 +757,7 @@ def schwellenwert_analyse(
     X_val: pd.DataFrame,
     y_val: pd.Series,
     modell_name: str,
-    schwellenwerte: list = None,
+    schwellenwerte: Optional[list[float]] = None,
 ) -> float:
     """
     Analysiert Precision/Recall für Long- und Short-Signale bei verschiedenen
@@ -763,9 +842,7 @@ def schwellenwert_analyse(
     logger.info(
         f"  (Höchste mittlere Precision bei ≥100 Trades pro Richtung: {beste_precision:.1%})"
     )
-    logger.info(
-        f"  Hinweis: Höherer Schwellenwert → weniger aber zuverlässigere Trades"
-    )
+    logger.info("  Hinweis: Höherer Schwellenwert → weniger aber zuverlässigere Trades")
 
     return bester_schwellenwert
 
@@ -813,7 +890,9 @@ def feature_importance_plotten(
 
     # Plot erstellen
     fig, ax = plt.subplots(figsize=(10, 8))
-    farben = plt.cm.RdYlGn(np.linspace(0.3, 0.9, len(importance_df)))[::-1]
+    farben = matplotlib.colormaps["RdYlGn"](np.linspace(0.3, 0.9, len(importance_df)))[
+        ::-1
+    ]
 
     ax.barh(
         importance_df["Feature"],
@@ -866,7 +945,7 @@ def confusion_matrix_plotten(
     y_pred = modell.predict(X_val)
     cm = confusion_matrix(y_val, y_pred)
 
-    fig, ax = plt.subplots(figsize=(7, 6))
+    _fig, ax = plt.subplots(figsize=(7, 6))
     sns.heatmap(
         cm,
         annot=True,
@@ -910,25 +989,28 @@ def modell_speichern(
     NIEMALS pickle verwenden – joblib ist sicherer und schneller!
 
     Dateiname-Schema:
-        H1: lgbm_SYMBOL_v1.pkl   (Standard, rückwärtskompatibel)
-        H4: lgbm_SYMBOL_H4_v1.pkl
+        H1:  lgbm_SYMBOL_v1.pkl        (Standard, rückwärtskompatibel)
+        M30: lgbm_SYMBOL_M30_v1.pkl
+        M60: lgbm_SYMBOL_M60_v1.pkl
+        M15: lgbm_SYMBOL_M15_v1.pkl
+        H4:  lgbm_SYMBOL_H4_v1.pkl
 
     Args:
         modell:    Trainiertes Modell
         symbol:    Handelssymbol (z.B. "EURUSD")
         modell_typ: "lgbm" oder "xgb"
         version:   Versions-String (z.B. "v1")
-        timeframe: "H1" oder "H4" (Standard: "H1")
+        timeframe: "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         Pfad zur gespeicherten Datei
     """
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    if timeframe == "H4":
-        dateiname = f"{modell_typ}_{symbol.lower()}_H4_{version}.pkl"
-    else:
+    if timeframe == "H1":
         dateiname = f"{modell_typ}_{symbol.lower()}_{version}.pkl"
+    else:
+        dateiname = f"{modell_typ}_{symbol.lower()}_{timeframe}_{version}.pkl"
     pfad = MODEL_DIR / dateiname
 
     joblib.dump(modell, pfad)
@@ -952,15 +1034,13 @@ def symbol_trainieren(
         symbol:    Handelssymbol (z.B. "EURUSD")
         n_trials:  Anzahl Optuna-Trials
         version:   Versions-String für I/O-Dateien (z.B. "v1", "v2", "v3")
-        timeframe: Zeitrahmen der Daten – "H1" oder "H4" (Standard: "H1")
+        timeframe: Zeitrahmen der Daten – "H1", "M60", "M30", "M15" oder "H4" (Standard: "H1")
 
     Returns:
         True wenn erfolgreich, False bei Fehler.
     """
     logger.info("=" * 60)
-    logger.info(
-        f"Phase 4 – Modelltraining – {symbol} ({version}, {timeframe})"
-    )
+    logger.info(f"Phase 4 – Modelltraining – {symbol} ({version}, {timeframe})")
     logger.info(f"Optuna Trials: {n_trials}")
     logger.info(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 60)
@@ -978,41 +1058,41 @@ def symbol_trainieren(
 
     # ---- Schritt 3: Zeitliche Aufteilung ----
     logger.info("\nZeitliche Datenaufteilung:")
-    X_train, X_val, X_test, y_train, y_val, y_test = daten_aufteilen(X, y)
+    X_train, X_val, X_test, y_train, y_val, _y_test = daten_aufteilen(X, y)
 
     # ---- Schritt 4: Klassen-Gewichte ----
     gewichte = gewichte_berechnen(y_train)
 
     # ---- Schritt 5: XGBoost Baseline ----
-    logger.info("\n" + "=" * 40)
+    logger.info("%s", "\n" + "=" * 40)
     logger.info("XGBoost Baseline")
     logger.info("=" * 40)
     xgb_basis = xgboost_baseline(X_train, y_train, X_val, y_val, gewichte)
     f1_xgb_basis = modell_evaluieren(xgb_basis, X_val, y_val, "XGBoost Baseline")
 
     # ---- Schritt 6: LightGBM Baseline ----
-    logger.info("\n" + "=" * 40)
+    logger.info("%s", "\n" + "=" * 40)
     logger.info("LightGBM Baseline")
     logger.info("=" * 40)
     lgbm_basis = lightgbm_baseline(X_train, y_train, X_val, y_val, gewichte)
     f1_lgbm_basis = modell_evaluieren(lgbm_basis, X_val, y_val, "LightGBM Baseline")
 
     # ---- Schritt 7: Optuna XGBoost ----
-    logger.info("\n" + "=" * 40)
+    logger.info("%s", "\n" + "=" * 40)
     logger.info(f"Optuna XGBoost ({n_trials} Trials)")
     logger.info("=" * 40)
     xgb_opt = optuna_xgboost(X_train, y_train, X_val, y_val, gewichte, n_trials)
     f1_xgb_opt = modell_evaluieren(xgb_opt, X_val, y_val, "XGBoost Optuna")
 
     # ---- Schritt 8: Optuna LightGBM ----
-    logger.info("\n" + "=" * 40)
+    logger.info("%s", "\n" + "=" * 40)
     logger.info(f"Optuna LightGBM ({n_trials} Trials)")
     logger.info("=" * 40)
     lgbm_opt = optuna_lightgbm(X_train, y_train, X_val, y_val, gewichte, n_trials)
     f1_lgbm_opt = modell_evaluieren(lgbm_opt, X_val, y_val, "LightGBM Optuna")
 
     # ---- Schritt 9: Bestes Modell auswählen und speichern ----
-    logger.info("\n" + "=" * 50)
+    logger.info("%s", "\n" + "=" * 50)
     logger.info("ZUSAMMENFASSUNG – F1-Macro (Validierung)")
     logger.info("=" * 50)
     ergebnisse = [
@@ -1023,20 +1103,20 @@ def symbol_trainieren(
     ]
     for name, f1, _, _ in sorted(ergebnisse, key=lambda x: -x[1]):
         stern = " ← BESTES MODELL" if f1 == max(e[1] for e in ergebnisse) else ""
-        logger.info(f"  {name:22s}: F1-Macro = {f1:.4f}{stern}")
+        logger.info("  %22s: F1-Macro = %.4f%s", name, f1, stern)
 
     # Bestes Modell wählen
     bestes_name, bestes_f1, bestes_modell, bestes_typ = max(
         ergebnisse, key=lambda x: x[1]
     )
-    logger.info(f"\nBestes Modell: {bestes_name} (F1={bestes_f1:.4f})")
+    logger.info("\nBestes Modell: %s (Typ=%s, F1=%.4f)", bestes_name, bestes_typ, bestes_f1)
 
     # Beide Optuna-Modelle mit der richtigen Version + Zeitrahmen speichern
     modell_speichern(xgb_opt, symbol, "xgb", version, timeframe)
     modell_speichern(lgbm_opt, symbol, "lgbm", version, timeframe)
 
     # ---- Schritt 10: Schwellenwert-Analyse (bestes Modell) ----
-    logger.info("\n" + "=" * 50)
+    logger.info("%s", "\n" + "=" * 50)
     logger.info("Schwellenwert-Analyse – Trade-Ausführung")
     logger.info("=" * 50)
     empfohlener_schwellenwert = schwellenwert_analyse(
@@ -1047,11 +1127,16 @@ def symbol_trainieren(
     logger.info("\nErstelle Visualisierungen ...")
     # Versions-Suffix im Modellnamen damit Plots sich nicht überschreiben
     lgbm_name = f"LightGBM Optuna {version}" if version != "v1" else "LightGBM Optuna"
-    xgb_name  = f"XGBoost Optuna {version}"  if version != "v1" else "XGBoost Optuna"
+    xgb_name = f"XGBoost Optuna {version}" if version != "v1" else "XGBoost Optuna"
     feature_importance_plotten(lgbm_opt, feature_namen, symbol, lgbm_name)
     feature_importance_plotten(xgb_opt, feature_namen, symbol, xgb_name)
-    confusion_matrix_plotten(bestes_modell, X_val, y_val, symbol,
-                              f"{bestes_name} {version}" if version != "v1" else bestes_name)
+    confusion_matrix_plotten(
+        bestes_modell,
+        X_val,
+        y_val,
+        symbol,
+        f"{bestes_name} {version}" if version != "v1" else bestes_name,
+    )
 
     # ---- Abschluss ----
     ende = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1060,19 +1145,21 @@ def symbol_trainieren(
     print("=" * 60)
     print(f"  Bestes Modell:   {bestes_name}")
     print(f"  F1-Macro (Val):  {bestes_f1:.4f} ({bestes_f1 * 100:.2f}%)")
-    print(f"\n  Gespeicherte Modelle:")
-    if timeframe == "H4":
-        print(f"    models/xgb_{symbol.lower()}_H4_{version}.pkl")
-        print(f"    models/lgbm_{symbol.lower()}_H4_{version}.pkl")
-    else:
+    print("\n  Gespeicherte Modelle:")
+    if timeframe == "H1":
         print(f"    models/xgb_{symbol.lower()}_{version}.pkl")
         print(f"    models/lgbm_{symbol.lower()}_{version}.pkl")
+    else:
+        print(f"    models/xgb_{symbol.lower()}_{timeframe}_{version}.pkl")
+        print(f"    models/lgbm_{symbol.lower()}_{timeframe}_{version}.pkl")
     print(f"\n  Empfohlener Schwellenwert: {empfohlener_schwellenwert:.0%}")
-    print(f"  (Trades nur wenn Modell-Wahrscheinlichkeit > {empfohlener_schwellenwert:.0%})")
+    print(
+        f"  (Trades nur wenn Modell-Wahrscheinlichkeit > {empfohlener_schwellenwert:.0%})"
+    )
     print(
         f"\n  ACHTUNG: Test-Set ({X_test.index[0].date()} bis {X_test.index[-1].date()})"
     )
-    print(f"  ist NICHT bewertet worden – für die finale Evaluation aufheben!")
+    print("  ist NICHT bewertet worden – für die finale Evaluation aufheben!")
     print(f"\n  Fertig um: {ende}")
     print("=" * 60)
     return True
@@ -1107,18 +1194,28 @@ def main() -> None:
     parser.add_argument(
         "--timeframe",
         default="H1",
-        choices=["H1", "H4"],
+        choices=["H1", "M60", "M30", "M15", "H4"],
         help=(
             "Zeitrahmen der Eingabedaten (Standard: H1). "
             "H1 → SYMBOL_H1_labeled.csv → lgbm_SYMBOL_v1.pkl | "
-            "H4 → SYMBOL_H4_labeled.csv → lgbm_SYMBOL_H4_v1.pkl. "
-            "Vor H4 zuerst features/h4_pipeline.py ausführen!"
+            "M60 → SYMBOL_M60_labeled.csv → lgbm_SYMBOL_M60_v1.pkl | "
+            "M30 → SYMBOL_M30_labeled.csv → lgbm_SYMBOL_M30_v1.pkl | "
+            "M15 → SYMBOL_M15_labeled.csv → lgbm_SYMBOL_M15_v1.pkl | "
+            "H4 → SYMBOL_H4_labeled.csv → lgbm_SYMBOL_H4_v1.pkl."
         ),
     )
     args = parser.parse_args()
 
     # Symbole bestimmen
-    SYMBOLE_LISTE = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+    SYMBOLE_LISTE = [
+        "EURUSD",
+        "GBPUSD",
+        "USDJPY",
+        "AUDUSD",
+        "USDCAD",
+        "USDCHF",
+        "NZDUSD",
+    ]
     if args.symbol.lower() == "alle":
         ziel_symbole = SYMBOLE_LISTE
     elif args.symbol.upper() in SYMBOLE_LISTE:
@@ -1150,7 +1247,9 @@ def main() -> None:
         erfolge = sum(1 for _, s in gesamt_ergebnisse if s == "OK")
         print(f"\n{erfolge}/{len(ziel_symbole)} Symbole erfolgreich trainiert")
         print(f"Laufzeit: {dauer // 60}m {dauer % 60}s")
-        print(f"\nNächster Schritt: walk_forward.py --symbol alle --version {args.version}")
+        print(
+            f"\nNächster Schritt: walk_forward.py --symbol alle --version {args.version}"
+        )
         print("=" * 60)
     else:
         print(f"\nNächster Schritt: walk_forward.py --version {args.version}")

@@ -164,7 +164,7 @@ def live_kpis_berechnen(symbol: str, tage: int) -> dict:
     }
 
 
-def backtest_kpis_berechnen(symbol: str) -> dict:
+def backtest_kpis_berechnen(symbol: str, timeframe: str = "H1") -> dict:
     """Berechnet Profitabilitäts-KPIs aus gespeicherten Backtest-Trades.
 
     Args:
@@ -177,7 +177,10 @@ def backtest_kpis_berechnen(symbol: str) -> dict:
         FileNotFoundError: Wenn die Trade-Datei fehlt.
         ValueError: Wenn erforderliche Spalten fehlen.
     """
-    trade_path = BACKTEST_DIR / f"{symbol}_trades.csv"
+    if timeframe == "H1":
+        trade_path = BACKTEST_DIR / f"{symbol}_trades.csv"
+    else:
+        trade_path = BACKTEST_DIR / f"{symbol}_{timeframe}_trades.csv"
     if not trade_path.exists():
         raise FileNotFoundError(f"Trades-Datei fehlt: {trade_path}")
 
@@ -251,7 +254,7 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
     return "NO-GO", f"KPI unter Ziel: {', '.join(failed)}"
 
 
-def symbol_report_erstellen(symbol: str, tage: int) -> SymbolKPI:
+def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> SymbolKPI:
     """Erstellt alle KPIs und die Statusbewertung für ein Symbol.
 
     Args:
@@ -263,7 +266,7 @@ def symbol_report_erstellen(symbol: str, tage: int) -> SymbolKPI:
     """
     live = live_kpis_berechnen(symbol, tage)
     try:
-        bt = backtest_kpis_berechnen(symbol)
+        bt = backtest_kpis_berechnen(symbol, timeframe=timeframe)
     except (FileNotFoundError, ValueError) as exc:
         logger.warning("[%s] Backtest-KPIs nicht verfügbar: %s", symbol, exc)
         bt = {
@@ -293,7 +296,11 @@ def symbol_report_erstellen(symbol: str, tage: int) -> SymbolKPI:
     )
 
 
-def markdown_bericht_schreiben(kpis: list[SymbolKPI], tage: int) -> Path:
+def markdown_bericht_schreiben(
+    kpis: list[SymbolKPI],
+    tage: int,
+    timeframe: str = "H1",
+) -> Path:
     """Schreibt den Wochenreport als Markdown-Datei.
 
     Args:
@@ -304,7 +311,10 @@ def markdown_bericht_schreiben(kpis: list[SymbolKPI], tage: int) -> Path:
         Pfad zur erzeugten Report-Datei.
     """
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = REPORTS_DIR / "weekly_kpi_report.md"
+    if timeframe == "H1":
+        out_path = REPORTS_DIR / "weekly_kpi_report.md"
+    else:
+        out_path = REPORTS_DIR / f"weekly_kpi_report_{timeframe}.md"
     erstellt = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # Gesamteinschätzung aus Einzelstatus ableiten
@@ -325,6 +335,7 @@ def markdown_bericht_schreiben(kpis: list[SymbolKPI], tage: int) -> Path:
         f"**Erstellt:** {erstellt}",
         f"**Zeitraum (Live-Aktivität):** letzte {tage} Tage",
         f"**Gesamtstatus:** **{gesamt}**",
+        f"**Timeframe:** `{timeframe}`",
         f"**Paper-Gate (12 Wochen):** **{gate_info['paper_gate_status']}**",
         f"**Konsekutive GO-Wochen:** {gate_info['consecutive_go_weeks']} / {PAPER_GATE_WOCHEN}",
         "",
@@ -374,7 +385,15 @@ def markdown_bericht_schreiben(kpis: list[SymbolKPI], tage: int) -> Path:
         "## Interpretation",
         "",
         "- **Live-Signale** zeigen operative Aktivität; bei zu wenigen Signalen ist die Bewertung statistisch schwach.",
-        "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades (`backtest/SYMBOL_trades.csv`).",
+        (
+            "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
+            "(`backtest/SYMBOL_trades.csv`)."
+            if timeframe == "H1"
+            else (
+                "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
+                f"(`backtest/SYMBOL_{timeframe}_trades.csv`)."
+            )
+        ),
         "- Sobald ein echter Live-PnL-Export verfügbar ist, sollte die Profitabilitätssektion auf Live-Daten umgestellt werden.",
         "",
         "## Nächste Schritte",
@@ -509,11 +528,24 @@ def main() -> None:
         default=7,
         help="Zeitraum für Live-Aktivitätsauswertung in Tagen (Standard: 7)",
     )
+    parser.add_argument(
+        "--timeframe",
+        default="H1",
+        choices=["H1", "M60", "M30", "M15", "H4"],
+        help=(
+            "Timeframe für Backtest-KPI-Dateien (Standard: H1). "
+            "Für M15/M30/M60 werden backtest/SYMBOL_TIMEFRAME_trades.csv ausgewertet."
+        ),
+    )
     args = parser.parse_args()
 
     logger.info("Starte Wochenreport für Kernsymbole: %s", ", ".join(KERN_SYMBOLE))
-    kpis = [symbol_report_erstellen(symbol, args.tage) for symbol in KERN_SYMBOLE]
-    pfad = markdown_bericht_schreiben(kpis, args.tage)
+    logger.info("Timeframe fuer Backtest-KPIs: %s", args.timeframe)
+    kpis = [
+        symbol_report_erstellen(symbol, args.tage, timeframe=args.timeframe)
+        for symbol in KERN_SYMBOLE
+    ]
+    pfad = markdown_bericht_schreiben(kpis, args.tage, timeframe=args.timeframe)
 
     print("=" * 70)
     print("WÖCHENTLICHER KPI-REPORT ERSTELLT")

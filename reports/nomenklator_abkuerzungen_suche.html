@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nomenklator – Suche</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
+    h1 { margin-bottom: 8px; }
+    .muted { color: #6b7280; margin-bottom: 16px; }
+    .search-wrap { position: sticky; top: 0; background: #fff; padding: 10px 0; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+    .meta { margin: 10px 0 14px; color: #374151; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f9fafb; }
+    tr.hide { display: none; }
+    code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Nomenklator – Interaktive Suche</h1>
+  <div class="muted">Suche nach Abkürzung, Bedeutung oder Erklärung.</div>
+
+  <div class="search-wrap">
+    <input id="q" type="text" placeholder="z. B. ATR, Drawdown, Timeframe, SMTP ..." autofocus />
+  </div>
+  <div class="meta"><span id="count"></span></div>
+
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>Kategorie</th>
+        <th>Abkürzung</th>
+        <th>Bedeutung</th>
+        <th>Erklärung</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const data = [
+      ["Trading", "MT5", "MetaTrader 5", "Trading-Plattform und Python-API (Windows-Host)."],
+      ["Trading", "OHLCV", "Open High Low Close Volume", "Kerzendaten inkl. Volumen."],
+      ["Trading", "TP", "Take Profit", "Gewinnziel einer Position."],
+      ["Trading", "SL", "Stop Loss", "Verlustbegrenzung einer Position."],
+      ["Trading", "RRR", "Risk-Reward Ratio", "Verhältnis Risiko zu Chance."],
+      ["Trading", "PF", "Profit Factor", "Summe Gewinne / Summe Verluste."],
+      ["Trading", "DD", "Drawdown", "Rückgang vom Equity-Hoch zum Tief."],
+      ["Trading", "MaxDD", "Maximaler Drawdown", "Größter historischer Drawdown in %."],
+      ["Trading", "WR", "Win Rate", "Trefferquote gewonnener Trades."],
+      ["Trading", "BT", "Backtest", "Simulation auf historischen Daten."],
+      ["Trading", "EA", "Expert Advisor", "Automatisiertes Script im MT5-Umfeld."],
+      ["Trading", "GTC", "Good Till Cancelled", "Order bleibt aktiv bis Abbruch/Ausführung."],
+      ["Trading", "IOC", "Immediate Or Cancel", "Sofort ausführbarer Teil wird ausgeführt."],
+
+      ["Zeitrahmen", "M15", "15-Minuten-Chart", "Intraday-Zeitrahmen mit hoher Signalzahl."],
+      ["Zeitrahmen", "M30", "30-Minuten-Chart", "Intraday-Zeitrahmen zwischen M15 und H1."],
+      ["Zeitrahmen", "M60", "60-Minuten-Chart", "Projekt-TF, MT5 intern H1."],
+      ["Zeitrahmen", "H1", "1-Stunden-Chart", "Standard-Zeitrahmen des Basissystems."],
+      ["Zeitrahmen", "H4", "4-Stunden-Chart", "Höherer TF, seltenere Signale."],
+      ["Zeitrahmen", "D1", "Tages-Chart", "Übergeordneter Kontext."],
+      ["Zeitrahmen", "TF", "Timeframe", "Allgemeiner Begriff für Zeitrahmen."],
+      ["Zeitrahmen", "MTF", "Multi-Timeframe", "Features aus mehreren Zeitrahmen."],
+
+      ["Indikatoren", "ADX", "Average Directional Index", "Trendstärke-Indikator."],
+      ["Indikatoren", "ATR", "Average True Range", "Volatilitätsmaß, oft für dynamischen SL."],
+      ["Indikatoren", "SMA", "Simple Moving Average", "Einfacher gleitender Durchschnitt."],
+      ["Indikatoren", "EMA", "Exponential Moving Average", "Exponentiell gewichteter Durchschnitt."],
+      ["Indikatoren", "RSI", "Relative Strength Index", "Momentum-Indikator."],
+      ["Indikatoren", "MACD", "Moving Average Convergence Divergence", "Trend-/Momentum-Kombination."],
+      ["Indikatoren", "BB", "Bollinger Bands", "Volatilitätsbänder."],
+      ["Indikatoren", "OBV", "On-Balance Volume", "Volumenfluss-Proxy."],
+      ["Indikatoren", "ROC", "Rate of Change", "Preisänderungsrate."],
+      ["Indikatoren", "VWAP", "Volume Weighted Average Price", "Volumengewichteter Durchschnittspreis."],
+
+      ["ML", "ML", "Machine Learning", "Modellbasiertes Lernen aus Daten."],
+      ["ML", "XGB", "XGBoost", "Gradient-Boosting-Modell."],
+      ["ML", "LGBM", "LightGBM", "Schnelles Boosting-Modell."],
+      ["ML", "F1", "F1-Score", "Harmonisches Mittel von Precision/Recall."],
+      ["ML", "SHAP", "SHapley Additive exPlanations", "Erklärbarkeit von Feature-Beiträgen."],
+      ["ML", "PSI", "Population Stability Index", "Drift-Metrik zwischen Verteilungen."],
+      ["ML", "CI", "Continuous Integration", "Automatische Tests/Lint bei Änderungen."],
+      ["ML", "RFE", "Recursive Feature Elimination", "Iterative Feature-Auswahl."],
+
+      ["Infra", "API", "Application Programming Interface", "Programmschnittstelle."],
+      ["Infra", "SMTP", "Simple Mail Transfer Protocol", "E-Mail-Versandprotokoll."],
+      ["Infra", "SSH", "Secure Shell", "Sichere Remote-Verbindung."],
+      ["Infra", "SCP", "Secure Copy", "Dateikopie über SSH."],
+      ["Infra", "SFTP", "SSH File Transfer Protocol", "Dateitransfer über SSH."],
+      ["Infra", "HTTP", "Hypertext Transfer Protocol", "Web-Protokoll für APIs."],
+      ["Infra", "UTC", "Coordinated Universal Time", "Zeitzonenreferenz."],
+      ["Infra", "SLA", "Service Level Agreement", "Verfügbarkeits-/Qualitätszusage."],
+      ["Infra", "VPS", "Virtual Private Server", "Option für 24/7-Betrieb."],
+
+      ["Symbole", "EURUSD", "Euro / US-Dollar", "Forex-Paar."],
+      ["Symbole", "GBPUSD", "Britisches Pfund / US-Dollar", "Forex-Paar."],
+      ["Symbole", "USDJPY", "US-Dollar / Japanischer Yen", "Forex-Paar."],
+      ["Symbole", "AUDUSD", "Australischer Dollar / US-Dollar", "Forex-Paar."],
+      ["Symbole", "USDCAD", "US-Dollar / Kanadischer Dollar", "Forex-Paar."],
+      ["Symbole", "USDCHF", "US-Dollar / Schweizer Franken", "Forex-Paar."],
+      ["Symbole", "NZDUSD", "Neuseeland-Dollar / US-Dollar", "Forex-Paar."],
+
+      ["Krypto", "BTC", "Bitcoin", "Externe Kontextvariable in Features."],
+      ["Krypto", "BTCUSDT", "Bitcoin vs. Tether", "Binance-Marktbezug."],
+      ["Krypto", "OI", "Open Interest", "Offene Kontraktanzahl."],
+      ["Krypto", "USDT", "Tether USD", "Stablecoin-Quote."],
+
+      ["Projekt-Konstanten", "BASE_DIR", "Basisverzeichnis", "Projektwurzel relativ zur Datei."],
+      ["Projekt-Konstanten", "DATA_DIR", "Datenverzeichnis", "Pfad zu Rohdaten/Features/Labels."],
+      ["Projekt-Konstanten", "MODEL_DIR", "Modellverzeichnis", "Pfad zu .pkl Modellen."],
+      ["Projekt-Konstanten", "PLOTS_DIR", "Plot-Verzeichnis", "Pfad zu generierten Grafiken."],
+      ["Projekt-Konstanten", "LOG_DIR/LOGS_DIR", "Log-Verzeichnis", "Pfad zu Betriebs-/Trade-Logs."],
+      ["Projekt-Konstanten", "REPORTS_DIR", "Reports-Verzeichnis", "Pfad zu KPI-/Doku-Dateien."],
+      ["Projekt-Konstanten", "BACKTEST_DIR", "Backtest-Verzeichnis", "Pfad zu Trade-Logs und Metriken."],
+      ["Projekt-Konstanten", "KPI_HISTORY_PATH", "KPI-Historie", "CSV-Historie der Wochenberichte."],
+      ["Projekt-Konstanten", "KERN_SYMBOLE", "Kernsymbole", "Operativ: USDCAD, USDJPY."],
+      ["Projekt-Konstanten", "TIMEFRAME_CONFIG", "TF-Konfiguration", "Zuordnung je Zeitrahmen."],
+      ["Projekt-Konstanten", "PAPER_GATE_WOCHEN", "Paper-Gate Wochen", "Anzahl Wochen für Freigabe (12)."],
+      ["Projekt-Konstanten", "KILL_SWITCH_DD_DEFAULT", "Kill-Switch-Limit", "Standard-Drawdown-Limit."],
+      ["Projekt-Konstanten", "HEARTBEAT_LOG_DEFAULT", "Heartbeat-Intervall", "Standardintervall fürs Status-Logging."]
+    ];
+
+    const tbody = document.querySelector('#tbl tbody');
+    const q = document.getElementById('q');
+    const count = document.getElementById('count');
+
+    function render(rows) {
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td>${r[0]}</td>
+          <td><code>${r[1]}</code></td>
+          <td>${r[2]}</td>
+          <td>${r[3]}</td>
+        </tr>
+      `).join('');
+      count.textContent = `${rows.length} / ${data.length} Einträge sichtbar`;
+    }
+
+    function filter() {
+      const term = q.value.trim().toLowerCase();
+      if (!term) { render(data); return; }
+      const rows = data.filter(r => r.join(' ').toLowerCase().includes(term));
+      render(rows);
+    }
+
+    q.addEventListener('input', filter);
+    render(data);
+  </script>
+</body>
+</html>

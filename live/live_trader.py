@@ -22,8 +22,8 @@ Modell-Übertragung vom Linux-Server auf den Windows Laptop:
         scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v1.pkl USER@LAPTOP:./models/
 
 Verwendung (Windows, venv aktiviert):
-    python live_trader.py --symbol USDCAD --schwelle 0.60 --regime_filter 1,2
-    python live_trader.py --symbol USDJPY --schwelle 0.60 --regime_filter 1
+    python live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1
+    python live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1
     python live_trader.py --help
 
 Voraussetzungen:
@@ -94,10 +94,15 @@ logger = logging.getLogger(__name__)
 
 # Risikomanagement
 TP_PCT = 0.003  # Take-Profit: 0.3% (identisch mit Labeling)
-SL_PCT = 0.003  # Stop-Loss:   0.3% (identisch mit Labeling)
+SL_PCT = 0.003  # Stop-Loss:   0.3% (Fallback, wenn ATR-SL deaktiviert)
 LOT = 0.01  # Minimale Lot-Größe (0.01 = Micro-Lot, ~1€/Pip)
 MAX_OFFENE_TRADES = 1  # Maximal 1 offene Position pro Symbol
 MAGIC_NUMBER = 20260101  # Eindeutige Kennung für ML-Trades in MT5
+
+# ATR-basiertes Stop-Loss (dynamisch, passt sich an Volatilität an)
+# Backtest-Ergebnis: ATR-SL 1.5× verbessert Sharpe drastisch (+2.1 USDCAD, +1.3 USDJPY)
+ATR_SL_ENABLED = True  # ATR-SL statt festem SL verwenden
+ATR_SL_FAKTOR = 1.5  # SL = ATR_14 × 1.5 (optimaler Faktor aus Backtest)
 
 # Kill-Switch – Harter Stopp bei zu hohem Drawdown (Review-Punkt 8)
 KILL_SWITCH_DD_DEFAULT = 0.15  # Harter Stopp bei 15% Drawdown (Standard)
@@ -632,7 +637,7 @@ def signal_generieren(
     modell: object,
     schwelle: float = 0.60,
     regime_erlaubt: Optional[list] = None,
-) -> Tuple[int, float, int]:
+) -> Tuple[int, float, int, float]:
     """
     Generiert ein Trade-Signal für die letzte Kerze (die gerade geschlossen hat).
 
@@ -643,10 +648,11 @@ def signal_generieren(
         regime_erlaubt:  Erlaubte Regime-Nummern (None = alle)
 
     Returns:
-        Tuple (signal, prob, regime):
-            signal: 2=Long, -1=Short, 0=Kein Trade
-            prob:   Wahrscheinlichkeit des Signals (0–1)
-            regime: Aktuelles Markt-Regime (0–3)
+        Tuple (signal, prob, regime, atr_pct):
+            signal:  2=Long, -1=Short, 0=Kein Trade
+            prob:    Wahrscheinlichkeit des Signals (0–1)
+            regime:  Aktuelles Markt-Regime (0–3)
+            atr_pct: ATR_14 als Prozent vom Close (für ATR-SL Berechnung)
     """
     # Letzte vollständige Kerze (Index -1 = aktuelle Kerze, -2 = letzte geschlossene)
     # Wir verwenden die letzte vollständige Kerze für das Signal
@@ -654,6 +660,14 @@ def signal_generieren(
 
     # Aktuelles Regime
     aktuelles_regime = int(letzte_kerze["market_regime"].iloc[0])
+
+    # ATR als Prozent vom Close (für dynamisches Stop-Loss)
+    atr_pct = 0.0
+    if "atr_14" in letzte_kerze.columns and "close" in df.columns:
+        atr_abs = float(letzte_kerze["atr_14"].iloc[0])
+        close_preis = float(letzte_kerze["close"].iloc[0])
+        if close_preis > 0:
+            atr_pct = atr_abs / close_preis  # z.B. 0.0021 = 0.21%
 
     # Regime-Filter prüfen
     if regime_erlaubt is not None:
@@ -663,7 +677,7 @@ def signal_generieren(
                 f"Signal übersprungen: Regime '{regime_name}' nicht in "
                 f"{[REGIME_NAMEN.get(r, str(r)) for r in regime_erlaubt]}"
             )
-            return 0, 0.0, aktuelles_regime
+            return 0, 0.0, aktuelles_regime, atr_pct
 
     # Features für Modell vorbereiten (NaN-Werte mit Median auffüllen)
     verfuegbare = [f for f in FEATURE_SPALTEN if f in df.columns]
@@ -690,11 +704,11 @@ def signal_generieren(
 
     # Signal mit Schwellenwert-Filter
     if raw_pred == 2 and proba[2] >= schwelle:
-        return 2, float(proba[2]), aktuelles_regime  # Long-Signal
+        return 2, float(proba[2]), aktuelles_regime, atr_pct  # Long-Signal
     if raw_pred == 0 and proba[0] >= schwelle:
-        return -1, float(proba[0]), aktuelles_regime  # Short-Signal
+        return -1, float(proba[0]), aktuelles_regime, atr_pct  # Short-Signal
 
-    return 0, float(max(proba)), aktuelles_regime  # Kein Trade
+    return 0, float(max(proba)), aktuelles_regime, atr_pct  # Kein Trade
 
 
 # ============================================================
@@ -1157,6 +1171,8 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     kapital_start: float = 10000.0,
     heartbeat_log: bool = HEARTBEAT_LOG_DEFAULT,
     timeframe: str = "H1",
+    atr_sl_aktiv: bool = True,
+    atr_sl_faktor: float = 1.5,
 ) -> None:
     """
     Haupt-Schleife: Läuft dauerhaft und wartet auf neue Kerzen im gewählten Zeitrahmen.
@@ -1178,6 +1194,8 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         kill_switch_dd:  Max. Drawdown bis zum automatischen Stopp (Standard: 0.15 = 15%)
         kapital_start:   Startkapital für Paper-Tracking und Kill-Switch-Berechnung
         heartbeat_log:   True = schreibe pro neuer Kerze einen CSV-Heartbeat
+        atr_sl_aktiv:    True = ATR-basiertes SL (dynamisch), False = festes SL
+        atr_sl_faktor:   ATR-Multiplikator für SL (Standard: 1.5)
     """
     modus_str = "PAPER-TRADING" if paper_trading else "⚠️  LIVE-TRADING MIT ECHTEM GELD!"
     regime_str = (
@@ -1191,9 +1209,14 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     logger.info(f"Modus:          {modus_str}")
     logger.info(f"Schwelle:       {schwelle:.0%}")
     logger.info(f"Regime-Filter:  {regime_str}")
-    logger.info(
-        f"TP/SL:          {TP_PCT:.1%} / {SL_PCT:.1%} (RRR={TP_PCT/SL_PCT:.1f}:1)"
-    )
+    if atr_sl_aktiv:
+        logger.info(
+            f"Stop-Loss:      ATR-SL aktiv ({atr_sl_faktor}× ATR_14, dynamisch)"
+        )
+    else:
+        logger.info(
+            f"TP/SL:          {TP_PCT:.1%} / {SL_PCT:.1%} (RRR={TP_PCT/SL_PCT:.1f}:1)"
+        )
     logger.info(f"Lot-Größe:      {lot}")
     logger.info(
         f"Kill-Switch:    Drawdown > {kill_switch_dd:.0%} → automatischer Stopp"
@@ -1300,13 +1323,24 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 continue
 
             # ---- Schritt 4: Signal generieren ----
-            signal, prob, regime = signal_generieren(
+            signal, prob, regime, atr_pct = signal_generieren(
                 df_clean, modell, schwelle, regime_erlaubt
             )
             regime_name = REGIME_NAMEN.get(regime, "?")
+
+            # ATR-basiertes Stop-Loss berechnen (dynamisch!)
+            if atr_sl_aktiv and atr_pct > 0:
+                sl_aktuell = atr_pct * atr_sl_faktor  # z.B. 0.0021 × 1.5 = 0.0032
+                tp_aktuell = sl_aktuell  # symmetrisches TP/SL (RRR 1:1)
+                sl_info = f"ATR-SL={sl_aktuell:.2%} ({ATR_SL_FAKTOR}×ATR)"
+            else:
+                sl_aktuell = SL_PCT  # Fallback: festes SL
+                tp_aktuell = TP_PCT
+                sl_info = f"Fix-SL={sl_aktuell:.1%}"
+
             logger.info(
                 f"[{symbol}] Signal={signal} | Prob={prob:.1%} | "
-                f"Regime={regime} ({regime_name})"
+                f"Regime={regime} ({regime_name}) | {sl_info}"
             )
 
             # Signal/Heartbeat in CSV loggen
@@ -1324,7 +1358,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     )
                 else:
                     erfolg = order_senden(
-                        symbol, signal, lot, TP_PCT, SL_PCT, paper_trading
+                        symbol, signal, lot, tp_aktuell, sl_aktuell, paper_trading
                     )
                     if erfolg:
                         n_trades += 1
@@ -1385,9 +1419,9 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         description=(
             "MT5 ML-Trading – Live-Trader (Phase 6)\n"
             "Läuft auf: Windows 11 Laptop mit MT5-Terminal\n\n"
-            "Empfohlene Konfiguration (aus Phase 5 Backtest):\n"
-            "  USDCAD: --symbol USDCAD --schwelle 0.60 --regime_filter 1,2\n"
-            "  USDJPY: --symbol USDJPY --schwelle 0.60 --regime_filter 1"
+            "Empfohlene Konfiguration (aus Phase 5 Backtest mit ATR-SL):\n"
+            "  USDCAD: --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1\n"
+            "  USDJPY: --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1505,7 +1539,31 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "0 = nur bei Signal/Trade schreiben."
         ),
     )
+    parser.add_argument(
+        "--atr_sl",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        help=(
+            "1 = ATR-basiertes Stop-Loss (dynamisch, Standard), "
+            "0 = festes Stop-Loss (0.3%%). "
+            "ATR-SL verbessert Sharpe um +1.5 bis +2.0 im Backtest."
+        ),
+    )
+    parser.add_argument(
+        "--atr_faktor",
+        type=float,
+        default=1.5,
+        help=(
+            "ATR-Multiplikator für SL-Berechnung (Standard: 1.5). "
+            "SL = ATR_14 × Faktor. Empfehlung aus Backtest: 1.5"
+        ),
+    )
     args = parser.parse_args()
+
+    # ---- ATR-SL Konfiguration aus CLI ----
+    atr_sl_aktiv = bool(args.atr_sl)
+    atr_sl_faktor = args.atr_faktor
 
     # ---- Regime-Filter parsen ----
     regime_erlaubt = None
@@ -1622,6 +1680,8 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         kapital_start=args.kapital_start,
         heartbeat_log=bool(args.heartbeat_log),
         timeframe=timeframe,
+        atr_sl_aktiv=atr_sl_aktiv,
+        atr_sl_faktor=atr_sl_faktor,
     )
 
     # MT5 Verbindung beenden

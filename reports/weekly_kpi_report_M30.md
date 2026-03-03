@@ -18,7 +18,7 @@
 ## Ergebnis je Symbol
 
 | Symbol | Status | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | Sharpe (BT) | MaxDD% (BT) | WinRate% (BT) | Hinweis |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | USDCAD | UNKLAR | 0 | 0.0 | 0.0 | 0.000 | +105.32 | 8.368 | 17.879 | -3.74 | 84.5 | Zu wenige Live-Signale im Zeitraum |
 | USDJPY | UNKLAR | 0 | 0.0 | 0.0 | 0.000 | +387.75 | 12.541 | 23.459 | -5.93 | 90.1 | Zu wenige Live-Signale im Zeitraum |
 

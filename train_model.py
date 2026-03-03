@@ -848,6 +848,192 @@ def schwellenwert_analyse(
 
 
 # ============================================================
+# 10b. Feature Selection – Permutation Importance
+# ============================================================
+
+
+def feature_selection(
+    modell,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    modell_name: str,
+    min_importance: float = 0.0,
+    n_repeats: int = 5,
+) -> list[str]:
+    """
+    Identifiziert unwichtige Features via Permutation Importance.
+
+    Methode: Für jedes Feature werden die Werte zufällig gemischt.
+    Wenn der F1-Score danach kaum fällt, ist das Feature unwichtig.
+    Features mit Importance <= min_importance werden zum Entfernen vorgeschlagen.
+
+    Args:
+        modell:         Trainiertes Modell (XGBoost oder LightGBM)
+        X_train:        Trainings-Features
+        y_train:        Trainings-Labels
+        X_val:          Validierungs-Features
+        y_val:          Validierungs-Labels
+        modell_name:    Name für Logging
+        min_importance: Schwellenwert – Features darunter werden entfernt (Standard: 0.0)
+        n_repeats:      Wiederholungen der Permutation (Standard: 5)
+
+    Returns:
+        Liste der Feature-Namen, die BEHALTEN werden sollen
+    """
+    from sklearn.inspection import permutation_importance
+
+    logger.info(f"\n{'─' * 50}")
+    logger.info(f"Feature Selection (Permutation Importance) – {modell_name}")
+    logger.info(f"{'─' * 50}")
+
+    # Permutation Importance auf Validierungs-Set berechnen
+    ergebnis = permutation_importance(
+        modell,
+        X_val,
+        y_val,
+        n_repeats=n_repeats,
+        random_state=42,
+        scoring="f1_macro",
+        n_jobs=-1,
+    )
+
+    # Ergebnis als DataFrame sortieren
+    imp_df = pd.DataFrame(
+        {
+            "Feature": X_val.columns,
+            "Importance_Mean": ergebnis.importances_mean,
+            "Importance_Std": ergebnis.importances_std,
+        }
+    ).sort_values("Importance_Mean", ascending=False)
+
+    # Alle Features mit Wichtigkeit loggen
+    logger.info(f"  {'Feature':<30} {'Importance':>12} {'Std':>8}")
+    logger.info(f"  {'-' * 52}")
+    for _, row in imp_df.iterrows():
+        marker = " ✗ ENTFERNEN" if row["Importance_Mean"] <= min_importance else ""
+        logger.info(
+            f"  {row['Feature']:<30} {row['Importance_Mean']:>12.5f} "
+            f"{row['Importance_Std']:>8.5f}{marker}"
+        )
+
+    # Features zum Behalten auswählen
+    behalten = imp_df[imp_df["Importance_Mean"] > min_importance]["Feature"].tolist()
+    entfernt = imp_df[imp_df["Importance_Mean"] <= min_importance]["Feature"].tolist()
+
+    logger.info(f"\n  Behalten: {len(behalten)} Features")
+    logger.info(f"  Entfernt: {len(entfernt)} Features ({entfernt})")
+
+    return behalten
+
+
+# ============================================================
+# 10c. Ensemble – Soft Voting (XGBoost + LightGBM)
+# ============================================================
+
+
+class EnsembleModell:
+    """
+    Soft-Voting-Ensemble aus XGBoost und LightGBM.
+
+    Kombiniert die Wahrscheinlichkeitsvorhersagen beider Modelle durch
+    gewichteten Durchschnitt. Das verbessert typischerweise die Stabilität
+    und reduziert Overfitting.
+
+    Gewichtung: Standardmäßig 50/50. Kann über gewicht_lgbm angepasst werden.
+    """
+
+    def __init__(
+        self,
+        xgb_modell: xgb.XGBClassifier,
+        lgbm_modell: lgb.LGBMClassifier,
+        gewicht_lgbm: float = 0.5,
+    ):
+        """
+        Initialisiert das Ensemble mit zwei trainierten Modellen.
+
+        Args:
+            xgb_modell:   Trainiertes XGBoost-Modell
+            lgbm_modell:  Trainiertes LightGBM-Modell
+            gewicht_lgbm: Gewicht für LightGBM (Rest = XGBoost). Standard: 0.5
+        """
+        self.xgb_modell = xgb_modell
+        self.lgbm_modell = lgbm_modell
+        self.gewicht_lgbm = gewicht_lgbm
+        self.gewicht_xgb = 1.0 - gewicht_lgbm
+        # Feature-Importances vom LightGBM-Modell übernehmen (für Plots)
+        if hasattr(lgbm_modell, "feature_importances_"):
+            self.feature_importances_ = lgbm_modell.feature_importances_
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        """
+        Berechnet gewichteten Durchschnitt der Wahrscheinlichkeiten.
+
+        Args:
+            X: Feature-Matrix
+
+        Returns:
+            Array der Form (n_samples, 3) mit Klassen-Wahrscheinlichkeiten
+        """
+        proba_xgb = self.xgb_modell.predict_proba(X)
+        proba_lgbm = self.lgbm_modell.predict_proba(X)
+        # Gewichteter Durchschnitt
+        proba_ensemble = self.gewicht_xgb * proba_xgb + self.gewicht_lgbm * proba_lgbm
+        return proba_ensemble
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        """
+        Vorhersage durch Argmax der kombinierten Wahrscheinlichkeiten.
+
+        Args:
+            X: Feature-Matrix
+
+        Returns:
+            Array mit vorhergesagten Klassen (0, 1, 2)
+        """
+        proba = self.predict_proba(X)
+        return np.argmax(proba, axis=1)
+
+
+def ensemble_erstellen(
+    xgb_modell: xgb.XGBClassifier,
+    lgbm_modell: lgb.LGBMClassifier,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    gewicht_lgbm: float = 0.5,
+) -> EnsembleModell:
+    """
+    Erstellt ein Soft-Voting-Ensemble und evaluiert es.
+
+    Args:
+        xgb_modell:   Trainiertes XGBoost-Modell (Optuna)
+        lgbm_modell:  Trainiertes LightGBM-Modell (Optuna)
+        X_val:        Validierungs-Features
+        y_val:        Validierungs-Labels
+        gewicht_lgbm: Gewicht für LightGBM (Standard: 0.5)
+
+    Returns:
+        EnsembleModell-Instanz
+    """
+    ensemble = EnsembleModell(xgb_modell, lgbm_modell, gewicht_lgbm)
+
+    # Evaluierung auf Validierungsset
+    y_pred = ensemble.predict(X_val)
+    f1 = float(f1_score(y_val, y_pred, average="macro"))
+
+    logger.info(f"\n{'─' * 50}")
+    logger.info(f"Ensemble (XGB {ensemble.gewicht_xgb:.0%} + LGBM {gewicht_lgbm:.0%})")
+    logger.info(f"{'─' * 50}")
+    logger.info(f"  F1-Macro (Validierung): {f1:.4f}")
+    logger.info(
+        f"\n{classification_report(y_val, y_pred, target_names=['Short', 'Neutral', 'Long'])}"
+    )
+
+    return ensemble
+
+
+# ============================================================
 # 11. Feature Importance visualisieren
 # ============================================================
 
@@ -1105,15 +1291,52 @@ def symbol_trainieren(
         stern = " ← BESTES MODELL" if f1 == max(e[1] for e in ergebnisse) else ""
         logger.info("  %22s: F1-Macro = %.4f%s", name, f1, stern)
 
-    # Bestes Modell wählen
-    bestes_name, bestes_f1, bestes_modell, bestes_typ = max(
-        ergebnisse, key=lambda x: x[1]
-    )
-    logger.info("\nBestes Modell: %s (Typ=%s, F1=%.4f)", bestes_name, bestes_typ, bestes_f1)
-
     # Beide Optuna-Modelle mit der richtigen Version + Zeitrahmen speichern
     modell_speichern(xgb_opt, symbol, "xgb", version, timeframe)
     modell_speichern(lgbm_opt, symbol, "lgbm", version, timeframe)
+
+    # ---- Schritt 9b: Ensemble erstellen (XGBoost + LightGBM) ----
+    logger.info("%s", "\n" + "=" * 50)
+    logger.info("Ensemble-Modell (Soft Voting)")
+    logger.info("=" * 50)
+    ensemble = ensemble_erstellen(xgb_opt, lgbm_opt, X_val, y_val)
+    f1_ensemble = modell_evaluieren(ensemble, X_val, y_val, "Ensemble (XGB+LGBM)")
+
+    # Ensemble als eigenes Modell speichern
+    modell_speichern(ensemble, symbol, "ensemble", version, timeframe)
+
+    # Alle Ergebnisse inkl. Ensemble vergleichen
+    ergebnisse.append(("Ensemble (XGB+LGBM)", f1_ensemble, ensemble, "ensemble"))
+    logger.info("%s", "\n" + "=" * 50)
+    logger.info("FINALE ZUSAMMENFASSUNG – inkl. Ensemble")
+    logger.info("=" * 50)
+    for name, f1, _, _ in sorted(ergebnisse, key=lambda x: -x[1]):
+        stern = " ← BESTES" if f1 == max(e[1] for e in ergebnisse) else ""
+        logger.info("  %25s: F1-Macro = %.4f%s", name, f1, stern)
+
+    # Bestes Modell (inkl. Ensemble) aktualisieren
+    bestes_name, bestes_f1, bestes_modell, bestes_typ = max(
+        ergebnisse, key=lambda x: x[1]
+    )
+    logger.info("\nFinales bestes Modell: %s (F1=%.4f)", bestes_name, bestes_f1)
+
+    # ---- Schritt 9c: Feature Selection (Permutation Importance) ----
+    logger.info("%s", "\n" + "=" * 50)
+    logger.info("Feature Selection – Permutation Importance")
+    logger.info("=" * 50)
+    behalte_features = feature_selection(
+        lgbm_opt, X_train, y_train, X_val, y_val, "LightGBM Optuna"
+    )
+    n_entfernt = len(feature_namen) - len(behalte_features)
+    if n_entfernt > 0:
+        logger.info(f"\n  {n_entfernt} unwichtige Features identifiziert.")
+        logger.info(
+            "  Hinweis: Für die aktuelle Version werden alle Features beibehalten."
+        )
+        logger.info(
+            "  Zum Nachtrainieren mit reduzierten Features: "
+            "Die Feature-Liste in AUSSCHLUSS_SPALTEN ergänzen."
+        )
 
     # ---- Schritt 10: Schwellenwert-Analyse (bestes Modell) ----
     logger.info("%s", "\n" + "=" * 50)
@@ -1149,9 +1372,14 @@ def symbol_trainieren(
     if timeframe == "H1":
         print(f"    models/xgb_{symbol.lower()}_{version}.pkl")
         print(f"    models/lgbm_{symbol.lower()}_{version}.pkl")
+        print(f"    models/ensemble_{symbol.lower()}_{version}.pkl")
     else:
         print(f"    models/xgb_{symbol.lower()}_{timeframe}_{version}.pkl")
         print(f"    models/lgbm_{symbol.lower()}_{timeframe}_{version}.pkl")
+        print(f"    models/ensemble_{symbol.lower()}_{timeframe}_{version}.pkl")
+    print(
+        f"\n  Feature Selection: {len(behalte_features)}/{len(feature_namen)} Features behalten"
+    )
     print(f"\n  Empfohlener Schwellenwert: {empfohlener_schwellenwert:.0%}")
     print(
         f"  (Trades nur wenn Modell-Wahrscheinlichkeit > {empfohlener_schwellenwert:.0%})"

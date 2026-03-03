@@ -218,6 +218,78 @@ def double_barrier_label_rrr(
 
 
 # ============================================================
+# 1c. ATR-basiertes Double-Barrier Labeling (dynamische Barrieren)
+# ============================================================
+
+
+def double_barrier_label_atr(
+    close: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    atr: np.ndarray,
+    atr_faktor: float = 1.5,
+    horizon: int = HORIZON,
+) -> np.ndarray:
+    """
+    Double-Barrier Labels mit ATR-basierter dynamischer Barriere.
+
+    Statt fixer TP/SL-Prozentsätze (z.B. 0.3%) werden die Barrieren
+    an die aktuelle Marktvolatilität angepasst:
+        TP = close[T] + ATR[T] × atr_faktor  (Long-Richtung)
+        SL = close[T] - ATR[T] × atr_faktor  (Short-Richtung)
+
+    Vorteile gegenüber fixem Prozentsatz:
+        - In ruhigen Märkten: engere Barrieren → mehr Labels (Long/Short)
+        - In volatilen Märkten: weitere Barrieren → weniger Noise-Labels
+        - Adaptiert sich automatisch an Marktbedingungen
+
+    WICHTIG: atr[T] nutzt nur Daten bis Kerze T (kein Look-Ahead-Bias).
+    Die ATR_14-Spalte wird in feature_engineering.py korrekt berechnet.
+
+    Args:
+        close:      Close-Preise als numpy-Array
+        high:       High-Preise als numpy-Array
+        low:        Low-Preise als numpy-Array
+        atr:        ATR(14)-Werte als numpy-Array (aus feature_engineering.py)
+        atr_faktor: Multiplikator für ATR-Barriere (Standard: 1.5)
+        horizon:    Maximale Anzahl Kerzen voraus (Standard: 5)
+
+    Returns:
+        numpy-Array mit Labels (-1, 0, 1), letzte `horizon` Werte = NaN
+    """
+    n = len(close)
+    labels = np.full(n, np.nan)
+
+    for i in range(n - horizon):
+        # ATR-Wert zum Zeitpunkt T – dynamische Barrierengröße
+        atr_val = atr[i]
+
+        # Wenn ATR NaN ist (z.B. erste 14 Kerzen), Label = NaN lassen
+        if np.isnan(atr_val) or atr_val <= 0:
+            continue
+
+        # Dynamische Barrieren: close ± ATR × Faktor
+        barriere = atr_val * atr_faktor
+        tp_level = close[i] + barriere  # Obere Schranke (Long-TP)
+        sl_level = close[i] - barriere  # Untere Schranke (Short-TP)
+
+        label = 0  # Standard: keine Barriere getroffen → kein Signal
+
+        # Vorwärts schauen: welche Schranke wird ZUERST getroffen?
+        for j in range(1, horizon + 1):
+            if high[i + j] >= tp_level:
+                label = 1  # Kurs erreicht obere Schranke zuerst → Long
+                break
+            if low[i + j] <= sl_level:
+                label = -1  # Kurs erreicht untere Schranke zuerst → Short
+                break
+
+        labels[i] = label
+
+    return labels
+
+
+# ============================================================
 # 2. Label-Verteilung analysieren
 # ============================================================
 
@@ -311,6 +383,7 @@ def symbol_labeln(
     version: str = "v1",
     modus: str = "standard",
     timeframe: str = "H1",
+    atr_faktor: float = 1.5,
 ) -> bool:
     """
     Vollständiger Labeling-Ablauf für ein Symbol.
@@ -322,12 +395,13 @@ def symbol_labeln(
         4. Als *_labeled{_vN}.csv speichern
 
     Args:
-        symbol:  Handelssymbol (z.B. "EURUSD")
-        tp_pct:  Take-Profit-Schwelle (Standard: TP_PCT = 0.3%)
-        sl_pct:  Stop-Loss-Schwelle   (Standard: SL_PCT = 0.3%)
-        horizon: Zeitschranke in Kerzen (Standard: HORIZON = 5)
-        version: Versions-String für den Ausgabe-Dateinamen (Standard: "v1")
-        modus:   "standard" = original symmetrisch | "rrr" = korrekte RRR-Logik
+        symbol:     Handelssymbol (z.B. "EURUSD")
+        tp_pct:     Take-Profit-Schwelle (Standard: TP_PCT = 0.3%)
+        sl_pct:     Stop-Loss-Schwelle   (Standard: SL_PCT = 0.3%)
+        horizon:    Zeitschranke in Kerzen (Standard: HORIZON = 5)
+        version:    Versions-String für den Ausgabe-Dateinamen (Standard: "v1")
+        modus:      "standard" | "rrr" | "atr" (ATR-basierte dynamische Barrieren)
+        atr_faktor: ATR-Multiplikator für Modus "atr" (Standard: 1.5)
 
     Returns:
         True wenn erfolgreich, False bei Fehler.
@@ -356,7 +430,37 @@ def symbol_labeln(
             return False
 
     # Double-Barrier Labels berechnen (Funktion abhängig vom Modus)
-    if modus == "rrr":
+    if modus == "atr":
+        # ATR-basierte dynamische Barrieren (adaptiv an Volatilität)
+        if "atr_14" not in df.columns:
+            logger.error(
+                "[%s] Spalte 'atr_14' fehlt! Modus 'atr' benötigt ATR-Feature.",
+                symbol,
+            )
+            return False
+        logger.info(
+            "[%s] Berechne Labels (Modus=ATR, Faktor=%s, Horizon=%s Kerzen) ...",
+            symbol,
+            f"{atr_faktor:.1f}",
+            horizon,
+        )
+        # Mittlere Barrierengröße als Info loggen
+        mittlere_barriere = (df["atr_14"] * atr_faktor / df["close"]).mean()
+        logger.info(
+            "[%s] ATR-Barriere: Ø %.2f%% des Close (vs. fix %.2f%%)",
+            symbol,
+            mittlere_barriere * 100,
+            tp_pct * 100,
+        )
+        labels = double_barrier_label_atr(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            atr=df["atr_14"].values,
+            atr_faktor=atr_faktor,
+            horizon=horizon,
+        )
+    elif modus == "rrr":
         # Korrekte RRR-Logik: BEIDE Richtungen verwenden tp_pct als Ziel
         logger.info(
             "[%s] Berechne Labels (Modus=RRR, TP=%s, SL=%s, Horizon=%s Kerzen) ...",
@@ -497,12 +601,24 @@ def main() -> None:
     parser.add_argument(
         "--modus",
         default="standard",
-        choices=["standard", "rrr"],
+        choices=["standard", "rrr", "atr"],
         help=(
             "Labeling-Logik: "
             "'standard' = symmetrische Barrieren (v1-kompatibel, Standard) | "
             "'rrr' = korrekte RRR-Logik (beide Richtungen mit tp_pct als Ziel, "
-            "für 2:1 oder 3:1 RRR empfohlen)"
+            "für 2:1 oder 3:1 RRR empfohlen) | "
+            "'atr' = ATR-basierte dynamische Barrieren (adaptiv an Volatilität, "
+            "empfohlen für v4)"
+        ),
+    )
+    parser.add_argument(
+        "--atr_faktor",
+        type=float,
+        default=1.5,
+        help=(
+            "ATR-Multiplikator für Modus 'atr' (Standard: 1.5). "
+            "Barriere = ATR_14 × atr_faktor. "
+            "Höherer Wert = breitere Barrieren = weniger aber klarere Signale."
         ),
     )
     args = parser.parse_args()
@@ -546,6 +662,7 @@ def main() -> None:
             version=args.version,
             modus=args.modus,
             timeframe=args.timeframe,
+            atr_faktor=args.atr_faktor,
         )
         ergebnisse.append((symbol, "OK" if erfolg else "FEHLER"))
 

@@ -11,6 +11,21 @@ Ich lerne programmieren und baue ein automatisches Handelssystem für MetaTrader
 
 Ein ML-gestütztes Trading-System mit **XGBoost** und **LightGBM**, das Marktphasen
 (Regime Detection) automatisch erkennt und darauf basierend in MetaTrader 5 handelt.
+Das System soll **robust, erklärbar und nachweislich besser als Buy-and-Hold** sein –
+mit dem langfristigen Ziel, **konsistent profitabel** zu handeln.
+
+**Realistische Zielwerte (über 6+ Monate Paper-Trading):**
+
+| KPI | Zielwert | Beschreibung |
+|-----|----------|-------------|
+| Sharpe Ratio | > 0.8 | Risikoadjustierte Rendite |
+| Profit Factor | > 1.3 | Gewinn/Verlust-Verhältnis |
+| Max. Drawdown | < 10% | Maximaler Kapitalrückgang |
+| Win-Rate | > 50% | Anteil profitabler Trades |
+| F1-Macro | > 0.50 | Modellqualität (über alle Klassen) |
+
+**Operative Paare:** USDCAD und USDJPY (Paper-Trading aktiv).
+Eskalation auf Echtgeld erst nach 12 konsekutiven GO-Wochen.
 
 ---
 

@@ -1,8 +1,9 @@
 # Wöchentlicher KPI-Report (USDCAD / USDJPY)
 
-**Erstellt:** 2026-03-01 16:05
+**Erstellt:** 2026-03-03 12:07
 **Zeitraum (Live-Aktivität):** letzte 7 Tage
-**Gesamtstatus:** **UNKLAR**
+**Gesamtstatus:** **NO-GO**
+**Timeframe:** `H1`
 **Paper-Gate (12 Wochen):** **PAPER_ONLY**
 **Konsekutive GO-Wochen:** 0 / 12
 
@@ -18,12 +19,12 @@
 
 | Symbol | Status | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | Sharpe (BT) | MaxDD% (BT) | WinRate% (BT) | Hinweis |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| USDCAD | UNKLAR | 0 | 0.0 | 0.0 | 0.000 | +0.52 | 1.020 | 0.135 | -3.10 | 49.6 | Zu wenige Live-Signale im Zeitraum |
-| USDJPY | UNKLAR | 0 | 0.0 | 0.0 | 0.000 | -3.18 | 0.970 | -0.221 | -10.18 | 50.7 | Zu wenige Live-Signale im Zeitraum |
+| USDCAD | GO | 6 | 16.7 | 0.0 | 0.118 | +2.95 | 1.355 | 2.111 | -1.18 | 58.4 | Alle Ziel-KPIs erfüllt |
+| USDJPY | NO-GO | 5 | 0.0 | 20.0 | 0.306 | +1.33 | 1.130 | 0.820 | -1.85 | 55.5 | KPI unter Ziel: PF |
 
 ## 3-Monats Paper-Gate (stabile Werte)
 
-- Letzte 12 Wochen insgesamt erfasst: 1
+- Letzte 12 Wochen insgesamt erfasst: 3
 - Konsekutive GO-Wochen aktuell: 0
 - Entscheidungsstatus: **PAPER_ONLY**
 - Begründung: Noch 12 GO-Woche(n) ohne Unterbrechung nötig für kontrollierte Eskalation.

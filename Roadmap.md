@@ -469,10 +469,10 @@ Jede neue H1-Kerze:
 # Fenster 1 – USDCAD (nur Abwärtstrend, ATR-SL)
 cd "C:\Users\Sebastian Setnescu\mt5_trading"
 venv\Scripts\activate
-python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "$env:MT5_SERVER" --mt5_login $env:MT5_LOGIN --mt5_password "$env:MT5_PASSWORD"
 
-# Fenster 2 – USDJPY (nur Aufwärtstrend, ATR-SL)
-python live\live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+# Fenster 2 – USDJPY (nur Aufwärtstrend, ATR-SL, Option B optimiert)
+python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "$env:MT5_SERVER" --mt5_login $env:MT5_LOGIN --mt5_password "$env:MT5_PASSWORD"
 ```
 
 > ✅ **Phase 6 abgeschlossen:** MT5-Integration + stabiler Paper-Betrieb gestartet.

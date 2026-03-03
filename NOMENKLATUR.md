@@ -300,4 +300,59 @@
 
 ---
 
-*Letzte Aktualisierung: 2026-03-03*
+## 15. KPI-Snapshot (Beispiel aus Backtest)
+
+### USDJPY – H1 (Konfiguration: Schwelle 0.55, Regime 1, ATR-SL 1.5, Option B)
+
+- **Trades: 216**  
+  Nützlich, um die statistische Belastbarkeit zu beurteilen (zu wenige Trades = hohe Zufallsschwankung).
+- **Rendite: +4.45%**  
+  Zeigt den absoluten Kapitalzuwachs im Testzeitraum und damit die praktische Wirtschaftlichkeit.
+- **PF (Profit Factor): 1.208**  
+  Verhältnis Brutto-Gewinn zu Brutto-Verlust; misst Robustheit nach Kosten (Projektziel: > 1.3).
+- **Sharpe: 1.297**  
+  Risikoadjustierte Rendite; ideal zum Vergleich mehrerer Varianten mit ähnlicher Rendite.
+- **MaxDD: -3.92%**  
+  Größter zwischenzeitlicher Kapitalrückgang; wichtig für Risiko- und Stress-Toleranz im Phase-7-Betrieb.
+
+> Praxisregel für Phase 7: Eine Konfiguration gilt nur dann als nachhaltig „GO", wenn **Ertrag + Risiko + Stabilität** gemeinsam passen (nicht nur eine einzelne Kennzahl).
+
+---
+
+## 16. KPI-Zielrichtung (höher vs. niedriger)
+
+- **Trades (Anzahl):** kein „je mehr desto besser", sondern **ausreichend hoch** für belastbare Statistik.
+- **Rendite (%):** **höher ist besser** (positiv soll sie sein).
+- **PF / Gewinnfaktor:** **höher ist besser**. Praxis: >1.0 profitabel, Projektziel robust: >1.3.
+- **Sharpe Ratio:** **höher ist besser** (mehr Rendite pro Risiko).
+- **MaxDD (%):** **weniger negativ ist besser** (näher an 0). Beispiel: -4% ist besser als -10%.
+
+Merksatz:
+
+- **Hoch gut:** Rendite, PF, Sharpe
+- **Niedrig gut:** MaxDD (in Absolutverlust)
+- **Ausreichend gut:** Trades
+
+---
+
+## 17. Weitere wichtige Werte (bereits im Projekt vorhanden)
+
+- **Win-Rate (%)**
+  Anteil gewonnener Trades. Nützlich als Stabilitätsindikator (aber nie allein bewerten).
+- **Live-Signale pro Woche**
+  Zeigt, ob im Paper-Betrieb genug Aktivität für eine Wochenbewertung vorhanden ist.
+- **Exits TP / SL / Horizon**
+  Aufschlüsselung, ob Gewinne eher über TP kommen oder ob viele Trades in SL/Horizon enden.
+- **Regime-Performance (pro Regime)**
+  Zeigt, in welchen Marktphasen die Strategie wirklich funktioniert (z.B. USDJPY nur Regime 1).
+- **Jahres-Performance (pro Jahr)**
+  Stabilitätscheck gegen Überanpassung: wichtig, damit ein gutes Gesamtergebnis nicht nur aus einem starken Jahr stammt.
+- **Konsekutive GO-Wochen (0 bis 12)**
+  Operativer Freigabe-Indikator in Phase 7; Ziel ist eine stabile Serie ohne Unterbrechung.
+
+Hinweis:
+Für Go/No-Go im laufenden Betrieb immer **mehrere KPIs gemeinsam** betrachten (mindestens PF, Sharpe, MaxDD, Win-Rate, Signalanzahl).
+
+---
+
+Letzte Aktualisierung: 2026-03-03

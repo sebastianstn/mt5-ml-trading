@@ -59,10 +59,10 @@ python data_loader.py --symbol alle --timeframe M30
 
 ```powershell
 # USDCAD – Regime 2 (Abwärtstrend), ATR-SL aktiv
-python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "$env:MT5_SERVER" --mt5_login $env:MT5_LOGIN --mt5_password "$env:MT5_PASSWORD"
 
-# USDJPY – Regime 1 (Aufwärtstrend), ATR-SL aktiv
-python live\live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+# USDJPY – Regime 1 (Aufwärtstrend), ATR-SL aktiv, Option B (optimiert)
+python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "$env:MT5_SERVER" --mt5_login $env:MT5_LOGIN --mt5_password "$env:MT5_PASSWORD"
 ```
 
 | Argument | Standard | Beschreibung |
@@ -83,6 +83,31 @@ python live\live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --a
 | `--kapital_start` | `10000.0` | Startkapital für Kill-Switch im Paper-Modus |
 | `--heartbeat_log` | `1` | 1 = Heartbeat pro Kerze loggen |
 | `--allow_research_symbol` | `0` | 1 = andere Symbole erlauben (nur Paper!) |
+
+---
+
+### Paper-Trading – Sofort-Start (konkrete Werte, 2026-03-03)
+
+> Fenster 1 und Fenster 2 gleichzeitig öffnen (beide mt5_trading Verzeichnis, venv aktiviert)
+
+**Fenster 1 – USDJPY (Option B):**
+
+```powershell
+python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+```
+
+**Fenster 2 – USDCAD (Regime 2, bewährt):**
+
+```powershell
+python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+```
+
+| Symbol  | Schwelle | Regime        | Grund                                         |
+|---------|----------|---------------|-----------------------------------------------|
+| USDJPY  | 0.55     | 1 (Aufwärts)  | Option B optimiert (Phase 5 Grid-Search)     |
+| USDCAD  | 0.50     | 2 (Abwärts)   | Bewährte Phase-5/6 Konfiguration (PF 1.355)  |
+
+> ⚠️ **Wichtig:** MT5 Terminal muss offen sein. Laufen beide Fenster, haben Sie Paper-Trading aktiv.
 
 ---
 

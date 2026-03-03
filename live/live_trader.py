@@ -23,7 +23,7 @@ Modell-Übertragung vom Linux-Server auf den Windows Laptop:
 
 Verwendung (Windows, venv aktiviert):
     python live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1
-    python live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1
+    python live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1
     python live_trader.py --help
 
 Voraussetzungen:
@@ -1421,7 +1421,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "Läuft auf: Windows 11 Laptop mit MT5-Terminal\n\n"
             "Empfohlene Konfiguration (aus Phase 5 Backtest mit ATR-SL):\n"
             "  USDCAD: --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1\n"
-            "  USDJPY: --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1"
+            "  USDJPY: --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

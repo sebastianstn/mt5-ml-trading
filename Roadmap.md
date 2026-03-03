@@ -11,7 +11,7 @@
 ## 🖥️ System-Architektur
 
 | Gerät | Rolle | Was läuft hier? |
-|-------|-------|-----------------|
+| ------- | ------- | ----------------- |
 | Windows 11 Laptop | MT5-Host & Live-Trading | MT5 Terminal, MetaTrader5 Python-Lib, `live_trader.py`, Paper-Trading |
 | Linux Server (1TB SSD) | Datenspeicher & Training | Rohdaten (CSV), Modelle (.pkl), `train_model.py`, `backtest.py` |
 | VS Code Remote SSH | Entwicklung | Code wird auf dem Linux-Server bearbeitet und ausgeführt |
@@ -49,7 +49,7 @@
 ### 🔴 Kritisch – Vor Live-Trading lösen
 
 | # | Problem | Aktion | Status |
-|---|---------|--------|--------|
+| --- | --------- | -------- | -------- |
 | 1 | **Edge ist dünn** – F1-Macro 0.42–0.48 | Profit Factor + KPI-Gates definiert (CLAUDE.md) | ✅ Gelöst |
 | 2 | **Survivorship Bias** – 7 Paare trainiert, 2 selektiert | Durchschnitt aller 7 Paare als Benchmark in `backtest.py` | ✅ Gelöst |
 | 3 | **Backtest-Renditen sehr klein** | `--spread_faktor 2.0` Stress-Test implementiert | ✅ Gelöst |
@@ -59,7 +59,7 @@
 ### 🟡 Wichtig – Vor oder während Live-Phase
 
 | # | Problem | Aktion | Status |
-|---|---------|--------|--------|
+| --- | --------- | -------- | -------- |
 | 4 | **Externe APIs ohne SLA** | Fallback: Fear & Greed → 50/Neutral, BTC Funding → 0.0 | ✅ Gelöst |
 | 5 | **Look-Ahead-Bias möglich** | Code-Review von `regime_detection.py` durchgeführt | ✅ Gelöst |
 | 7 | **Retraining zu häufig** | Monatlich + Trigger bei Rolling Sharpe < 0.5 (`retraining.py`) | ✅ Gelöst |
@@ -68,7 +68,7 @@
 ### 🟢 Empfohlen – Für langfristige Qualität
 
 | # | Empfehlung | Status |
-|---|-----------|--------|
+| --- | ----------- | -------- |
 | 10 | **Out-of-Sample Reality-Check:** `reports/reality_check.py` erstellt | ✅ Gelöst |
 
 ---
@@ -110,7 +110,7 @@
 - [x] Virtuelle Umgebungen auf beiden Plattformen erstellt und getestet
 - [x] Projektordner-Struktur angelegt:
 
-```
+```text
 /mnt/1T-Data/XGBoost-LightGBM/
 ├── .github/          ├── models/          ├── plots/
 ├── data/             ├── backtest/        ├── tests/
@@ -189,7 +189,7 @@
 - [x] Regime-Verteilung geprüft – keine Dominanz >60%
 - [x] Visualisierung: `plots/SYMBOL_regime.png` für alle 7 Paare
 
-### 🔧 Optimierung (offen)
+### 🔧 Regime-Optimierung (offen)
 
 - [ ] Hidden-Markov-Modell (HMM) als Alternative testen (`hmmlearn`)
 - [ ] Regime-Transition-Trigger: z.B. ADX > 25 für ≥3 Kerzen, um Fehlsignale zu reduzieren
@@ -254,7 +254,7 @@
 - [x] Alle 7 Modelle stabil (kein Fenster > 0.10 unter Durchschnitt)
 
 | Symbol | Ø F1 | Min F1 | Schwankung | Status |
-|--------|------|--------|------------|--------|
+| -------- | ------ | -------- | ------------ | -------- |
 | EURUSD | 0.4188 | 0.3709 | 0.0748 | ✅ STABIL |
 | GBPUSD | 0.4681 | 0.4384 | 0.0522 | ✅ STABIL |
 | USDJPY | 0.3988 | 0.3513 | 0.1519 | ✅ STABIL |
@@ -312,7 +312,7 @@
 **H1-Modelle (Finale Konfiguration – nach ATR-SL-Optimierung 2026-03-03):**
 
 | Symbol | Timeframe | Modell | Regime-Filter | Threshold | Sharpe | Rendite | GF | Max.DD |
-|--------|-----------|--------|--------------|-----------|--------|---------|-----|--------|
+| -------- | ----------- | -------- | -------------- | ----------- | -------- | --------- | ----- | -------- |
 | **USDCAD** | H1 | v1 + ATR-SL 1.5× | **2** (nur Abwärtstrend) | **50%** | **2.118 ✅** | **+2.95%** | **1.35 ✅** | -1.18% |
 | **USDJPY** | H1 | v1 + ATR-SL 1.5× | **1** (nur Aufwärtstrend) | **50%** | **1.263 ✅** | **+5.94%** | 1.20 | -4.17% |
 | USDCHF | H1 | v1 | 1,2 | 60% | 0.271 | +1.54% | – | -4.72% |
@@ -321,7 +321,7 @@
 **Vorherige Konfiguration (ohne ATR-SL, zum Vergleich):**
 
 | Symbol | Regime-Filter | Threshold | Sharpe | Rendite | GF |
-|--------|--------------|-----------|--------|---------|-----|
+| -------- | -------------- | ----------- | -------- | --------- | ----- |
 | USDCAD | 1,2 | 60% | 1.277 | +2.01% | ~1.2 |
 | USDJPY | 1 | 60% | 1.073 | +2.59% | ~1.1 |
 
@@ -363,7 +363,7 @@
 ### Optimale Konfiguration (nach Parameter-Sweep)
 
 | Symbol | Modell | ATR-SL | Regime | Schwelle | Rendite | GF | Sharpe |
-|--------|--------|--------|--------|----------|---------|-----|--------|
+| -------- | -------- | -------- | -------- | ---------- | --------- | ----- | -------- |
 | USDCAD | lgbm v1 | 1.5× ATR | Regime 2 (Abwärtstrend) | 50% | +2.95% | 1.35✅ | 2.12✅ |
 | USDJPY | lgbm v1 | 1.5× ATR | Regime 1 (Aufwärtstrend) | 50% | +5.94% | 1.20 | 1.26✅ |
 
@@ -390,7 +390,7 @@
 **H4-Ergebnisse** (`--schwelle 0.60 --regime_filter 1,2`):
 
 | Symbol | Sharpe | Rendite | Trades | Empfehlung |
-|--------|--------|---------|--------|------------|
+| -------- | -------- | --------- | -------- | ------------ |
 | USDCAD | 12.135 | +1.38% | 9 | ⚠️ Zu wenige Trades – statistisch nicht valide |
 | USDCHF | 2.502 ✅ | +1.26% | 28 | ✅ Besser als H1 (0.271) – Abwärtstrend (regime=2) |
 | USDJPY | 0.069 | +0.30% | 233 | ❌ H1 ist besser (Sharpe=1.073) |
@@ -435,7 +435,7 @@
 
 - [x] `live_trader.py` erstellt:
 
-```
+```text
 Jede neue H1-Kerze:
 1. 500 H1-Barren von MT5 holen
 2. Alle 45 Features berechnen (identisch mit Training)
@@ -521,7 +521,7 @@ python reports/weekly_kpi_report.py --tage 7
 #### Schritt 3: GO/NO-GO bewerten
 
 | KPI | Zielwert | Diese Woche | GO? |
-|-----|----------|-------------|-----|
+| ----- | ---------- | ------------- | ----- |
 | Sharpe Ratio | > 0.8 | _____ | ☐ |
 | Profit Factor | > 1.3 | _____ | ☐ |
 | Max. Drawdown | < 10% | _____ | ☐ |
@@ -540,7 +540,7 @@ python reports/weekly_kpi_report.py --tage 7
 #### Schritt 5: Bei Problemen
 
 | Problem | Lösung |
-|---------|--------|
+| --------- | -------- |
 | PowerShell-Fenster geschlossen | Trader neu starten (Befehle in `BEFEHLE.md`) |
 | MT5 disconnected | MT5 Terminal öffnen, einloggen, Trader neu starten |
 | Kill-Switch ausgelöst (>15% DD) | **STOPP!** Logs an Copilot schicken, analysieren |
@@ -551,7 +551,7 @@ python reports/weekly_kpi_report.py --tage 7
 ### 📊 Wochen-Protokoll (hier eintragen)
 
 | Woche | Datum | Trades | Rendite | Sharpe | GO? | Notizen |
-|-------|-------|--------|---------|--------|-----|---------|
+| ------- | ------- | -------- | --------- | -------- | ----- | --------- |
 | 1 | 03.–09.03.2026 | | | | | Paper-Start |
 | 2 | 10.–16.03.2026 | | | | | |
 | 3 | 17.–23.03.2026 | | | | | |
@@ -600,7 +600,7 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 ### 🚨 ESKALATIONS-REGELN
 
 | Situation | Aktion |
-|-----------|--------|
+| ----------- | -------- |
 | 3 NO-GO-Wochen hintereinander | Logs analysieren, Copilot fragen |
 | Max. Drawdown > 10% | Trading pausieren, Ursache analysieren |
 | Max. Drawdown > 15% | Kill-Switch stoppt automatisch! |
@@ -637,7 +637,7 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 ## 📊 Fortschritts-Übersicht
 
 | Phase | Beschreibung | Status |
-|-------|-------------|--------|
+| ------- | ------------- | -------- |
 | 0 | Vorbereitung (Git, .env, Bibliothekstest) | ✅ Abgeschlossen |
 | 1 | Umgebung & Daten | ✅ Abgeschlossen |
 | 2 | Feature Engineering | ✅ Abgeschlossen |
@@ -656,7 +656,7 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 ## 📄 Projektdokumentation
 
 | Datei | Inhalt |
-|-------|--------|
+| ------- | -------- |
 | `CLAUDE.md` | Instruktionen für KI-Assistenten (Zielwerte, Regeln, Tech-Stack) |
 | `Roadmap.md` | Diese Datei – Projektplan mit allen Phasen |
 | `BEFEHLE.md` | Alle CLI-Befehle für Server + Laptop auf einen Blick |

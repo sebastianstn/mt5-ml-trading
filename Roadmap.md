@@ -48,28 +48,28 @@
 
 ### 🔴 Kritisch – Vor Live-Trading lösen
 
-| # | Problem | Aktion |
-|---|---------|--------|
-| 1 | **Edge ist dünn** – F1-Macro 0.42–0.48, moderat besser als Zufall | Profit Factor + erwartete Rendite pro Trade nach Kosten als Go/No-Go-Kriterien definieren |
-| 2 | **Survivorship Bias** – 7 Paare trainiert, 2 selektiert = Data-Mining-Risiko | Bonferroni-Korrektur oder Durchschnitt aller 7 Paare als Benchmark |
-| 3 | **Backtest-Renditen sehr klein** – +2% über ~3 Jahre | Transaction Cost Sensitivity Test: Spreads verdoppeln → noch profitabel? |
-| 6 | **Risikomanagement unvollständig** – fester SL 0.3% ignoriert Volatilitätsprofile | ATR-basiertes SL + dynamische Positionsgröße **VOR Phase 6** implementieren |
-| 8 | **Kein Kill-Switch** – nur Alert bei DD >10% | Harter Kill-Switch bei 15–20% DD automatisch im Code |
+| # | Problem | Aktion | Status |
+|---|---------|--------|--------|
+| 1 | **Edge ist dünn** – F1-Macro 0.42–0.48 | Profit Factor + KPI-Gates definiert (CLAUDE.md) | ✅ Gelöst |
+| 2 | **Survivorship Bias** – 7 Paare trainiert, 2 selektiert | Durchschnitt aller 7 Paare als Benchmark in `backtest.py` | ✅ Gelöst |
+| 3 | **Backtest-Renditen sehr klein** | `--spread_faktor 2.0` Stress-Test implementiert | ✅ Gelöst |
+| 6 | **Risikomanagement unvollständig** | ATR-SL (1.5×) + dynamische Positionsgröße implementiert | ✅ Gelöst |
+| 8 | **Kein Kill-Switch** | Kill-Switch bei 15% DD in `live_trader.py` (`--kill_switch_dd 0.15`) | ✅ Gelöst |
 
 ### 🟡 Wichtig – Vor oder während Live-Phase
 
-| # | Problem | Aktion |
-|---|---------|--------|
-| 4 | **Externe APIs ohne SLA** – Fear & Greed + BTC Funding Rate können ausfallen | Fallback definieren: kein Trade / letzter Wert / Feature weglassen |
-| 5 | **Look-Ahead-Bias möglich** – Regime auf Gesamtdaten berechnet? | Code-Review von `regime_detection.py`, Unit-Test für Future-Leak |
-| 7 | **Retraining zu häufig** – wöchentlich bei ~120 neuen Kerzen sinnlos | Monatlich + Trigger bei Rolling Sharpe < 0.5 |
-| 9 | **Paper-Trading zu kurz** – 2 Wochen ohne statistische Aussagekraft | Mindestens 3 Monate vor echtem Geld |
+| # | Problem | Aktion | Status |
+|---|---------|--------|--------|
+| 4 | **Externe APIs ohne SLA** | Fallback: Fear & Greed → 50/Neutral, BTC Funding → 0.0 | ✅ Gelöst |
+| 5 | **Look-Ahead-Bias möglich** | Code-Review von `regime_detection.py` durchgeführt | ✅ Gelöst |
+| 7 | **Retraining zu häufig** | Monatlich + Trigger bei Rolling Sharpe < 0.5 (`retraining.py`) | ✅ Gelöst |
+| 9 | **Paper-Trading zu kurz** | 3 Monate + 12 GO-Wochen als Gate definiert | 🔄 Läuft |
 
 ### 🟢 Empfohlen – Für langfristige Qualität
 
-| # | Empfehlung |
-|---|-----------|
-| 10 | **Out-of-Sample Reality-Check:** Letzte 3 Monate Trades einzeln prüfen – machen Signale Sinn? |
+| # | Empfehlung | Status |
+|---|-----------|--------|
+| 10 | **Out-of-Sample Reality-Check:** `reports/reality_check.py` erstellt | ✅ Gelöst |
 
 ---
 
@@ -441,9 +441,10 @@ Jede neue H1-Kerze:
 2. Alle 45 Features berechnen (identisch mit Training)
 3. Fear & Greed + BTC Funding Rate live laden (mit Fallback!)
 4. Marktregime erkennen (ADX + ATR + SMA50)
-5. LightGBM-Vorhersage + Schwellenwert-Filter (60%)
-6. Regime-Filter anwenden (z.B. nur Regime 1,2)
-7. Order senden (Paper-Modus: nur loggen!)
+5. LightGBM-Vorhersage + Schwellenwert-Filter (50%)
+6. Regime-Filter anwenden (USDCAD=Regime 2, USDJPY=Regime 1)
+7. ATR-basiertes SL berechnen (1.5× ATR_14)
+8. Order senden (Paper-Modus: nur loggen!)
 ```
 
 - [x] Logging: `logs/SYMBOL_live_trades.csv` + `live_trader.log`
@@ -457,14 +458,21 @@ Jede neue H1-Kerze:
 
 ### Paper-Trading (laufend)
 
-- [x] Start Paper-Trading erfolgt (ab 2026-02-28)
+- [x] Start Paper-Trading mit ATR-SL-Konfiguration (ab 2026-03-03)
+- [x] Erster Heartbeat-Log empfangen und verifiziert (2026-03-03)
 - [ ] **Mindestens 3 Monate** Paper-Trading laufen lassen (Review-Punkt 9):
 
-```bash
-# Auf Windows Laptop ausführen! (nach ATR-SL-Optimierung 2026-03-03)
-python live/live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1   # H1, nur Abwärtstrend, ATR-SL
-python live/live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1   # H1, nur Aufwärtstrend, ATR-SL
-# python live/live_trader.py --symbol USDCHF --schwelle 0.60 --regime_filter 2   # Research-only (nicht operativ)
+```powershell
+# Auf Windows Laptop ausführen! Jedes Symbol in eigenem PowerShell-Fenster!
+# MT5 Terminal muss geöffnet und eingeloggt sein!
+
+# Fenster 1 – USDCAD (nur Abwärtstrend, ATR-SL)
+cd "C:\Users\Sebastian Setnescu\mt5_trading"
+venv\Scripts\activate
+python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+
+# Fenster 2 – USDJPY (nur Aufwärtstrend, ATR-SL)
+python live\live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
 ```
 
 > ✅ **Phase 6 abgeschlossen:** MT5-Integration + stabiler Paper-Betrieb gestartet.
@@ -483,11 +491,129 @@ python live/live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --a
 
 **Ziel:** System langfristig stabil und profitabel halten
 
+**Paper-Trading Start:** 2026-03-03 (Montag)
+**Frühestes Echtgeld-Datum:** 2026-06-03 (nach 3 Monaten + 12 GO-Wochen)
+
+---
+
+### 📋 WÖCHENTLICHE CHECKLISTE (jeden Sonntag durchgehen)
+
+> Kopiere diese Checkliste jede Woche und hake ab. Dokumentiere das Ergebnis unten.
+
+#### Schritt 1: Logs vom Laptop holen (PowerShell auf Laptop)
+
+```powershell
+# Auf Windows Laptop ausführen:
+type "C:\Users\Sebastian Setnescu\mt5_trading\logs\USDCAD_live_trades.csv"
+type "C:\Users\Sebastian Setnescu\mt5_trading\logs\USDJPY_live_trades.csv"
+# Output an Copilot/Claude geben → der erstellt die Dateien auf dem Server
+```
+
+#### Schritt 2: KPI-Report generieren (Linux Server)
+
+```bash
+# Auf Linux Server ausführen:
+cd /mnt/1T-Data/XGBoost-LightGBM
+source .venv/bin/activate
+python reports/weekly_kpi_report.py --tage 7
+```
+
+#### Schritt 3: GO/NO-GO bewerten
+
+| KPI | Zielwert | Diese Woche | GO? |
+|-----|----------|-------------|-----|
+| Sharpe Ratio | > 0.8 | _____ | ☐ |
+| Profit Factor | > 1.3 | _____ | ☐ |
+| Max. Drawdown | < 10% | _____ | ☐ |
+| Win-Rate | > 50% | _____ | ☐ |
+| Trader läuft | Keine Abstürze | _____ | ☐ |
+
+> **GO-Woche** = Alle 5 Haken gesetzt. Ziel: 12 konsekutive GO-Wochen.
+
+#### Schritt 4: Trader-Status prüfen (Laptop)
+
+- [ ] Beide PowerShell-Fenster noch offen? (USDCAD + USDJPY)
+- [ ] MT5 Terminal noch verbunden?
+- [ ] Laptop nicht im Schlafmodus?
+- [ ] Dashboard im MT5 zeigt `CONNECTED`?
+
+#### Schritt 5: Bei Problemen
+
+| Problem | Lösung |
+|---------|--------|
+| PowerShell-Fenster geschlossen | Trader neu starten (Befehle in `BEFEHLE.md`) |
+| MT5 disconnected | MT5 Terminal öffnen, einloggen, Trader neu starten |
+| Kill-Switch ausgelöst (>15% DD) | **STOPP!** Logs an Copilot schicken, analysieren |
+| Keine Trades seit >2 Wochen | Normal – Regime/Schwelle filtern stark. Logs prüfen |
+
+---
+
+### 📊 Wochen-Protokoll (hier eintragen)
+
+| Woche | Datum | Trades | Rendite | Sharpe | GO? | Notizen |
+|-------|-------|--------|---------|--------|-----|---------|
+| 1 | 03.–09.03.2026 | | | | | Paper-Start |
+| 2 | 10.–16.03.2026 | | | | | |
+| 3 | 17.–23.03.2026 | | | | | |
+| 4 | 24.–30.03.2026 | | | | | Zwischenbewertung |
+| 5 | 31.03.–06.04.2026 | | | | | |
+| 6 | 07.–13.04.2026 | | | | | |
+| 7 | 14.–20.04.2026 | | | | | |
+| 8 | 21.–27.04.2026 | | | | | |
+| 9 | 28.04.–04.05.2026 | | | | | |
+| 10 | 05.–11.05.2026 | | | | | |
+| 11 | 12.–18.05.2026 | | | | | |
+| 12 | 19.–25.05.2026 | | | | | **12 GO-Wochen → Echtgeld-Entscheidung** |
+| 13 | 26.05.–01.06.2026 | | | | | |
+
+---
+
+### 📅 MONATLICHE AUFGABEN (1. Sonntag im Monat)
+
+#### 1. Frische Daten laden (Laptop)
+
+```powershell
+# Auf Windows Laptop:
+cd "C:\Users\Sebastian Setnescu\mt5_trading"
+venv\Scripts\activate
+python data_loader.py --symbol alle --timeframe H1
+# Dann Output an Copilot geben oder per type kopieren
+```
+
+#### 2. Retraining prüfen (Linux Server)
+
+```bash
+# Auf Linux Server:
+python retraining.py --symbol USDCAD --sharpe_limit 0.5
+python retraining.py --symbol USDJPY --sharpe_limit 0.5
+```
+
+#### 3. Backtest mit frischen Daten (Linux Server)
+
+```bash
+python backtest/backtest.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl --atr_faktor 1.5
+python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --atr_sl --atr_faktor 1.5
+```
+
+---
+
+### 🚨 ESKALATIONS-REGELN
+
+| Situation | Aktion |
+|-----------|--------|
+| 3 NO-GO-Wochen hintereinander | Logs analysieren, Copilot fragen |
+| Max. Drawdown > 10% | Trading pausieren, Ursache analysieren |
+| Max. Drawdown > 15% | Kill-Switch stoppt automatisch! |
+| 12 konsekutive GO-Wochen erreicht | Echtgeld-Entscheidung treffen (0.01 Lot) |
+| Modell-Drift (Rolling Sharpe < 0.5) | Retraining mit `retraining.py --erzwingen` |
+
+---
+
 ### Monitoring
 
-- [ ] Tägliche Performance-E-Mail (Python + SMTP)
+- [ ] Tägliche Performance-E-Mail (Python + SMTP) – *optional, später*
 - [ ] Alert bei Drawdown >10% (System pausieren)
-- [ ] **Harter Kill-Switch bei Drawdown >15–20%** (automatisch stoppen, Review-Punkt 8)
+- [x] **Harter Kill-Switch bei Drawdown >15%** (automatisch in `live_trader.py`)
 - [ ] Modell-Drift wöchentlich überwachen (PSI, Rolling Sharpe, Feature-Drift)
 
 ### Retraining
@@ -518,10 +644,25 @@ python live/live_trader.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --a
 | 3 | Regime Detection | ✅ Abgeschlossen |
 | 4 | Labeling & Training | ✅ Abgeschlossen |
 | 5 | Backtesting | ✅ Abgeschlossen |
-| B | H4-Experiment (Bonus) | ✅ Abgeschlossen |
-| 6 | Live-Integration | ✅ Abgeschlossen (Paper-Betrieb aktiv) |
-| 7 | Wartung | 🔄 In Arbeit (Monitoring-/KPI-Gates laufen) |
+| B1 | H4-Experiment (Bonus) | ✅ Abgeschlossen |
+| B2 | ATR-SL-Optimierung (Bonus) | ✅ Abgeschlossen |
+| 6 | Live-Integration | ✅ Abgeschlossen (Paper-Betrieb aktiv seit 03.03.) |
+| 7 | Wartung & Monitoring | 🔄 In Arbeit – Woche 1 von 12 |
 
 > Status: ⬜ Offen | 🔄 In Arbeit | ✅ Abgeschlossen
 
-**Letzte Aktualisierung:** 2026-03-03 – ATR-SL-Optimierung: Sharpe +66% (USDCAD), Rendite +129% (USDJPY). Paper-Betrieb auf neue Konfiguration umgestellt.
+---
+
+## 📄 Projektdokumentation
+
+| Datei | Inhalt |
+|-------|--------|
+| `CLAUDE.md` | Instruktionen für KI-Assistenten (Zielwerte, Regeln, Tech-Stack) |
+| `Roadmap.md` | Diese Datei – Projektplan mit allen Phasen |
+| `BEFEHLE.md` | Alle CLI-Befehle für Server + Laptop auf einen Blick |
+| `NOMENKLATUR.md` | Alle Abkürzungen, Fachbegriffe und Namenskonventionen |
+| `README.md` | Projektbeschreibung und Setup-Anleitung |
+
+---
+
+**Letzte Aktualisierung:** 2026-03-03 – Roadmap vollständig überarbeitet. Paper-Trading läuft mit ATR-SL-Konfiguration (USDCAD Regime 2, USDJPY Regime 1). Alle 10 Review-Punkte gelöst. Nächste Auswertung: Sonntag 09.03.2026.

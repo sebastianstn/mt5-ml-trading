@@ -47,6 +47,7 @@ import pandas as pd
 import lightgbm as lgb
 import optuna
 from sklearn.metrics import f1_score
+from sklearn.utils.class_weight import compute_sample_weight
 
 # Modell speichern
 import joblib
@@ -322,6 +323,7 @@ def trigger_pruefen(symbol: str, sharpe_limit: float = SHARPE_GRENZWERT) -> bool
 
 def daten_laden_und_aufteilen(
     symbol: str,
+    version: str = "v4",
 ) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     """Lädt die gelabelten Daten und teilt sie in Train/Val auf.
 
@@ -330,6 +332,7 @@ def daten_laden_und_aufteilen(
 
     Args:
         symbol: Handelssymbol (z.B. "EURUSD")
+        version: Labeling-Version (Standard: "v4")
 
     Returns:
         Tuple (X_train, y_train, X_val, y_val)
@@ -338,7 +341,11 @@ def daten_laden_und_aufteilen(
         FileNotFoundError: Wenn die Datendatei fehlt.
         ValueError: Wenn die Daten keine gültigen Spalten haben.
     """
-    pfad = DATA_DIR / f"{symbol.upper()}_H1_labeled.csv"
+    # v1 hat keinen Suffix, alle anderen Versionen haben _vN Suffix
+    if version == "v1":
+        pfad = DATA_DIR / f"{symbol.upper()}_H1_labeled.csv"
+    else:
+        pfad = DATA_DIR / f"{symbol.upper()}_H1_labeled_{version}.csv"
     if not pfad.exists():
         raise FileNotFoundError(
             f"Datei nicht gefunden: {pfad}\n"
@@ -364,7 +371,8 @@ def daten_laden_und_aufteilen(
     # test_maske = df.index > VAL_BIS  → NIEMALS verwenden!
 
     X = df[feature_spalten]
-    y = df["label"]
+    # Labels mappen: {-1, 0, 1} → {0, 1, 2} (LightGBM erwartet 0-basiert)
+    y = df["label"].map({-1: 0, 0: 1, 1: 2})
 
     X_train, y_train = X[train_maske], y[train_maske]
     X_val, y_val = X[val_maske], y[val_maske]
@@ -412,6 +420,9 @@ def neues_modell_trainieren(
     # Daten laden und aufteilen
     X_train, y_train, X_val, y_val = daten_laden_und_aufteilen(symbol)
 
+    # Klassengewichte berechnen (gleiche Logik wie train_model.py)
+    gewichte = compute_sample_weight(class_weight="balanced", y=y_train)
+
     # ── Optuna Objective ─────────────────────────────────────
     def objective(trial: optuna.Trial) -> float:
         """Optuna-Zielfunktion: maximiert F1-Macro auf Val-Set."""
@@ -435,6 +446,7 @@ def neues_modell_trainieren(
         modell.fit(
             X_train,
             y_train,
+            sample_weight=gewichte,
             eval_set=[(X_val, y_val)],
             callbacks=[lgb.early_stopping(30, verbose=False)],
         )
@@ -472,7 +484,13 @@ def neues_modell_trainieren(
         **beste_params,
     }
     finales_modell = lgb.LGBMClassifier(**final_params)
-    finales_modell.fit(X_train, y_train)
+    finales_modell.fit(
+        X_train,
+        y_train,
+        sample_weight=gewichte,
+        eval_set=[(X_val, y_val)],
+        callbacks=[lgb.early_stopping(30, verbose=False)],
+    )
 
     # Temporär speichern (Deployment-Entscheidung kommt danach)
     temp_pfad = MODEL_DIR / f"lgbm_{symbol.lower()}_{version}_temp.pkl"

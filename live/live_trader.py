@@ -13,17 +13,36 @@ Ablauf pro H1-Kerze:
     3. Externe Features holen (Fear & Greed Index, BTC Funding Rate)
     4. Marktregime erkennen (identisch mit regime_detection.py)
     5. LightGBM-Vorhersage + Wahrscheinlichkeits-Filter (Schwelle)
+       - Optional: Shadow-Mode mit Two-Stage (HTF H1 + LTF M5) für USDJPY
     6. Regime-Filter anwenden (z.B. nur im Aufwärtstrend handeln)
     7. Order senden (Paper: nur loggen / Live: echte MT5-Order)
 
+Shadow-Mode (Two-Stage):
+    --two_stage_enable 1 aktiviert das Two-Stage-System (nur USDJPY Gates passed):
+        - HTF-Bias-Modell (H1): Bestimmt Marktrichtung (Short/Neutral/Long)
+        - LTF-Entry-Modell (M5): Generiert Entry-Signal basierend auf HTF-Bias
+        - Beide Signale (Single-Stage vs. Two-Stage) werden geloggt für Vergleich
+        - Hard Fallback zu Single-Stage bei jedem Fehler
+
 Modell-Übertragung vom Linux-Server auf den Windows Laptop:
     Auf dem Linux-Server ausführen:
+        # Single-Stage (H1):
         scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_usdcad_v1.pkl USER@LAPTOP:./models/
         scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v1.pkl USER@LAPTOP:./models/
 
+        # Two-Stage (H1 + M5, für USDJPY):
+        scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_htf_bias_usdjpy_H1_v4.pkl USER@LAPTOP:./models/
+        scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_ltf_entry_usdjpy_M5_v4.pkl USER@LAPTOP:./models/
+
 Verwendung (Windows, venv aktiviert):
-    python live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1
-    python live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1
+    # Single-Stage (H1):
+    python live_trader.py --symbol USDCAD --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1
+
+    # Two-Stage Shadow-Mode (nur USDJPY):
+    python live_trader.py --symbol USDJPY --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1 \
+        --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4
+
+    # Hilfe:
     python live_trader.py --help
 
 Voraussetzungen:
@@ -35,6 +54,7 @@ Voraussetzungen:
 # Standard-Bibliotheken
 import argparse
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +86,17 @@ try:
     HAS_PANDAS_TA = True
 except ImportError:
     HAS_PANDAS_TA = False
+
+# Two-Stage Signal (Shadow-Mode für Option 1)
+try:
+    from two_stage_signal import (
+        modelle_laden as two_stage_modelle_laden,
+        zwei_stufen_signal,
+    )
+
+    TWO_STAGE_VERFUEGBAR = True
+except ImportError:
+    TWO_STAGE_VERFUEGBAR = False
 
 # ============================================================
 # Konfiguration und Pfade
@@ -115,7 +146,7 @@ HEARTBEAT_LOG_DEFAULT = True
 # Feature-Berechnung: Mindest-Barren für Warm-Up
 N_BARREN = 500  # SMA200 braucht 200, MTF braucht mehr → 500 als Buffer
 
-# Zeitrahmen-Konfiguration (für Migration H1 → M30 → M15)
+# Zeitrahmen-Konfiguration (für Migration H1 → M30 → M15 → M5)
 TIMEFRAME_CONFIG = {
     "H1": {
         "mt5_name": "TIMEFRAME_H1",
@@ -131,6 +162,11 @@ TIMEFRAME_CONFIG = {
         "mt5_name": "TIMEFRAME_M15",
         "bars_per_hour": 4,
         "minutes_per_bar": 15,
+    },
+    "M5": {
+        "mt5_name": "TIMEFRAME_M5",
+        "bars_per_hour": 12,
+        "minutes_per_bar": 5,
     },
 }
 
@@ -510,7 +546,7 @@ def features_berechnen(
 
     close_d1 = (
         close.resample("1D").last().dropna()
-    )  # "1D" statt "1d" (pandas 2.x Konvention)
+    )  # pandas 4.x erwartet Großbuchstabe "D"
     trend_d1 = np.sign(ind_sma(close_d1, 20) - ind_sma(close_d1, 50)).fillna(0)
     result["trend_d1"] = trend_d1.shift(1).reindex(result.index, method="ffill")
 
@@ -680,8 +716,14 @@ def signal_generieren(
             return 0, 0.0, aktuelles_regime, atr_pct
 
     # Features für Modell vorbereiten (NaN-Werte mit Median auffüllen)
-    verfuegbare = [f for f in FEATURE_SPALTEN if f in df.columns]
-    fehlende = [f for f in FEATURE_SPALTEN if f not in df.columns]
+    # Nutze modell.feature_name_ wenn verfügbar (exakte Trainings-Features)
+    if hasattr(modell, "feature_name_") and modell.feature_name_:
+        modell_features = list(modell.feature_name_)
+    else:
+        modell_features = FEATURE_SPALTEN
+
+    verfuegbare = [f for f in modell_features if f in df.columns]
+    fehlende = [f for f in modell_features if f not in df.columns]
     if fehlende:
         logger.warning(f"Fehlende Features: {fehlende} – werden mit 0 gefüllt")
         for feat in fehlende:
@@ -702,13 +744,157 @@ def signal_generieren(
     proba = modell.predict_proba(x_features)[0]
     raw_pred = int(np.argmax(proba))
 
+    # DEBUG: Detailliertes Logging der Wahrscheinlichkeiten
+    logger.info(
+        f"Modell-Output: Short={proba[0]:.1%}, Neutral={proba[1]:.1%}, Long={proba[2]:.1%} | "
+        f"raw_pred={raw_pred} | Schwelle={schwelle:.1%}"
+    )
+
     # Signal mit Schwellenwert-Filter
     if raw_pred == 2 and proba[2] >= schwelle:
+        logger.info(
+            f"→ Long-Signal ausgelöst (proba[2]={proba[2]:.1%} >= {schwelle:.1%})"
+        )
         return 2, float(proba[2]), aktuelles_regime, atr_pct  # Long-Signal
     if raw_pred == 0 and proba[0] >= schwelle:
+        logger.info(
+            f"→ Short-Signal ausgelöst (proba[0]={proba[0]:.1%} >= {schwelle:.1%})"
+        )
         return -1, float(proba[0]), aktuelles_regime, atr_pct  # Short-Signal
 
+    logger.info(
+        f"→ Kein Signal (raw_pred={raw_pred}, höchste Prob={max(proba):.1%}, aber Schwelle nicht erfüllt)"
+    )
     return 0, float(max(proba)), aktuelles_regime, atr_pct  # Kein Trade
+
+
+def shadow_signal_generieren(
+    symbol: str,
+    df: pd.DataFrame,
+    modell: object,
+    schwelle: float = 0.60,
+    regime_erlaubt: Optional[list] = None,
+    two_stage_config: Optional[dict] = None,
+) -> Tuple[int, float, int, float]:
+    """
+    Shadow-Mode für Two-Stage-Integration (Phase 7A Step 5).
+
+    Diese Funktion routet symbol-basiert zwischen Single-Stage und Two-Stage:
+        - USDJPY mit v4-Modellen → Two-Stage (HTF H1 + LTF M5)
+        - Alle anderen Symbole  → Single-Stage (bestehende Logik)
+
+    Bei jedem Fehler im Two-Stage-Pfad: Hard Fallback zu Single-Stage.
+
+    Args:
+        symbol:           Handelssymbol (USDCAD, USDJPY, ...)
+        df:               Feature-DataFrame (mit allen Features)
+        modell:           Single-Stage-Modell (Fallback)
+        schwelle:         Wahrscheinlichkeits-Schwelle
+        regime_erlaubt:   Erlaubte Regime oder None
+        two_stage_config: Dict mit {
+                             "enable": bool,
+                             "ltf_timeframe": str (M5/M15),
+                             "version": str (v4/v1/...),
+                             "htf_features": list,
+                             "ltf_features": list,
+                             "htf_df": pd.DataFrame (H1-Daten),
+                             "ltf_df": pd.DataFrame (M5/M15-Daten)
+                          }
+
+    Returns:
+        Tuple (signal, prob, regime, atr_pct) – identisch zu signal_generieren()
+    """
+    # ---- Fallback-Strategie: Single-Stage als Baseline ----
+    baseline_signal, baseline_prob, baseline_regime, baseline_atr = signal_generieren(
+        df, modell, schwelle, regime_erlaubt
+    )
+
+    # ---- Two-Stage nur wenn explizit enabled und für USDJPY ----
+    if not two_stage_config or not two_stage_config.get("enable", False):
+        return baseline_signal, baseline_prob, baseline_regime, baseline_atr
+
+    if symbol.upper() != "USDJPY":
+        # Nur USDJPY hat Gates passed (siehe Backtest-Ergebnis)
+        logger.debug(f"[{symbol}] Two-Stage deaktiviert (nur USDJPY approved)")
+        return baseline_signal, baseline_prob, baseline_regime, baseline_atr
+
+    # ---- Two-Stage-Pfad mit Hard Fallback ----
+    try:
+        if not TWO_STAGE_VERFUEGBAR:
+            logger.warning(
+                f"[{symbol}] Two-Stage-Modul nicht verfügbar – Fallback Single-Stage"
+            )
+            return baseline_signal, baseline_prob, baseline_regime, baseline_atr
+
+        # Modelle laden (lazy loading – nur beim ersten Aufruf)
+        if "htf_model" not in two_stage_config or "ltf_model" not in two_stage_config:
+            ltf_tf = two_stage_config.get("ltf_timeframe", "M5")
+            version = two_stage_config.get("version", "v4")
+
+            htf_model, ltf_model = two_stage_modelle_laden(
+                models_dir=MODEL_DIR,
+                symbol=symbol,
+                ltf_timeframe=ltf_tf,
+                version=version,
+            )
+            two_stage_config["htf_model"] = htf_model
+            two_stage_config["ltf_model"] = ltf_model
+            logger.info(
+                f"[{symbol}] Two-Stage-Modelle geladen: H1 HTF + {ltf_tf} LTF ({version})"
+            )
+
+        # HTF und LTF DataFrames müssen bereitgestellt werden
+        htf_df = two_stage_config.get("htf_df")
+        ltf_df = two_stage_config.get("ltf_df")
+        if htf_df is None or ltf_df is None:
+            logger.warning(
+                f"[{symbol}] HTF/LTF DataFrames fehlen – Fallback Single-Stage"
+            )
+            return baseline_signal, baseline_prob, baseline_regime, baseline_atr
+
+        # Two-Stage-Signal generieren
+        ts_signal = zwei_stufen_signal(
+            htf_df=htf_df,
+            ltf_df=ltf_df,
+            htf_model=two_stage_config["htf_model"],
+            ltf_model=two_stage_config["ltf_model"],
+            htf_feature_spalten=two_stage_config.get("htf_features", FEATURE_SPALTEN),
+            ltf_feature_spalten=two_stage_config.get("ltf_features", FEATURE_SPALTEN),
+            schwelle=schwelle,
+        )
+
+        # Logging: Shadow vs. Baseline Vergleich
+        if ts_signal.signal != baseline_signal:
+            logger.info(
+                f"[{symbol}] 🔀 SHADOW-DIVERGENZ | "
+                f"Two-Stage={ts_signal.signal} (prob={ts_signal.prob:.1%}, HTF-bias={ts_signal.htf_bias_klasse}) | "
+                f"Baseline={baseline_signal} (prob={baseline_prob:.1%})"
+            )
+        else:
+            logger.info(
+                f"[{symbol}] ✓ SHADOW-KONGRUENZ | Signal={ts_signal.signal} | "
+                f"Two-Stage-Prob={ts_signal.prob:.1%}, Baseline-Prob={baseline_prob:.1%}"
+            )
+
+        # Two-Stage-Signal verwenden (Shadow-Mode aktiv)
+        return (
+            ts_signal.signal,
+            ts_signal.prob,
+            baseline_regime,  # Regime aus Baseline (gleich)
+            baseline_atr,  # ATR aus Baseline (gleich)
+        )
+
+    except FileNotFoundError as e:
+        logger.warning(
+            f"[{symbol}] Two-Stage-Modelle nicht gefunden: {e} – Fallback Single-Stage"
+        )
+        return baseline_signal, baseline_prob, baseline_regime, baseline_atr
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error(
+            f"[{symbol}] Two-Stage-Fehler: {e} – Fallback Single-Stage",
+            exc_info=True,
+        )
+        return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
 
 # ============================================================
@@ -858,7 +1044,8 @@ def mt5_letzte_kerze_uhrzeit(symbol: str, timeframe: str = "H1") -> Optional[dat
     if tf_const is None:
         return None
     rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, 2)
-    if rates is None:
+    if rates is None or len(rates) < 2:
+        logger.warning(f"[{symbol}] MT5 liefert keine Kerzen-Daten: {mt5.last_error()}")
         return None
     # Index 1 = letzte geschlossene Kerze
     return datetime.fromtimestamp(int(rates[1]["time"]), tz=timezone.utc)
@@ -983,9 +1170,15 @@ def trade_loggen(
     prob: float,
     regime: int,
     paper_trading: bool,
+    entry_price: float = 0.0,
+    sl_price: float = 0.0,
+    tp_price: float = 0.0,
 ) -> None:
     """
     Schreibt Signal-/Heartbeat-Events in eine CSV-Datei.
+
+    Schreibt zusätzlich eine Kopie in den MT5 Common/Files-Ordner,
+    damit das LiveSignalDashboard.mq5 die Daten lesen kann.
 
     Args:
         symbol:        Handelssymbol
@@ -993,6 +1186,9 @@ def trade_loggen(
         prob:          Signal-Wahrscheinlichkeit
         regime:        Markt-Regime (0–3)
         paper_trading: True = Paper-Modus aktiv
+        entry_price:   Einstiegspreis (0 bei Heartbeat/No-Signal)
+        sl_price:      Stop-Loss-Preis (0 bei Heartbeat/No-Signal)
+        tp_price:      Take-Profit-Preis (0 bei Heartbeat/No-Signal)
     """
     log_pfad = LOG_DIR / f"{symbol}_live_trades.csv"
 
@@ -1006,6 +1202,9 @@ def trade_loggen(
         "regime_name": REGIME_NAMEN.get(regime, "?"),
         "paper_trading": paper_trading,
         "modus": "PAPER" if paper_trading else "LIVE",
+        "entry_price": round(entry_price, 5),
+        "sl_price": round(sl_price, 5),
+        "tp_price": round(tp_price, 5),
     }
 
     df_log = pd.DataFrame([eintrag])
@@ -1016,6 +1215,20 @@ def trade_loggen(
         header=not log_pfad.exists(),
         index=False,
     )
+
+    # Kopie in MT5 Common/Files für LiveSignalDashboard.mq5
+    try:
+        mt5_common = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+        if mt5_common.exists():
+            mt5_csv = mt5_common / f"{symbol}_live_trades.csv"
+            df_log.to_csv(
+                mt5_csv,
+                mode="a",
+                header=not mt5_csv.exists(),
+                index=False,
+            )
+    except Exception:
+        pass  # Dashboard-Sync ist nice-to-have, kein Fehler
 
 
 # ============================================================
@@ -1156,7 +1369,22 @@ def neue_kerze_abwarten(
     """
     aktuelle_kerze = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
     if aktuelle_kerze is None:
+        logger.debug(f"[{symbol}] mt5_letzte_kerze_uhrzeit() gibt None zurück")
         return False
+
+    # Debug-Logging (alle 60 Sekunden, um Spam zu vermeiden)
+    import time as time_module
+
+    if not hasattr(neue_kerze_abwarten, "_last_debug"):
+        neue_kerze_abwarten._last_debug = 0
+    jetzt = time_module.time()
+    if jetzt - neue_kerze_abwarten._last_debug > 60:
+        logger.debug(
+            f"[{symbol}] Kerzen-Check: Letzte={letzte_kerzen_zeit} | "
+            f"Aktuell={aktuelle_kerze}"
+        )
+        neue_kerze_abwarten._last_debug = jetzt
+
     return letzte_kerzen_zeit is None or aktuelle_kerze != letzte_kerzen_zeit
 
 
@@ -1173,6 +1401,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     timeframe: str = "H1",
     atr_sl_aktiv: bool = True,
     atr_sl_faktor: float = 1.5,
+    two_stage_config: Optional[dict] = None,
 ) -> None:
     """
     Haupt-Schleife: Läuft dauerhaft und wartet auf neue Kerzen im gewählten Zeitrahmen.
@@ -1180,7 +1409,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     Bei jeder neuen Kerze:
     1. MT5-Daten holen
     2. Features berechnen
-    3. Signal generieren
+    3. Signal generieren (Shadow-Mode: Single-Stage vs. Two-Stage)
     4. Kill-Switch prüfen (Drawdown-Limit!)
     5. Trade ausführen (falls Signal stark genug)
 
@@ -1190,12 +1419,13 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         regime_erlaubt:  Erlaubte Regime oder None für alle
         paper_trading:   True = Paper-Modus (kein echtes Geld!)
         lot:             Lot-Größe
-        modell:          Geladenes LightGBM-Modell
+        modell:          Geladenes LightGBM-Modell (Single-Stage)
         kill_switch_dd:  Max. Drawdown bis zum automatischen Stopp (Standard: 0.15 = 15%)
         kapital_start:   Startkapital für Paper-Tracking und Kill-Switch-Berechnung
         heartbeat_log:   True = schreibe pro neuer Kerze einen CSV-Heartbeat
         atr_sl_aktiv:    True = ATR-basiertes SL (dynamisch), False = festes SL
         atr_sl_faktor:   ATR-Multiplikator für SL (Standard: 1.5)
+        two_stage_config: Two-Stage-Konfiguration für Shadow-Mode (optional)
     """
     modus_str = "PAPER-TRADING" if paper_trading else "⚠️  LIVE-TRADING MIT ECHTEM GELD!"
     regime_str = (
@@ -1314,7 +1544,12 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             df = externe_features_einfuegen(df)
 
             # NaN-Zeilen am Anfang (Warm-Up) entfernen
-            df_clean = df.dropna(subset=FEATURE_SPALTEN)
+            # Nutze modell.feature_name_ falls verfügbar (exakte Trainings-Features)
+            if hasattr(modell, "feature_name_") and modell.feature_name_:
+                dropna_features = [f for f in modell.feature_name_ if f in df.columns]
+            else:
+                dropna_features = [f for f in FEATURE_SPALTEN if f in df.columns]
+            df_clean = df.dropna(subset=dropna_features)
             if len(df_clean) < 10:
                 logger.warning(
                     f"[{symbol}] Nach NaN-Bereinigung zu wenige Zeilen – übersprungen"
@@ -1322,9 +1557,51 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
                 continue
 
-            # ---- Schritt 4: Signal generieren ----
-            signal, prob, regime, atr_pct = signal_generieren(
-                df_clean, modell, schwelle, regime_erlaubt
+            # ---- Schritt 3b: Two-Stage HTF/LTF Daten laden (falls aktiviert) ----
+            if two_stage_config and two_stage_config.get("enable", False):
+                try:
+                    # HTF-Daten (H1) laden und vorbereiten
+                    htf_df_raw = mt5_daten_holen(symbol, timeframe="H1")
+                    if htf_df_raw is not None and len(htf_df_raw) >= 250:
+                        htf_df = features_berechnen(htf_df_raw, timeframe="H1")
+                        htf_df = externe_features_einfuegen(htf_df)
+                        htf_df_clean = htf_df.dropna(subset=FEATURE_SPALTEN)
+                        two_stage_config["htf_df"] = htf_df_clean
+                    else:
+                        logger.warning(
+                            f"[{symbol}] HTF-H1-Daten unzureichend – Two-Stage Fallback"
+                        )
+                        two_stage_config["htf_df"] = None
+
+                    # LTF-Daten (M5/M15) laden und vorbereiten
+                    ltf_tf = two_stage_config["ltf_timeframe"]
+                    ltf_df_raw = mt5_daten_holen(symbol, timeframe=ltf_tf)
+                    ltf_min_bars = (
+                        250
+                        * TIMEFRAME_CONFIG.get(ltf_tf, {"bars_per_hour": 1})[
+                            "bars_per_hour"
+                        ]
+                    )
+                    if ltf_df_raw is not None and len(ltf_df_raw) >= ltf_min_bars:
+                        ltf_df = features_berechnen(ltf_df_raw, timeframe=ltf_tf)
+                        ltf_df = externe_features_einfuegen(ltf_df)
+                        ltf_df_clean = ltf_df.dropna(subset=FEATURE_SPALTEN)
+                        two_stage_config["ltf_df"] = ltf_df_clean
+                    else:
+                        logger.warning(
+                            f"[{symbol}] LTF-{ltf_tf}-Daten unzureichend – Two-Stage Fallback"
+                        )
+                        two_stage_config["ltf_df"] = None
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    logger.warning(
+                        f"[{symbol}] Two-Stage-Daten-Fehler: {e} – Fallback Single-Stage"
+                    )
+                    two_stage_config["htf_df"] = None
+                    two_stage_config["ltf_df"] = None
+
+            # ---- Schritt 4: Signal generieren (Shadow-Mode) ----
+            signal, prob, regime, atr_pct = shadow_signal_generieren(
+                symbol, df_clean, modell, schwelle, regime_erlaubt, two_stage_config
             )
             regime_name = REGIME_NAMEN.get(regime, "?")
 
@@ -1344,10 +1621,28 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             )
 
             # Signal/Heartbeat in CSV loggen
+            # Aktuellen Close-Preis und SL/TP-Niveaus berechnen für Dashboard
+            close_preis = float(df_clean["close"].iloc[-1]) if len(df_clean) > 0 else 0.0
+            if signal != 0 and close_preis > 0:
+                if signal == 2:  # Long
+                    log_sl = round(close_preis * (1.0 - sl_aktuell), 5)
+                    log_tp = round(close_preis * (1.0 + tp_aktuell), 5)
+                else:  # Short
+                    log_sl = round(close_preis * (1.0 + sl_aktuell), 5)
+                    log_tp = round(close_preis * (1.0 - tp_aktuell), 5)
+            else:
+                log_sl = 0.0
+                log_tp = 0.0
+
             if signal != 0:
                 n_signale += 1
             if heartbeat_log or signal != 0:
-                trade_loggen(symbol, signal, prob, regime, paper_trading)
+                trade_loggen(
+                    symbol, signal, prob, regime, paper_trading,
+                    entry_price=close_preis,
+                    sl_price=log_sl,
+                    tp_price=log_tp,
+                )
 
             # ---- Schritt 5: Trade ausführen ----
             if signal != 0:
@@ -1378,9 +1673,8 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                                 paper_kapital * 0.001
                             )  # 0.1% konservative Schätzung
             else:
-                logger.info(
-                    f"[{symbol}] Kein Trade-Signal (Prob={prob:.1%} < Schwelle={schwelle:.0%})"
-                )
+                # Keine irreführende "< Schwelle" Meldung – Grund steht bereits im Detail-Log
+                logger.info(f"[{symbol}] Kein Trade-Signal (Details siehe oben)")
 
             # Zeitstempel der verarbeiteten Kerze speichern
             letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
@@ -1417,11 +1711,11 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
 
     parser = argparse.ArgumentParser(
         description=(
-            "MT5 ML-Trading – Live-Trader (Phase 6)\n"
+            "MT5 ML-Trading – Live-Trader (Phase 7)\n"
             "Läuft auf: Windows 11 Laptop mit MT5-Terminal\n\n"
-            "Empfohlene Konfiguration (aus Phase 5 Backtest mit ATR-SL):\n"
-            "  USDCAD: --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1\n"
-            "  USDJPY: --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1"
+            "Aktuelle Konfiguration (Option 1 Test-Phase):\n"
+            "  USDCAD: --symbol USDCAD --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1\n"
+            "  USDJPY: --symbol USDJPY --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1437,20 +1731,20 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     parser.add_argument(
         "--schwelle",
         type=float,
-        default=0.60,
+        default=0.52,
         help=(
-            "Mindest-Wahrscheinlichkeit für Trade-Ausführung (Standard: 0.60). "
-            "Empfehlung aus Phase 5: 0.60"
+            "Mindest-Wahrscheinlichkeit für Trade-Ausführung (Standard: 0.52). "
+            "Gesenkt von 0.60 für mehr Trading-Aktivität (Option 1: Test-Phase)"
         ),
     )
     parser.add_argument(
         "--regime_filter",
         type=str,
-        default="1,2",
+        default="0,1,2",
         help=(
-            "Komma-getrennte Regime-Nummern (Standard: '1,2'). "
+            "Komma-getrennte Regime-Nummern (Standard: '0,1,2'). "
             "0=Seitwärts, 1=Aufwärtstrend, 2=Abwärtstrend, 3=Hohe Vola. "
-            "Für USDJPY: '1' (nur Aufwärtstrend)"
+            "Option 1 (Test-Phase): Alle Regime erlaubt für mehr Feedback"
         ),
     )
     parser.add_argument(
@@ -1487,8 +1781,8 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     )
     parser.add_argument(
         "--version",
-        default="v1",
-        help="Modell-Versions-Suffix (Standard: v1). Muss mit train_model.py übereinstimmen.",
+        default="v4",
+        help="Modell-Versions-Suffix (Standard: v4). Muss mit train_model.py übereinstimmen.",
     )
     parser.add_argument(
         "--timeframe",
@@ -1557,6 +1851,35 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         help=(
             "ATR-Multiplikator für SL-Berechnung (Standard: 1.5). "
             "SL = ATR_14 × Faktor. Empfehlung aus Backtest: 1.5"
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_enable",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        help=(
+            "0 = Single-Stage (Standard), "
+            "1 = Shadow-Mode für Two-Stage (nur USDJPY, v4-Modelle erforderlich). "
+            "Shadow-Mode: beide Signale werden geloggt, Two-Stage wird verwendet."
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_ltf_timeframe",
+        default="M5",
+        choices=["M5", "M15"],
+        help=(
+            "LTF-Zeitrahmen für Two-Stage (Standard: M5). "
+            "HTF ist immer H1. Nur relevant wenn --two_stage_enable 1"
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_version",
+        default="v4",
+        help=(
+            "Modellversion für Two-Stage-Modelle (Standard: v4). "
+            "Erwartet: lgbm_htf_bias_SYMBOL_H1_VERSION.pkl und "
+            "lgbm_ltf_entry_SYMBOL_LTF-TF_VERSION.pkl"
         ),
     )
     args = parser.parse_args()
@@ -1668,6 +1991,50 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "Empfehlung: max. 20% (0.20). Bitte überprüfen."
         )
 
+    # ---- Two-Stage-Konfiguration vorbereiten (Shadow-Mode) ----
+    two_stage_config = None
+    if bool(args.two_stage_enable):
+        if symbol.upper() != "USDJPY":
+            logger.info(
+                f"[{symbol}] Two-Stage-Shadow-Mode ist nur für USDJPY aktiviert (Gates passed). "
+                "Verwende Single-Stage."
+            )
+        else:
+            logger.info(
+                f"[{symbol}] Two-Stage-Shadow-Mode aktiv: HTF=H1, LTF={args.two_stage_ltf_timeframe}, "
+                f"Version={args.two_stage_version}"
+            )
+            # Feature-Listen aus JSON-Metadatei laden (exakt wie beim Training)
+            import json
+            meta_pfad = MODEL_DIR / f"two_stage_{symbol.lower()}_{args.two_stage_ltf_timeframe}_{args.two_stage_version}.json"
+            if meta_pfad.exists():
+                with open(meta_pfad, "r") as f:
+                    meta = json.load(f)
+                htf_feats = meta["htf_features"]
+                ltf_feats = meta["ltf_features"]
+                logger.info(
+                    f"[{symbol}] Metadaten geladen: HTF={len(htf_feats)} Features, "
+                    f"LTF={len(ltf_feats)} Features"
+                )
+            else:
+                logger.warning(
+                    f"[{symbol}] Metadatei {meta_pfad.name} nicht gefunden – "
+                    "verwende Standard-Feature-Liste"
+                )
+                htf_feats = FEATURE_SPALTEN
+                ltf_feats = FEATURE_SPALTEN
+
+            two_stage_config = {
+                "enable": True,
+                "ltf_timeframe": args.two_stage_ltf_timeframe,
+                "version": args.two_stage_version,
+                "htf_features": htf_feats,
+                "ltf_features": ltf_feats,
+                # HTF/LTF DataFrames werden in der trading_loop dynamisch geladen
+                "htf_df": None,
+                "ltf_df": None,
+            }
+
     # ---- Hauptschleife starten ----
     trading_loop(
         symbol=symbol,
@@ -1682,6 +2049,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         timeframe=timeframe,
         atr_sl_aktiv=atr_sl_aktiv,
         atr_sl_faktor=atr_sl_faktor,
+        two_stage_config=two_stage_config,
     )
 
     # MT5 Verbindung beenden

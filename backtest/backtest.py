@@ -570,26 +570,42 @@ def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-
         low_j = df["low"].iloc[idx]
 
         if richtung == 2:  # Long
-            if high_j >= tp_level:
+            tp_hit = high_j >= tp_level
+            sl_hit = low_j <= sl_level
+            if tp_hit and sl_hit:
+                # Beide innerhalb einer Kerze → konservativ SL annehmen
+                austritt_pnl = -sl_pct_aktiv
+                exit_grund = "sl"
+                n_bars = j
+                break
+            if tp_hit:
                 # Take-Profit getroffen → Gewinn = TP-Abstand
                 austritt_pnl = tp_pct_aktiv
                 exit_grund = "tp"
                 n_bars = j
                 break
-            if low_j <= sl_level:
+            if sl_hit:
                 # Stop-Loss getroffen → Verlust = SL-Abstand
                 austritt_pnl = -sl_pct_aktiv
                 exit_grund = "sl"
                 n_bars = j
                 break
         else:  # Short
-            if low_j <= tp_level:
+            tp_hit = low_j <= tp_level
+            sl_hit = high_j >= sl_level
+            if tp_hit and sl_hit:
+                # Beide innerhalb einer Kerze → konservativ SL annehmen
+                austritt_pnl = -sl_pct_aktiv
+                exit_grund = "sl"
+                n_bars = j
+                break
+            if tp_hit:
                 # Take-Profit getroffen (Short) → Gewinn
                 austritt_pnl = tp_pct_aktiv
                 exit_grund = "tp"
                 n_bars = j
                 break
-            if high_j >= sl_level:
+            if sl_hit:
                 # Stop-Loss getroffen (Short) → Verlust
                 austritt_pnl = -sl_pct_aktiv
                 exit_grund = "sl"
@@ -785,6 +801,8 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
                 stunden_pro_bar = 0.5
             elif timeframe == "M15":
                 stunden_pro_bar = 0.25
+            elif timeframe == "M5":
+                stunden_pro_bar = 5.0 / 60.0  # = 0.0833 Stunden
             else:
                 stunden_pro_bar = 1.0
             ergebnis = trade_simulieren(

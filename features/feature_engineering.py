@@ -41,12 +41,13 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-# Zeitzonen-neutrale Timeframe-Konfiguration (für H1/M60/M30/M15 Migration)
+# Zeitzonen-neutrale Timeframe-Konfiguration (für H1/M60/M30/M15/M5 Migration)
 TIMEFRAME_CONFIG = {
     "H1": {"bars_per_hour": 1},
     "M60": {"bars_per_hour": 1},
     "M30": {"bars_per_hour": 2},
     "M15": {"bars_per_hour": 4},
+    "M5": {"bars_per_hour": 12},
 }
 
 
@@ -810,7 +811,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Feature Engineering für H1/M60/M30/M15-Daten"
+        description="Feature Engineering für H1/M60/M30/M15/M5-Daten"
     )
     parser.add_argument(
         "--symbol",
@@ -820,7 +821,7 @@ def main() -> None:
     parser.add_argument(
         "--timeframe",
         default="H1",
-        choices=["H1", "M60", "M30", "M15"],
+        choices=["H1", "M60", "M30", "M15", "M5"],
         help="Zeitrahmen der Eingabe-CSV (Standard: H1).",
     )
     args = parser.parse_args()

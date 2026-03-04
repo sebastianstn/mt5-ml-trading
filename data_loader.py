@@ -290,7 +290,7 @@ def main() -> None:
     parser.add_argument(
         "--timeframe",
         default="H1",
-        choices=["H1", "M60", "M30", "M15"],
+        choices=["H1", "M60", "M30", "M15", "M5"],
         help="Zu ladender Zeitrahmen (Standard: H1).",
     )
     parser.add_argument(
@@ -318,6 +318,8 @@ def main() -> None:
         timeframe_const = mt5.TIMEFRAME_M30
     elif args.timeframe == "M15":
         timeframe_const = mt5.TIMEFRAME_M15
+    elif args.timeframe == "M5":
+        timeframe_const = mt5.TIMEFRAME_M5
     elif args.timeframe == "M60":
         # MT5 nutzt für 60 Minuten TIMEFRAME_H1.
         # Wir behalten dennoch den Dateinamen-Suffix _M60 für klare Pipeline-Trennung.
@@ -388,7 +390,7 @@ def main() -> None:
     print(f"\n{len(erfolge)}/{len(ziel_symbole)} Symbole erfolgreich geladen.")
     print("\nNächster Schritt: Alle CSV auf den Linux-Server übertragen.")
     print("Befehl (in PowerShell aus dem data/-Ordner):")
-    print("  cd C:\\Users\\Sebastian Setnescu\\mt5-trading\\data")
+    print("  cd C:\\Users\\Sebastian Setnescu\\mt5_trading\\data")
     print("  scp *.csv stnsebi@192.168.1.4:/mnt/1T-Data/XGBoost-LightGBM/data/")
     print("=" * 60)
 

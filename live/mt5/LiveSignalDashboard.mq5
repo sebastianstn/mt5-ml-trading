@@ -1,7 +1,8 @@
 #property strict
-#property version "1.00"
+#property version "2.00"
 #property description "MT5 Dashboard fuer Python Live-Signale (USDCAD/USDJPY)"
-#property description "Liest CSV aus Common/Files und zeigt Status + Alerts."
+#property description "Liest CSV aus Common/Files und zeigt Status, Alerts + Chart-Zeichnungen."
+#property indicator_chart_window
 
 input string InpSymbol1 = "USDCAD";
 input string InpSymbol2 = "USDJPY";
@@ -11,6 +12,12 @@ input int InpRefreshSeconds = 5;
 input bool InpEnableAlerts = true;
 input int InpStaleMinutes = 20;
 input int InpMissingFileLogEverySec = 300;
+input bool InpDrawTrades = true;           // Chart-Zeichnungen fuer Trades
+input int InpMaxTradesOnChart = 10;        // Max. Trades gleichzeitig im Chart
+input color InpColorLong = clrDodgerBlue;  // Farbe fuer Long-Trades
+input color InpColorShort = clrOrangeRed;  // Farbe fuer Short-Trades
+input color InpColorSL = clrRed;           // Farbe fuer Stop-Loss
+input color InpColorTP = clrLimeGreen;     // Farbe fuer Take-Profit
 
 struct SignalSnapshot
 {
@@ -24,6 +31,9 @@ struct SignalSnapshot
     string modus;
     long rows;
     bool valid;
+    double entry_price;
+    double sl_price;
+    double tp_price;
 };
 
 SignalSnapshot g_snap1;
@@ -121,6 +131,9 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     int idx_regime_nm = FindHeaderIndex(headers, "regime_name");
     int idx_paper = FindHeaderIndex(headers, "paper_trading");
     int idx_modus = FindHeaderIndex(headers, "modus");
+    int idx_entry = FindHeaderIndex(headers, "entry_price");
+    int idx_sl = FindHeaderIndex(headers, "sl_price");
+    int idx_tp = FindHeaderIndex(headers, "tp_price");
 
     string last[];
     long row_count = 0;
@@ -155,6 +168,9 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     out.regime_name = SafeField(last, idx_regime_nm, "?");
     out.paper = ParseBool(SafeField(last, idx_paper, "true"));
     out.modus = SafeField(last, idx_modus, "PAPER");
+    out.entry_price = StringToDouble(SafeField(last, idx_entry, "0"));
+    out.sl_price = StringToDouble(SafeField(last, idx_sl, "0"));
+    out.tp_price = StringToDouble(SafeField(last, idx_tp, "0"));
 
     return true;
 }
@@ -277,6 +293,171 @@ void MaybeAlert(const SignalSnapshot &snap, datetime &last_alert_ts)
     last_alert_ts = snap.ts;
 }
 
+// ============================================================
+// Chart-Zeichnungen: Entry-Pfeile, SL/TP-Linien
+// ============================================================
+
+void DeleteObjPrefix(const string prefix)
+{
+    // Alle Objekte mit diesem Prefix loeschen
+    int total = ObjectsTotal(0, 0, -1);
+    for (int i = total - 1; i >= 0; i--)
+    {
+        string name = ObjectName(0, i, 0, -1);
+        if (StringFind(name, prefix) == 0)
+            ObjectDelete(0, name);
+    }
+}
+
+void DrawHLine(const string name, const double price, const color clr,
+               const ENUM_LINE_STYLE style, const int width, const string tooltip)
+{
+    if (price <= 0)
+        return;
+
+    if (ObjectFind(0, name) < 0)
+        ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
+    else
+        ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+
+    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+    ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+    ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+    ObjectSetInteger(0, name, OBJPROP_BACK, true);
+    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+    ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+}
+
+void DrawArrow(const string name, const datetime time_val, const double price,
+               const int arrow_code, const color clr, const string tooltip)
+{
+    if (price <= 0)
+        return;
+
+    if (ObjectFind(0, name) < 0)
+        ObjectCreate(0, name, OBJ_ARROW, 0, time_val, price);
+    else
+    {
+        ObjectSetInteger(0, name, OBJPROP_TIME, time_val);
+        ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+    }
+
+    ObjectSetInteger(0, name, OBJPROP_ARROWCODE, arrow_code);
+    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+    ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+    ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+}
+
+void DrawRectangle(const string name, const datetime t1, const double p1,
+                   const datetime t2, const double p2, const color clr,
+                   const string tooltip)
+{
+    if (p1 <= 0 || p2 <= 0)
+        return;
+
+    if (ObjectFind(0, name) < 0)
+        ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, p1, t2, p2);
+    else
+    {
+        ObjectSetInteger(0, name, OBJPROP_TIME, 0, t1);
+        ObjectSetDouble(0, name, OBJPROP_PRICE, 0, p1);
+        ObjectSetInteger(0, name, OBJPROP_TIME, 1, t2);
+        ObjectSetDouble(0, name, OBJPROP_PRICE, 1, p2);
+    }
+
+    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+    ObjectSetInteger(0, name, OBJPROP_BACK, true);
+    ObjectSetInteger(0, name, OBJPROP_FILL, true);
+    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+    ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+}
+
+void DrawTradeOnChart(const SignalSnapshot &snap)
+{
+    // Nur zeichnen wenn das Symbol zum aktuellen Chart passt
+    if (StringCompare(snap.symbol, Symbol()) != 0)
+        return;
+
+    if (!InpDrawTrades || !snap.valid)
+        return;
+
+    // Prefix fuer alle Objekte dieses Symbols
+    string pfx = "PYML_" + snap.symbol + "_";
+
+    // Zuerst alte Zeichnungen loeschen
+    DeleteObjPrefix(pfx);
+
+    // Kein Signal → nichts zeichnen
+    if (StringCompare(snap.richtung, "Kein") == 0 || snap.entry_price <= 0)
+        return;
+
+    bool is_long = (StringCompare(snap.richtung, "Long") == 0);
+    color trade_clr = is_long ? InpColorLong : InpColorShort;
+
+    // Entry-Zeitpunkt (aus CSV) und Zukunftslinie (+4 Stunden)
+    datetime entry_time = snap.ts;
+    datetime future_time = entry_time + 4 * 3600;
+
+    // 1) Entry-Pfeil
+    int arrow = is_long ? 233 : 234;  // Pfeil hoch / runter
+    string tip_entry = StringFormat(
+        "%s Entry @ %.5f | Prob=%.1f%% | %s",
+        snap.richtung, snap.entry_price, snap.prob * 100.0, snap.regime_name);
+    DrawArrow(pfx + "ENTRY", entry_time, snap.entry_price, arrow, trade_clr, tip_entry);
+
+    // 2) Entry-Linie (horizontal, gestrichelt)
+    string tip_line = StringFormat("Entry: %.5f", snap.entry_price);
+    DrawHLine(pfx + "ENTRY_LINE", snap.entry_price, trade_clr, STYLE_DASH, 1, tip_line);
+
+    // 3) Stop-Loss-Linie
+    if (snap.sl_price > 0)
+    {
+        string tip_sl = StringFormat("SL: %.5f (%.1f Pips)",
+            snap.sl_price,
+            MathAbs(snap.entry_price - snap.sl_price) / SymbolInfoDouble(Symbol(), SYMBOL_POINT) / 10.0);
+        DrawHLine(pfx + "SL_LINE", snap.sl_price, InpColorSL, STYLE_DOT, 2, tip_sl);
+
+        // SL-Zone (Rechteck Entry bis SL)
+        DrawRectangle(pfx + "SL_ZONE", entry_time, snap.entry_price,
+                      future_time, snap.sl_price, InpColorSL, tip_sl);
+    }
+
+    // 4) Take-Profit-Linie
+    if (snap.tp_price > 0)
+    {
+        string tip_tp = StringFormat("TP: %.5f (%.1f Pips)",
+            snap.tp_price,
+            MathAbs(snap.tp_price - snap.entry_price) / SymbolInfoDouble(Symbol(), SYMBOL_POINT) / 10.0);
+        DrawHLine(pfx + "TP_LINE", snap.tp_price, InpColorTP, STYLE_DOT, 2, tip_tp);
+
+        // TP-Zone (halbtransparentes Rechteck)
+        DrawRectangle(pfx + "TP_ZONE", entry_time, snap.entry_price,
+                      future_time, snap.tp_price, InpColorTP, tip_tp);
+    }
+
+    // 5) Info-Label oben rechts im Chart
+    string label_name = pfx + "INFO";
+    string info_text = StringFormat(
+        "%s %s @ %.5f | SL=%.5f | TP=%.5f | Prob=%.0f%% | %s",
+        snap.symbol, snap.richtung, snap.entry_price,
+        snap.sl_price, snap.tp_price, snap.prob * 100.0, snap.regime_name);
+
+    if (ObjectFind(0, label_name) < 0)
+        ObjectCreate(0, label_name, OBJ_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, label_name, OBJPROP_XDISTANCE, 10);
+    ObjectSetInteger(0, label_name, OBJPROP_YDISTANCE, 50);
+    ObjectSetInteger(0, label_name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+    ObjectSetInteger(0, label_name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetString(0, label_name, OBJPROP_TEXT, info_text);
+    ObjectSetString(0, label_name, OBJPROP_FONT, "Consolas");
+    ObjectSetInteger(0, label_name, OBJPROP_FONTSIZE, 10);
+    ObjectSetInteger(0, label_name, OBJPROP_COLOR, trade_clr);
+
+    ChartRedraw(0);
+}
+
 void DrawDashboard()
 {
     string st1 = SnapshotState(g_snap1);
@@ -329,6 +510,10 @@ void RefreshAll()
     MaybeAlert(g_snap2, g_last_alert_ts_2);
 
     DrawDashboard();
+
+    // Chart-Zeichnungen aktualisieren (nur fuer passendes Symbol)
+    DrawTradeOnChart(g_snap1);
+    DrawTradeOnChart(g_snap2);
 }
 
 int OnInit()
@@ -350,6 +535,10 @@ void OnDeinit(const int reason)
 {
     EventKillTimer();
     Comment("");
+
+    // Alle Chart-Objekte entfernen
+    DeleteObjPrefix("PYML_");
+    ChartRedraw(0);
 }
 
 void OnTick()

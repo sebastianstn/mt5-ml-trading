@@ -361,6 +361,10 @@ def labeled_pfad(symbol: str, version: str = "v1", timeframe: str = "H1") -> Pat
         v1 → data/SYMBOL_M15_labeled.csv
         v2 → data/SYMBOL_M15_labeled_v2.csv
         v3 → data/SYMBOL_M15_labeled_v3.csv
+    M5:
+        v1 → data/SYMBOL_M5_labeled.csv
+        v2 → data/SYMBOL_M5_labeled_v2.csv
+        v3 → data/SYMBOL_M5_labeled_v3.csv
 
     Args:
         symbol: Handelssymbol (z.B. "EURUSD")
@@ -589,13 +593,14 @@ def main() -> None:
     parser.add_argument(
         "--timeframe",
         default="H1",
-        choices=["H1", "M60", "M30", "M15"],
+        choices=["H1", "M60", "M30", "M15", "M5"],
         help=(
             "Zeitrahmen der Feature-Datei (Standard: H1). "
             "H1 → SYMBOL_H1_features.csv | "
             "M60 → SYMBOL_M60_features.csv | "
             "M30 → SYMBOL_M30_features.csv | "
-            "M15 → SYMBOL_M15_features.csv"
+            "M15 → SYMBOL_M15_features.csv | "
+            "M5 → SYMBOL_M5_features.csv"
         ),
     )
     parser.add_argument(

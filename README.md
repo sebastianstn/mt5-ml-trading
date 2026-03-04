@@ -41,8 +41,8 @@ pip install -r requirements-laptop.txt
 
 Danach Trader starten (Paper-Modus):
 
-- `USDCAD`: Schwelle 0.60, Regime `1,2`
-- `USDJPY`: Schwelle 0.60, Regime `1`
+- `USDCAD`: Schwelle 0.52, Regime `0,1,2` (Test-Phase Option 1: Zwei-Stufen-Modell)
+- `USDJPY`: Schwelle 0.52, Regime `0,1,2` (Test-Phase Option 1: Zwei-Stufen-Modell)
 
 Details inkl. Dashboard-Sync: `live/mt5/README_MT5_Dashboard.md`.
 Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
@@ -79,9 +79,10 @@ Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
 | 4 | Labeling & Modelltraining | ✅ |
 | 5 | Backtesting | ✅ |
 | 6 | Live-Integration (Paper-Betrieb) | ✅ |
-| 7 | Überwachung & Wartung | 🔄 |
+| 7 | Überwachung & Wartung | 🔄 (Paper-Trading aktiv, KPI-Gates laufen) |
 
-Details: `Roadmap.md`.
+**Aktueller Sub-Fokus:** Test-Phase Option 1 (Zwei-Stufen-Modell HTF/LTF).  
+Details: `Roadmap.md`, Recherche: `reports/HTF_LTF_Strategie_Recherche.md`.
 
 ---
 

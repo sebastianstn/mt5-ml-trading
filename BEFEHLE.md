@@ -68,8 +68,8 @@ python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --a
 | Argument | Standard | Beschreibung |
 |----------|----------|-------------|
 | `--symbol` | `USDCAD` | Handelssymbol (USDCAD, USDJPY aktiv) |
-| `--schwelle` | `0.60` | Mindest-Wahrscheinlichkeit für Trade (empfohlen: 0.50) |
-| `--regime_filter` | `1,2` | Regime-Nummern: 0=Seitwärts, 1=Aufwärts, 2=Abwärts, 3=Hohe Vola |
+| `--schwelle` | `0.52` | Mindest-Wahrscheinlichkeit für Trade (Test-Phase: 0.52) |
+| `--regime_filter` | `0,1,2` | Regime-Nummern: 0=Seitwärts, 1=Aufwärts, 2=Abwärts, 3=Hohe Vola |
 | `--atr_sl` | `1` | 1 = ATR-SL dynamisch, 0 = festes SL (0.3%) |
 | `--atr_faktor` | `1.5` | ATR-Multiplikator für SL (empfohlen: 1.5) |
 | `--lot` | `0.01` | Lot-Größe (NICHT erhöhen ohne Erfahrung!) |

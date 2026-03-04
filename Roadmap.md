@@ -4,6 +4,8 @@
 
 **Aktive operative Paare (Paper):** `USDCAD`, `USDJPY`
 
+**Aktive Ziel-Architektur (ab 2026-03-04):** **Option 1 Zwei-Stufen-Modell** mit **HTF = H1 (Bias)** und **LTF = M5 (Entry/Timing)**
+
 **Ziel:** Ein automatisches Handelssystem mit XGBoost/LightGBM + Regime-Detection, das in MetaTrader 5 live handelt.
 
 ---
@@ -634,6 +636,67 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 
 ---
 
+## 🚀 PHASE 7A – Migration auf HTF H1 / LTF M5 (Option 1)
+
+**Ziel:** Wechsel von Single-Stage-H1 auf Zwei-Stufen-Setup (H1-Bias + M5-Entry), ohne Look-Ahead-Bias.
+
+### 1) Datenbasis M5 aufbauen (Windows → Linux)
+
+- [x] M5-Daten auf **Windows-Laptop** laden: `data_loader.py --symbol USDCAD --timeframe M5 --bars 30000`
+- [x] M5-Daten auf **Windows-Laptop** laden: `data_loader.py --symbol USDJPY --timeframe M5 --bars 30000`
+- [x] CSVs auf **Linux-Server** nach `data/` übertragen
+- [x] Datenqualität prüfen (Zeitlücken, NaN, OHLC-Konsistenz)
+
+### 2) Feature + Label Pipeline für M5 (Linux)
+
+- [x] Feature-Engineering für M5: `features/feature_engineering.py --symbol USDCAD --timeframe M5`
+- [x] Feature-Engineering für M5: `features/feature_engineering.py --symbol USDJPY --timeframe M5`
+- [x] Labeling für M5 erzeugen (zeitlich korrekt, kein Shuffle)
+- [x] Sicherstellen: Rolling-Features nutzen nur Vergangenheitswerte (`.shift(1)` wo nötig)
+
+### 3) Zwei-Stufen-Training (Linux)
+
+- [x] `run_two_stage_pipeline.sh` auf **LTF=M5** umstellen (aktuell noch M15)
+- [x] HTF-Bias-Modelle (H1) für USDCAD/USDJPY trainieren
+- [x] LTF-Entry-Modelle (M5) mit HTF-Bias-Features trainieren
+- [x] Artefakte prüfen:
+  - `lgbm_htf_bias_<symbol>_H1_<version>.pkl`
+  - `lgbm_ltf_entry_<symbol>_M5_<version>.pkl`
+  - `two_stage_<symbol>_M5_<version>.json`
+
+### 4) Backtest & Gates (Linux)
+
+- [x] Backtest für Zwei-Stufen-Variante durchführen (inkl. Spread/Slippage/Kommission)
+- [x] KPI-Gates prüfen: Sharpe > 0.8, Profit Factor > 1.3, MaxDD < 10%
+- [x] Vergleich gegen aktuelle Single-Stage-Baseline dokumentieren
+
+**Ergebnis (Zeitraum 2025-10-09 bis 2026-03-04):**
+
+- `USDJPY`: ✅ Gates bestanden (Sharpe 7.955, PF 3.410, MaxDD -7.41%)
+- `USDCAD`: ❌ Gates nicht bestanden (Sharpe -4.947, PF 0.370, MaxDD -20.44%)
+- Vergleichsdatei: `backtest/two_stage_backtest_summary.csv`
+
+### 5) Paper-Rollout (Windows)
+
+- [x] `live/live_trader.py` um Zwei-Stufen-Inferenz (`live/two_stage_signal.py`) erweitern
+  - Shadow-Mode implementiert: symbol-basiertes Routing (nur USDJPY → Two-Stage, alle anderen → Single-Stage)
+  - Neue CLI-Flags: `--two_stage_enable`, `--two_stage_ltf_timeframe`, `--two_stage_version`
+  - Hard Fallback zu Single-Stage bei jedem Fehler
+  - Dual Logging: beide Signale (Shadow vs. Baseline) werden verglichen und geloggt
+- [ ] Paper-Modus nur für `USDJPY` (USDCAD bleibt auf Single-Stage, Gates nicht bestanden)
+- [ ] Start mit kleinem Risiko (0.01 Lot, ATR-SL Pflicht)
+- [ ] 4 Wochen Shadow-Run: alte vs. neue Signale vergleichen (Monitoring: Divergenz-Rate, Performance-Delta)
+
+### 6) Abnahmekriterien für Go-Live der Option 1
+
+- [x] Keine Look-Ahead-Verstöße in HTF→LTF-Projektion (H1-Bias verzögert mit `.shift(1)` bestätigt)
+- [ ] Mindestens 12 konsekutive GO-Wochen im Paper-Betrieb
+- [ ] Keine Regression bei Drawdown/Kill-Switch-Stabilität
+
+> **Status Phase 7A:** 🔄 In Arbeit (**Step 5 Shadow-Integration abgeschlossen**, nächster Schritt: 4-Wochen-Shadow-Test starten auf Windows Laptop)
+
+---
+
 ## 📊 Fortschritts-Übersicht
 
 | Phase | Beschreibung | Status |
@@ -648,6 +711,7 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 | B2 | ATR-SL-Optimierung (Bonus) | ✅ Abgeschlossen |
 | 6 | Live-Integration | ✅ Abgeschlossen (Paper-Betrieb aktiv seit 03.03.) |
 | 7 | Wartung & Monitoring | 🔄 In Arbeit – Woche 1 von 12 |
+| 7A | Migration Option 1 (HTF H1 / LTF M5) | 🔄 In Arbeit – Backtest/Gates offen |
 
 > Status: ⬜ Offen | 🔄 In Arbeit | ✅ Abgeschlossen
 
@@ -665,4 +729,4 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 
 ---
 
-**Letzte Aktualisierung:** 2026-03-03 – Roadmap vollständig überarbeitet. Paper-Trading läuft mit ATR-SL-Konfiguration (USDCAD Regime 2, USDJPY Regime 1). Alle 10 Review-Punkte gelöst. Nächste Auswertung: Sonntag 09.03.2026.
+**Letzte Aktualisierung:** 2026-03-04 – Roadmap auf Option 1 ausgerichtet (HTF H1 / LTF M5). Paper-Trading bleibt aktiv für USDCAD/USDJPY; Migration läuft kontrolliert in Phase 7A.

@@ -26,11 +26,14 @@ MODELL_ORDNER="${SERVER_BASIS}/models"
 LIVE_SKRIPT="${SERVER_BASIS}/live/live_trader.py"
 REQUIREMENTS="${SERVER_BASIS}/requirements-laptop.txt"
 
-# Welche Modelle übertragen? (H1 für USDCAD + USDJPY, H4 für USDCHF)
+# Welche Modelle übertragen? (H1 für USDCAD + USDJPY, H4 für USDCHF, Two-Stage für USDJPY)
 MODELLE=(
-    "lgbm_usdcad_v1.pkl"        # USDCAD H1 – Hauptkandidat
-    "lgbm_usdjpy_v1.pkl"        # USDJPY H1 – Hauptkandidat
-    "lgbm_usdchf_H4_v1.pkl"    # USDCHF H4 – Optionaler 3. Kandidat
+    "lgbm_usdcad_v4.pkl"                    # USDCAD H1 – Hauptkandidat (Single-Stage, v4)
+    "lgbm_usdjpy_v4.pkl"                    # USDJPY H1 – Hauptkandidat (Single-Stage Fallback, v4)
+    "lgbm_htf_bias_usdjpy_H1_v4.pkl"        # USDJPY HTF-Bias (Two-Stage Shadow-Mode)
+    "lgbm_ltf_entry_usdjpy_M5_v4.pkl"       # USDJPY LTF-Entry (Two-Stage Shadow-Mode)
+    "two_stage_usdjpy_M5_v4.json"            # USDJPY Two-Stage Metadaten (Feature-Listen)
+    "lgbm_usdchf_H4_v1.pkl"                 # USDCHF H4 – Optionaler 3. Kandidat
 )
 
 # ------------------------------------------------------------
@@ -99,10 +102,25 @@ put "${LIVE_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/live/live_trader.py"
 SFTP_END
 echo "        ✅ live/live_trader.py"
 
+# Two-Stage-Signal-Modul (für Shadow-Mode)
+TWO_STAGE_SKRIPT="${SERVER_BASIS}/live/two_stage_signal.py"
+if [ -f "${TWO_STAGE_SKRIPT}" ]; then
+    sftp -b - "${LAPTOP_BENUTZER}@${LAPTOP_IP}" <<SFTP_END
+put "${TWO_STAGE_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/live/two_stage_signal.py"
+SFTP_END
+    echo "        ✅ live/two_stage_signal.py (Two-Stage Shadow-Mode)"
+fi
+
 sftp -b - "${LAPTOP_BENUTZER}@${LAPTOP_IP}" <<SFTP_END
 put "${REQUIREMENTS}" "${LAPTOP_ZIELORDNER_SFTP}/requirements-laptop.txt"
 SFTP_END
 echo "        ✅ requirements-laptop.txt"
+
+# Batch-Skript für automatischen Start beider Trader
+sftp -b - "${LAPTOP_BENUTZER}@${LAPTOP_IP}" <<SFTP_END
+put "${SERVER_BASIS}/start_both_traders.bat" "${LAPTOP_ZIELORDNER_SFTP}/start_both_traders.bat"
+SFTP_END
+echo "        ✅ start_both_traders.bat"
 
 # ------------------------------------------------------------
 # Abschlussmeldung
@@ -127,10 +145,17 @@ echo "       pip install -r requirements-laptop.txt"
 echo ""
 echo "  5. MT5 Terminal öffnen und angemeldet lassen"
 echo ""
-echo "  6. Paper-Trading starten (im live/ Ordner!):"
-echo "       cd live"
-echo "       python live_trader.py --symbol USDCAD --schwelle 0.60 --regime_filter 1,2"
-echo "       python live_trader.py --symbol USDJPY --schwelle 0.60 --regime_filter 1"
+echo "  6. Paper-Trading starten:"
+echo "       Option A) Beide Trader automatisch starten (empfohlen):"
+echo "                 Doppelklick auf: start_both_traders.bat"
+echo ""
+echo "       Option B) Manuell in zwei separaten PowerShell-Fenstern:"
+echo "                 python live\\live_trader.py --symbol USDCAD --version v4 --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1"
+echo "                 python live\\live_trader.py --symbol USDJPY --version v4 --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4"
+echo ""
+echo "  ⚠️  Aktuelle Einstellung: Test-Phase (Option 1)"
+echo "       - Schwelle: 52% (gesenkt für mehr Aktivität)"
+echo "       - Regime: Alle (0,1,2) erlaubt"
 echo ""
 echo "  Modelle übertragen:"
 for MODELL in "${MODELLE[@]}"; do

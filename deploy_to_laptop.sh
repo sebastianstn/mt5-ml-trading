@@ -26,12 +26,15 @@ MODELL_ORDNER="${SERVER_BASIS}/models"
 LIVE_SKRIPT="${SERVER_BASIS}/live/live_trader.py"
 REQUIREMENTS="${SERVER_BASIS}/requirements-laptop.txt"
 
-# Welche Modelle übertragen? (H1 für USDCAD + USDJPY, H4 für USDCHF, Two-Stage für USDJPY)
+# Welche Modelle übertragen? (Two-Stage für USDCAD + USDJPY, H4 für USDCHF)
 MODELLE=(
-    "lgbm_usdcad_v4.pkl"                    # USDCAD H1 – Hauptkandidat (Single-Stage, v4)
-    "lgbm_usdjpy_v4.pkl"                    # USDJPY H1 – Hauptkandidat (Single-Stage Fallback, v4)
-    "lgbm_htf_bias_usdjpy_H1_v4.pkl"        # USDJPY HTF-Bias (Two-Stage Shadow-Mode)
-    "lgbm_ltf_entry_usdjpy_M5_v4.pkl"       # USDJPY LTF-Entry (Two-Stage Shadow-Mode)
+    "lgbm_usdcad_v4.pkl"                    # USDCAD H1 – Single-Stage Fallback (v4)
+    "lgbm_htf_bias_usdcad_H1_v4.pkl"        # USDCAD HTF-Bias (Two-Stage)
+    "lgbm_ltf_entry_usdcad_M5_v4.pkl"       # USDCAD LTF-Entry (Two-Stage)
+    "two_stage_usdcad_M5_v4.json"            # USDCAD Two-Stage Metadaten (Feature-Listen)
+    "lgbm_usdjpy_v4.pkl"                    # USDJPY H1 – Single-Stage Fallback (v4)
+    "lgbm_htf_bias_usdjpy_H1_v4.pkl"        # USDJPY HTF-Bias (Two-Stage)
+    "lgbm_ltf_entry_usdjpy_M5_v4.pkl"       # USDJPY LTF-Entry (Two-Stage)
     "two_stage_usdjpy_M5_v4.json"            # USDJPY Two-Stage Metadaten (Feature-Listen)
     "lgbm_usdchf_H4_v1.pkl"                 # USDCHF H4 – Optionaler 3. Kandidat
 )
@@ -150,7 +153,7 @@ echo "       Option A) Beide Trader automatisch starten (empfohlen):"
 echo "                 Doppelklick auf: start_both_traders.bat"
 echo ""
 echo "       Option B) Manuell in zwei separaten PowerShell-Fenstern:"
-echo "                 python live\\live_trader.py --symbol USDCAD --version v4 --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1"
+echo "                 python live\\live_trader.py --symbol USDCAD --version v4 --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4"
 echo "                 python live\\live_trader.py --symbol USDJPY --version v4 --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4"
 echo ""
 echo "  ⚠️  Aktuelle Einstellung: Test-Phase (Option 1)"

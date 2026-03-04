@@ -13,12 +13,12 @@ Ablauf pro H1-Kerze:
     3. Externe Features holen (Fear & Greed Index, BTC Funding Rate)
     4. Marktregime erkennen (identisch mit regime_detection.py)
     5. LightGBM-Vorhersage + Wahrscheinlichkeits-Filter (Schwelle)
-       - Optional: Shadow-Mode mit Two-Stage (HTF H1 + LTF M5) für USDJPY
+       - Optional: Shadow-Mode mit Two-Stage (HTF H1 + LTF M5) für USDCAD/USDJPY
     6. Regime-Filter anwenden (z.B. nur im Aufwärtstrend handeln)
     7. Order senden (Paper: nur loggen / Live: echte MT5-Order)
 
 Shadow-Mode (Two-Stage):
-    --two_stage_enable 1 aktiviert das Two-Stage-System (nur USDJPY Gates passed):
+    --two_stage_enable 1 aktiviert das Two-Stage-System (USDCAD + USDJPY):
         - HTF-Bias-Modell (H1): Bestimmt Marktrichtung (Short/Neutral/Long)
         - LTF-Entry-Modell (M5): Generiert Entry-Signal basierend auf HTF-Bias
         - Beide Signale (Single-Stage vs. Two-Stage) werden geloggt für Vergleich
@@ -38,7 +38,7 @@ Verwendung (Windows, venv aktiviert):
     # Single-Stage (H1):
     python live_trader.py --symbol USDCAD --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1
 
-    # Two-Stage Shadow-Mode (nur USDJPY):
+    # Two-Stage Shadow-Mode (USDCAD / USDJPY):
     python live_trader.py --symbol USDJPY --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1 \
         --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4
 
@@ -780,7 +780,7 @@ def shadow_signal_generieren(
     Shadow-Mode für Two-Stage-Integration (Phase 7A Step 5).
 
     Diese Funktion routet symbol-basiert zwischen Single-Stage und Two-Stage:
-        - USDJPY mit v4-Modellen → Two-Stage (HTF H1 + LTF M5)
+        - USDCAD/USDJPY mit v4-Modellen → Two-Stage (HTF H1 + LTF M5)
         - Alle anderen Symbole  → Single-Stage (bestehende Logik)
 
     Bei jedem Fehler im Two-Stage-Pfad: Hard Fallback zu Single-Stage.
@@ -809,13 +809,13 @@ def shadow_signal_generieren(
         df, modell, schwelle, regime_erlaubt
     )
 
-    # ---- Two-Stage nur wenn explizit enabled und für USDJPY ----
+    # ---- Two-Stage nur wenn explizit enabled und für freigegebene Symbole ----
+    TWO_STAGE_APPROVED = {"USDCAD", "USDJPY"}
     if not two_stage_config or not two_stage_config.get("enable", False):
         return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
-    if symbol.upper() != "USDJPY":
-        # Nur USDJPY hat Gates passed (siehe Backtest-Ergebnis)
-        logger.debug(f"[{symbol}] Two-Stage deaktiviert (nur USDJPY approved)")
+    if symbol.upper() not in TWO_STAGE_APPROVED:
+        logger.debug(f"[{symbol}] Two-Stage deaktiviert (nur {TWO_STAGE_APPROVED} approved)")
         return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
     # ---- Two-Stage-Pfad mit Hard Fallback ----
@@ -1860,7 +1860,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         choices=[0, 1],
         help=(
             "0 = Single-Stage (Standard), "
-            "1 = Shadow-Mode für Two-Stage (nur USDJPY, v4-Modelle erforderlich). "
+            "1 = Shadow-Mode für Two-Stage (USDCAD/USDJPY, v4-Modelle erforderlich). "
             "Shadow-Mode: beide Signale werden geloggt, Two-Stage wird verwendet."
         ),
     )
@@ -1993,10 +1993,11 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
 
     # ---- Two-Stage-Konfiguration vorbereiten (Shadow-Mode) ----
     two_stage_config = None
+    TWO_STAGE_APPROVED = {"USDCAD", "USDJPY"}
     if bool(args.two_stage_enable):
-        if symbol.upper() != "USDJPY":
+        if symbol.upper() not in TWO_STAGE_APPROVED:
             logger.info(
-                f"[{symbol}] Two-Stage-Shadow-Mode ist nur für USDJPY aktiviert (Gates passed). "
+                f"[{symbol}] Two-Stage-Shadow-Mode nur für {TWO_STAGE_APPROVED} freigeschaltet. "
                 "Verwende Single-Stage."
             )
         else:

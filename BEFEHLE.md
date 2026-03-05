@@ -115,7 +115,7 @@ python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --a
 
 ```powershell
 cd "C:\Users\Sebastian Setnescu\mt5_trading"
-start_shadow_compare.bat
+.\start_shadow_compare.bat
 ```
 
 **Voraussetzung (einmalig):**

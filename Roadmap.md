@@ -518,6 +518,9 @@ type "C:\Users\Sebastian Setnescu\mt5_trading\logs\USDJPY_live_trades.csv"
 cd /mnt/1T-Data/XGBoost-LightGBM
 source .venv/bin/activate
 python reports/weekly_kpi_report.py --tage 7
+
+# Optional für Shadow-Compare (Two-Stage M5)
+python reports/weekly_kpi_report.py --tage 7 --timeframe M5_TWO_STAGE
 ```
 
 #### Schritt 3: GO/NO-GO bewerten
@@ -697,6 +700,71 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 
 ---
 
+## 🧩 PHASE 7B – SMC/MTF Gaps schließen (H1 Key Levels + M5 Entries)
+
+**Ziel:** Die fünf kritischen Lücken systematisch schließen, ohne Look-Ahead-Bias, und kontrolliert in das bestehende Two-Stage-Setup überführen.
+
+### Scope (aus Review/Recherche)
+
+1. Key Levels (PDH/PDL/PWH/PWL)
+2. Fair Value Gaps (FVG)
+3. MSS/BOS (Market Structure Shift / Break of Structure)
+4. Regime Detection (HMM-basiert, probabilistisch)
+5. Kill Zones statt nur breiter Session-Flags
+
+### Schritt-für-Schritt Plan
+
+#### Schritt 1 – Feature-Layer erweitern (Server + Live-Parität)
+
+- [x] `features/feature_engineering.py`: Key-Level-Features ergänzt
+- [x] `features/feature_engineering.py`: Kill-Zone-Features ergänzt
+- [x] `features/feature_engineering.py`: FVG-Features ergänzt
+- [x] `features/feature_engineering.py`: MSS/BOS-Features ergänzt
+- [x] `features/feature_engineering.py`: HMM-Regime-Feature (`market_regime_hmm`) ergänzt (mit Fallback)
+- [x] `live/live_trader.py`: Feature-Parität zu obigen Erweiterungen hergestellt
+- [x] `requirements-server.txt` / `requirements-laptop.txt`: `hmmlearn` ergänzt
+
+#### Schritt 2 – Datensätze neu erzeugen (H1 + M5)
+
+- [x] H1 Features für USDCAD/USDJPY neu bauen
+- [x] M5 Features für USDCAD/USDJPY neu bauen
+- [x] Labeling (v5, ATR-Modus) für H1 + M5 neu erzeugen
+- [x] Sanity-Check: keine NaN-Spikes in neuen SMC-Features
+
+#### Schritt 3 – Modelle neu trainieren (Two-Stage)
+
+- [x] HTF-Bias (H1) mit erweitertem Feature-Set trainieren
+- [x] LTF-Entry (M5) mit HTF-Bias + SMC-Features trainieren
+- [x] Modellartefakte + JSON-Metadaten versionieren (`v5` empfohlen)
+
+#### Schritt 4 – Validierung & Backtest-Gates
+
+- [x] Backtest mit Kostenstress (Spread/Slippage) auf USDCAD/USDJPY
+- [x] KPI-Gates prüfen: Sharpe > 0.8, PF > 1.3, MaxDD < 10%
+- [x] Vergleich alt (v4) vs. neu (v5) dokumentieren
+
+**Re-Run (2026-03-05, `spread_faktor=2.0`, `schwelle=0.45`):**
+
+- `USDCAD` Two-Stage `v5`: Rendite **-164.25%**, Sharpe **-23.002**, PF **0.011**, MaxDD **-164.30%** → ❌ Gates
+- `USDJPY` Two-Stage `v5`: Rendite **-24.95%**, Sharpe **-2.140**, PF **0.692**, MaxDD **-34.36%** → ❌ Gates
+- Vergleich `v4` vs `v5` gespeichert in: `backtest/two_stage_backtest_v4_vs_v5_20260305.csv`
+- Einzel-Summaries gespeichert in:
+  - `backtest/two_stage_backtest_summary_v4_20260305.csv`
+  - `backtest/two_stage_backtest_summary_v5_20260305.csv`
+
+#### Schritt 5 – Paper-Rollout kontrolliert
+
+- [x] Deploy auf Windows-Laptop
+- [x] Deploy aktualisiert (v4 + v5 Artefakte + `start_shadow_compare.bat`, Stand 2026-03-05)
+- [x] Serverseitiges Shadow-Monitoring vorbereitet: `reports/weekly_kpi_report.py --timeframe M5_TWO_STAGE`
+  - Report-Datei: `reports/weekly_kpi_report_M5_TWO_STAGE.md`
+- [ ] 2 Wochen Shadow-Compare (v4 vs. v5 Logs) *(Startskript vorbereitet: `start_shadow_compare.bat`)*
+- [ ] Nur bei stabilen KPIs auf v5 umstellen
+
+> **Status Phase 7B:** 🔄 In Arbeit (Schritte 1–4 abgeschlossen, Schritt 5 läuft)
+
+---
+
 ## 📊 Fortschritts-Übersicht
 
 | Phase | Beschreibung | Status |
@@ -711,7 +779,7 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 | B2 | ATR-SL-Optimierung (Bonus) | ✅ Abgeschlossen |
 | 6 | Live-Integration | ✅ Abgeschlossen (Paper-Betrieb aktiv seit 03.03.) |
 | 7 | Wartung & Monitoring | 🔄 In Arbeit – Woche 1 von 12 |
-| 7A | Migration Option 1 (HTF H1 / LTF M5) | 🔄 In Arbeit – Backtest/Gates offen |
+| 7A | Migration Option 1 (HTF H1 / LTF M5) | 🔄 In Arbeit – Shadow-Run vorbereitet, Start auf Laptop ausstehend |
 
 > Status: ⬜ Offen | 🔄 In Arbeit | ✅ Abgeschlossen
 
@@ -729,4 +797,4 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 
 ---
 
-**Letzte Aktualisierung:** 2026-03-04 – Roadmap auf Option 1 ausgerichtet (HTF H1 / LTF M5). Paper-Trading bleibt aktiv für USDCAD/USDJPY; Migration läuft kontrolliert in Phase 7A.
+**Letzte Aktualisierung:** 2026-03-05 – Phase 7B Schritte 2–5 reproduzierbar ausgeführt (Re-Run + Deploy + Monitoring-Doku), Shadow-Compare-Laufzeitphase weiterhin offen.

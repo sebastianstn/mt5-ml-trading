@@ -75,6 +75,10 @@ AUSSCHLUSS_SPALTEN: set[str] = {
     "bb_mid",
     "bb_lower",
     "obv",
+    "pdh",
+    "pdl",
+    "pwh",
+    "pwl",
     "label",
 }
 
@@ -477,7 +481,9 @@ def train_two_stage(symbol: str, ltf_timeframe: str, version: str) -> None:
     htf_bias_h1 = htf_bias_features_ableiten(h1_df=h1_df, htf_model=htf_model)
 
     ltf_df = daten_laden(symbol=symbol, timeframe=ltf_timeframe, version=version)
-    ltf_df_mit_bias = htf_bias_auf_ltf_projizieren(ltf_df=ltf_df, htf_bias_df=htf_bias_h1)
+    ltf_df_mit_bias = htf_bias_auf_ltf_projizieren(
+        ltf_df=ltf_df, htf_bias_df=htf_bias_h1
+    )
 
     # 3) LTF-Trainingsset erstellen und LTF-Modell trainieren.
     x_ltf, y_ltf, ltf_features = ltf_training_set_erstellen(ltf_df=ltf_df_mit_bias)
@@ -501,7 +507,9 @@ def train_two_stage(symbol: str, ltf_timeframe: str, version: str) -> None:
 
 def main() -> None:
     """CLI-Einstiegspunkt für Zwei-Stufen-Training."""
-    parser = argparse.ArgumentParser(description="Option 1: Zwei-Stufen-Modell trainieren")
+    parser = argparse.ArgumentParser(
+        description="Option 1: Zwei-Stufen-Modell trainieren"
+    )
     parser.add_argument(
         "--symbol",
         required=True,

@@ -70,6 +70,14 @@ import joblib
 # HTTP-Anfragen für externe APIs (Fear & Greed, BTC Funding Rate)
 import requests
 
+# Optional: HMM-Regime-Detection (falls installiert)
+try:
+    from hmmlearn.hmm import GaussianHMM
+
+    HAS_HMMLEARN = True
+except ImportError:
+    HAS_HMMLEARN = False
+
 # MetaTrader5 – NUR auf Windows verfügbar!
 try:
     import MetaTrader5 as mt5  # type: ignore
@@ -204,6 +212,10 @@ AUSSCHLUSS_SPALTEN = {
     "bb_mid",
     "bb_lower",
     "obv",
+    "pdh",
+    "pdl",
+    "pwh",
+    "pwl",
     "label",
 }
 
@@ -250,8 +262,25 @@ FEATURE_SPALTEN = [
     "session_ny",
     "session_asia",
     "session_overlap",
+    "killzone_london_open",
+    "killzone_ny_open",
+    "killzone_asia_open",
+    "dist_pdh_pct",
+    "dist_pdl_pct",
+    "dist_pwh_pct",
+    "dist_pwl_pct",
+    "near_key_level",
+    "fvg_bullish",
+    "fvg_bearish",
+    "fvg_gap_pct",
+    "bos_bull",
+    "bos_bear",
+    "mss_bull",
+    "mss_bear",
+    "structure_bias",
     "adx_14",
     "market_regime",
+    "market_regime_hmm",
     "fear_greed_value",
     "fear_greed_class",
     "btc_funding_rate",
@@ -559,6 +588,72 @@ def features_berechnen(
     result["session_asia"] = ((h >= 0) & (h < 9)).astype(int)
     result["session_overlap"] = ((h >= 13) & (h < 17)).astype(int)
 
+    # --- Kill-Zone Features (präzisere Entry-Fenster) ---
+    result["killzone_london_open"] = ((h >= 7) & (h < 9)).astype(int)
+    result["killzone_ny_open"] = ((h >= 13) & (h < 15)).astype(int)
+    result["killzone_asia_open"] = ((h >= 0) & (h < 2)).astype(int)
+
+    # --- Key Levels (PDH/PDL/PWH/PWL) ---
+    # LOOK-AHEAD-SCHUTZ: Levels mit shift(1) aus abgeschlossenen Perioden
+    day_high = result["high"].resample("1D").max().shift(1)
+    day_low = result["low"].resample("1D").min().shift(1)
+    week_high = result["high"].resample("W-MON").max().shift(1)
+    week_low = result["low"].resample("W-MON").min().shift(1)
+
+    result["pdh"] = day_high.reindex(result.index, method="ffill")
+    result["pdl"] = day_low.reindex(result.index, method="ffill")
+    result["pwh"] = week_high.reindex(result.index, method="ffill")
+    result["pwl"] = week_low.reindex(result.index, method="ffill")
+
+    close_safe = result["close"].replace(0, np.nan)
+    result["dist_pdh_pct"] = (result["close"] - result["pdh"]) / close_safe
+    result["dist_pdl_pct"] = (result["close"] - result["pdl"]) / close_safe
+    result["dist_pwh_pct"] = (result["close"] - result["pwh"]) / close_safe
+    result["dist_pwl_pct"] = (result["close"] - result["pwl"]) / close_safe
+
+    key_tol = 0.0015
+    result["near_key_level"] = (
+        (result["dist_pdh_pct"].abs() <= key_tol)
+        | (result["dist_pdl_pct"].abs() <= key_tol)
+        | (result["dist_pwh_pct"].abs() <= key_tol)
+        | (result["dist_pwl_pct"].abs() <= key_tol)
+    ).astype(int)
+
+    # --- Fair Value Gaps (3-Kerzen-Logik) ---
+    high_shift2 = result["high"].shift(2)
+    low_shift2 = result["low"].shift(2)
+    bull_fvg = result["low"] > high_shift2
+    bear_fvg = result["high"] < low_shift2
+    result["fvg_bullish"] = bull_fvg.astype(int)
+    result["fvg_bearish"] = bear_fvg.astype(int)
+
+    bull_gap = (result["low"] - high_shift2) / close_safe
+    bear_gap = (low_shift2 - result["high"]) / close_safe
+    result["fvg_gap_pct"] = np.where(
+        bull_fvg,
+        bull_gap,
+        np.where(bear_fvg, -bear_gap, 0.0),
+    )
+
+    # --- MSS/BOS (Marktstruktur) ---
+    pivot_bars = 20
+    prev_swing_high = result["high"].shift(1).rolling(pivot_bars).max()
+    prev_swing_low = result["low"].shift(1).rolling(pivot_bars).min()
+    result["bos_bull"] = (result["close"] > prev_swing_high).astype(int)
+    result["bos_bear"] = (result["close"] < prev_swing_low).astype(int)
+
+    structure_bias = np.where(
+        result["bos_bull"] == 1,
+        1,
+        np.where(result["bos_bear"] == 1, -1, 0),
+    )
+    result["structure_bias"] = (
+        pd.Series(structure_bias, index=result.index).ffill().fillna(0)
+    )
+    prev_bias = result["structure_bias"].shift(1).fillna(0)
+    result["mss_bull"] = ((result["bos_bull"] == 1) & (prev_bias < 0)).astype(int)
+    result["mss_bear"] = ((result["bos_bear"] == 1) & (prev_bias > 0)).astype(int)
+
     # --- ADX + Regime-Detection ---
     result["adx_14"] = ind_adx(result)
 
@@ -575,6 +670,71 @@ def features_berechnen(
     regime[abwaerts] = 2
     regime[hoch_vol] = 3
     result["market_regime"] = regime
+
+    # --- HMM-Regime (optional, mit robustem Fallback) ---
+    if HAS_HMMLEARN:
+        try:
+            hmm_input = np.column_stack(
+                [
+                    log_ret.fillna(0.0).values,
+                    atr_pct.ffill().fillna(0.0).values,
+                ]
+            )
+
+            hmm_regimes = np.full(len(result), np.nan)
+            min_train_bars = min(400, max(120, len(result) // 3))
+            refit_interval = 120
+            hmm_model = None
+
+            for i in range(min_train_bars, len(result)):
+                if hmm_model is None or (i - min_train_bars) % refit_interval == 0:
+                    hmm_model = GaussianHMM(
+                        n_components=4,
+                        covariance_type="diag",
+                        n_iter=120,
+                        random_state=42,
+                    )
+                    hmm_model.fit(hmm_input[:i])
+
+                hmm_regimes[i] = int(hmm_model.predict(hmm_input[i : i + 1])[0])
+
+            hmm_state_series = (
+                pd.Series(hmm_regimes, index=result.index).ffill().fillna(0).astype(int)
+            )
+            stats = (
+                pd.DataFrame(
+                    {
+                        "state": hmm_state_series,
+                        "ret": log_ret.fillna(0.0),
+                        "vol": atr_pct.fillna(0.0),
+                    }
+                )
+                .groupby("state")
+                .agg(ret_mean=("ret", "mean"), vol_mean=("vol", "mean"))
+            )
+
+            high_vol_state = int(stats["vol_mean"].idxmax()) if len(stats) > 0 else 0
+            ret_sorted = stats.drop(index=high_vol_state, errors="ignore").sort_values(
+                "ret_mean"
+            )
+            bear_state = (
+                int(ret_sorted.index[0]) if len(ret_sorted) > 0 else high_vol_state
+            )
+            bull_state = (
+                int(ret_sorted.index[-1]) if len(ret_sorted) > 0 else high_vol_state
+            )
+            regime_map = {int(s): 0 for s in stats.index}
+            regime_map[high_vol_state] = 3
+            regime_map[bear_state] = 2
+            regime_map[bull_state] = 1
+            result["market_regime_hmm"] = (
+                hmm_state_series.map(regime_map).fillna(0).astype(int)
+            )
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.warning("HMM-Regime-Fallback aktiv (Fehler: %s)", e)
+            result["market_regime_hmm"] = result["market_regime"]
+    else:
+        result["market_regime_hmm"] = result["market_regime"]
 
     return result
 
@@ -815,7 +975,9 @@ def shadow_signal_generieren(
         return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
     if symbol.upper() not in TWO_STAGE_APPROVED:
-        logger.debug(f"[{symbol}] Two-Stage deaktiviert (nur {TWO_STAGE_APPROVED} approved)")
+        logger.debug(
+            f"[{symbol}] Two-Stage deaktiviert (nur {TWO_STAGE_APPROVED} approved)"
+        )
         return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
     # ---- Two-Stage-Pfad mit Hard Fallback ----
@@ -862,6 +1024,34 @@ def shadow_signal_generieren(
             ltf_feature_spalten=two_stage_config.get("ltf_features", FEATURE_SPALTEN),
             schwelle=schwelle,
         )
+
+        # ---- Kongruenz-Filter: HTF-Bias und LTF-Signal müssen übereinstimmen ----
+        # HTF-Bias 0=Short, 1=Neutral, 2=Long | LTF-Signal -1=Short, 0=Neutral, 2=Long
+        # Erlaubt: HTF-Short + LTF-Short, HTF-Long + LTF-Long
+        # Blockiert: HTF-Bias widerspricht LTF-Signal, oder HTF=Neutral
+        htf_bias = ts_signal.htf_bias_klasse
+        ltf_signal = ts_signal.signal
+        kongruent = True  # Standardannahme: neutral-Signale sind immer OK
+
+        if ltf_signal != 0:  # Nur aktive Trades prüfen (Short/Long)
+            if htf_bias == 1:
+                # HTF sagt Neutral → kein aktiver Trade erlaubt
+                kongruent = False
+            elif htf_bias == 0 and ltf_signal != -1:
+                # HTF sagt Short, aber LTF will Long → blockieren
+                kongruent = False
+            elif htf_bias == 2 and ltf_signal != 2:
+                # HTF sagt Long, aber LTF will Short → blockieren
+                kongruent = False
+
+        if not kongruent:
+            logger.info(
+                f"[{symbol}] ⛔ KONGRUENZ-FILTER | "
+                f"LTF-Signal={ltf_signal} BLOCKIERT (HTF-Bias={htf_bias}) | "
+                f"LTF-Prob={ts_signal.prob:.1%} | Baseline={baseline_signal} (prob={baseline_prob:.1%})"
+            )
+            # Signal auf Neutral setzen, Keep Prob für Logging
+            return (0, ts_signal.prob, baseline_regime, baseline_atr)
 
         # Logging: Shadow vs. Baseline Vergleich
         if ts_signal.signal != baseline_signal:
@@ -1218,7 +1408,13 @@ def trade_loggen(
 
     # Kopie in MT5 Common/Files für LiveSignalDashboard.mq5
     try:
-        mt5_common = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+        mt5_common = (
+            Path(os.environ.get("APPDATA", ""))
+            / "MetaQuotes"
+            / "Terminal"
+            / "Common"
+            / "Files"
+        )
         if mt5_common.exists():
             mt5_csv = mt5_common / f"{symbol}_live_trades.csv"
             df_log.to_csv(
@@ -1434,6 +1630,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         else "alle"
     )
 
+    # Two-Stage M5-Takt: Flag vorab setzen (wird für Logging + Loop gebraucht)
+    ts_aktiv = two_stage_config is not None and two_stage_config.get("enable", False)
+
     logger.info("=" * 65)
     logger.info(f"LIVE-TRADER GESTARTET – {symbol}")
     logger.info(f"Modus:          {modus_str}")
@@ -1458,7 +1657,16 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     )
     logger.info(f"Logs:           {LOG_DIR}")
     logger.info(f"Zeitrahmen:     {timeframe}")
-    logger.info(f"Warte auf neue {timeframe}-Kerze ...")
+    if ts_aktiv:
+        logger.info(
+            f"M5-Takt:        AKTIV → Loop auf {two_stage_config.get('ltf_timeframe', 'M5')}, "
+            f"HTF-Bias auf H1 (gecached)"
+        )
+        logger.info(
+            f"Warte auf neue {two_stage_config.get('ltf_timeframe', 'M5')}-Kerze ..."
+        )
+    else:
+        logger.info(f"Warte auf neue {timeframe}-Kerze ...")
     logger.info("=" * 65)
 
     letzte_kerzen_zeit: Optional[datetime] = None
@@ -1489,16 +1697,33 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     # Simuliertes Kapital für Paper-Modus (wird nach jedem Trade aktualisiert)
     paper_kapital = start_equity
 
+    # ---- Two-Stage M5-Takt: effektiver Zeitrahmen und HTF-Cache ----
+    # Wenn Two-Stage aktiv: Loop läuft auf LTF (M5) statt H1
+    # HTF-Bias (H1) wird gecached und nur bei neuer H1-Kerze aktualisiert
+    if ts_aktiv:
+        effektiver_tf = two_stage_config.get("ltf_timeframe", "M5")
+        logger.info(
+            f"[{symbol}] ⚡ M5-TAKT AKTIV: Loop-Intervall = {effektiver_tf} "
+            f"(alle {TIMEFRAME_CONFIG[effektiver_tf]['minutes_per_bar']} Min) | "
+            f"HTF-Bias = H1 (gecached, Update nur bei neuer H1-Kerze)"
+        )
+    else:
+        effektiver_tf = timeframe
+
+    # HTF-Cache Variablen (nur für Two-Stage M5-Takt)
+    letzte_htf_kerzen_zeit: Optional[datetime] = None
+    cached_h1_df_clean: Optional[pd.DataFrame] = None
+
     while True:
         try:
-            # Neue Kerze abwarten (prüfe alle 15 Sekunden)
-            if not neue_kerze_abwarten(symbol, letzte_kerzen_zeit, timeframe):
+            # Neue Kerze abwarten (M5 bei Two-Stage, sonst H1)
+            if not neue_kerze_abwarten(symbol, letzte_kerzen_zeit, effektiver_tf):
                 time.sleep(15)
                 continue
 
             # Neue Kerze erkannt!
             jetzt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            logger.info(f"\n[{symbol}] Neue {timeframe}-Kerze | {jetzt} UTC")
+            logger.info(f"\n[{symbol}] Neue {effektiver_tf}-Kerze | {jetzt} UTC")
 
             # ---- Kill-Switch prüfen ----
             # Im Live-Modus: aktuellen MT5-Kontostand lesen
@@ -1521,83 +1746,108 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     alle_positionen_schliessen(symbol)
                 break  # Trading-Schleife beenden
 
-            # ---- Schritt 1: Daten von MT5 holen ----
-            df = mt5_daten_holen(symbol, timeframe=timeframe)
-            min_bars = (
-                250
-                * TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
-                    "bars_per_hour"
-                ]
-            )
-            if df is None or len(df) < min_bars:
-                logger.warning(
-                    f"[{symbol}] Zu wenige Daten ({len(df) if df is not None else 0}) – übersprungen"
-                )
-                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
-                time.sleep(30)
-                continue
+            # ==============================================================
+            # DATEN LADEN – Unterschied je nach Modus:
+            #   Two-Stage (M5-Takt): HTF gecached + LTF frisch pro M5-Kerze
+            #   Single-Stage:        H1-Daten wie bisher
+            # ==============================================================
 
-            # ---- Schritt 2: Features berechnen ----
-            df = features_berechnen(df, timeframe=timeframe)
-
-            # ---- Schritt 3: Externe Features (Fear & Greed, BTC) ----
-            df = externe_features_einfuegen(df)
-
-            # NaN-Zeilen am Anfang (Warm-Up) entfernen
-            # Nutze modell.feature_name_ falls verfügbar (exakte Trainings-Features)
-            if hasattr(modell, "feature_name_") and modell.feature_name_:
-                dropna_features = [f for f in modell.feature_name_ if f in df.columns]
-            else:
-                dropna_features = [f for f in FEATURE_SPALTEN if f in df.columns]
-            df_clean = df.dropna(subset=dropna_features)
-            if len(df_clean) < 10:
-                logger.warning(
-                    f"[{symbol}] Nach NaN-Bereinigung zu wenige Zeilen – übersprungen"
-                )
-                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
-                continue
-
-            # ---- Schritt 3b: Two-Stage HTF/LTF Daten laden (falls aktiviert) ----
-            if two_stage_config and two_stage_config.get("enable", False):
-                try:
-                    # HTF-Daten (H1) laden und vorbereiten
+            if ts_aktiv:
+                # ── Two-Stage M5-Takt ──────────────────────────────────
+                # A) HTF-Bias (H1) nur aktualisieren wenn neue H1-Kerze da
+                neue_h1 = neue_kerze_abwarten(symbol, letzte_htf_kerzen_zeit, "H1")
+                if neue_h1 or cached_h1_df_clean is None:
                     htf_df_raw = mt5_daten_holen(symbol, timeframe="H1")
                     if htf_df_raw is not None and len(htf_df_raw) >= 250:
                         htf_df = features_berechnen(htf_df_raw, timeframe="H1")
                         htf_df = externe_features_einfuegen(htf_df)
-                        htf_df_clean = htf_df.dropna(subset=FEATURE_SPALTEN)
-                        two_stage_config["htf_df"] = htf_df_clean
+                        cached_h1_df_clean = htf_df.dropna(subset=FEATURE_SPALTEN)
+                        two_stage_config["htf_df"] = cached_h1_df_clean
+                        letzte_htf_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, "H1")
+                        logger.info(
+                            f"[{symbol}] 📊 HTF-Bias aktualisiert (neue H1-Kerze) | "
+                            f"HTF-Bars={len(cached_h1_df_clean)}"
+                        )
                     else:
                         logger.warning(
-                            f"[{symbol}] HTF-H1-Daten unzureichend – Two-Stage Fallback"
+                            f"[{symbol}] HTF-H1-Daten unzureichend ({len(htf_df_raw) if htf_df_raw is not None else 0} Bars)"
                         )
-                        two_stage_config["htf_df"] = None
+                        if cached_h1_df_clean is None:
+                            # Erster Lauf und H1 nicht verfügbar → überspringen
+                            letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(
+                                symbol, effektiver_tf
+                            )
+                            time.sleep(30)
+                            continue
 
-                    # LTF-Daten (M5/M15) laden und vorbereiten
-                    ltf_tf = two_stage_config["ltf_timeframe"]
-                    ltf_df_raw = mt5_daten_holen(symbol, timeframe=ltf_tf)
-                    ltf_min_bars = (
-                        250
-                        * TIMEFRAME_CONFIG.get(ltf_tf, {"bars_per_hour": 1})[
-                            "bars_per_hour"
-                        ]
-                    )
-                    if ltf_df_raw is not None and len(ltf_df_raw) >= ltf_min_bars:
-                        ltf_df = features_berechnen(ltf_df_raw, timeframe=ltf_tf)
-                        ltf_df = externe_features_einfuegen(ltf_df)
-                        ltf_df_clean = ltf_df.dropna(subset=FEATURE_SPALTEN)
-                        two_stage_config["ltf_df"] = ltf_df_clean
-                    else:
-                        logger.warning(
-                            f"[{symbol}] LTF-{ltf_tf}-Daten unzureichend – Two-Stage Fallback"
-                        )
-                        two_stage_config["ltf_df"] = None
-                except Exception as e:  # pylint: disable=broad-exception-caught
+                # B) LTF-Daten (M5) frisch laden bei jeder M5-Kerze
+                ltf_tf = two_stage_config["ltf_timeframe"]
+                ltf_df_raw = mt5_daten_holen(symbol, timeframe=ltf_tf)
+                ltf_min_bars = (
+                    250
+                    * TIMEFRAME_CONFIG.get(ltf_tf, {"bars_per_hour": 1})[
+                        "bars_per_hour"
+                    ]
+                )
+                if ltf_df_raw is None or len(ltf_df_raw) < ltf_min_bars:
                     logger.warning(
-                        f"[{symbol}] Two-Stage-Daten-Fehler: {e} – Fallback Single-Stage"
+                        f"[{symbol}] LTF-{ltf_tf}-Daten unzureichend "
+                        f"({len(ltf_df_raw) if ltf_df_raw is not None else 0}) – übersprungen"
                     )
-                    two_stage_config["htf_df"] = None
-                    two_stage_config["ltf_df"] = None
+                    letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+                    time.sleep(30)
+                    continue
+
+                ltf_df = features_berechnen(ltf_df_raw, timeframe=ltf_tf)
+                ltf_df = externe_features_einfuegen(ltf_df)
+                ltf_df_clean = ltf_df.dropna(subset=FEATURE_SPALTEN)
+                two_stage_config["ltf_df"] = ltf_df_clean
+
+                if len(ltf_df_clean) < 10:
+                    logger.warning(
+                        f"[{symbol}] LTF nach NaN-Bereinigung zu wenig Zeilen – übersprungen"
+                    )
+                    letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+                    continue
+
+                # df_clean = gecachte H1-Daten (wird von shadow_signal_generieren
+                # für den Single-Stage Baseline-Vergleich benötigt)
+                df_clean = cached_h1_df_clean
+
+            else:
+                # ── Single-Stage (H1, unverändert) ─────────────────────
+                df = mt5_daten_holen(symbol, timeframe=timeframe)
+                min_bars = (
+                    250
+                    * TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+                        "bars_per_hour"
+                    ]
+                )
+                if df is None or len(df) < min_bars:
+                    logger.warning(
+                        f"[{symbol}] Zu wenige Daten ({len(df) if df is not None else 0}) – übersprungen"
+                    )
+                    letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+                    time.sleep(30)
+                    continue
+
+                df = features_berechnen(df, timeframe=timeframe)
+                df = externe_features_einfuegen(df)
+
+                # NaN-Zeilen am Anfang (Warm-Up) entfernen
+                if hasattr(modell, "feature_name_") and modell.feature_name_:
+                    dropna_features = [
+                        f for f in modell.feature_name_ if f in df.columns
+                    ]
+                else:
+                    dropna_features = [f for f in FEATURE_SPALTEN if f in df.columns]
+                df_clean = df.dropna(subset=dropna_features)
+                if len(df_clean) < 10:
+                    logger.warning(
+                        f"[{symbol}] Nach NaN-Bereinigung zu wenige Zeilen – übersprungen"
+                    )
+                    letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+                    continue
 
             # ---- Schritt 4: Signal generieren (Shadow-Mode) ----
             signal, prob, regime, atr_pct = shadow_signal_generieren(
@@ -1622,7 +1872,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
             # Signal/Heartbeat in CSV loggen
             # Aktuellen Close-Preis und SL/TP-Niveaus berechnen für Dashboard
-            close_preis = float(df_clean["close"].iloc[-1]) if len(df_clean) > 0 else 0.0
+            close_preis = (
+                float(df_clean["close"].iloc[-1]) if len(df_clean) > 0 else 0.0
+            )
             if signal != 0 and close_preis > 0:
                 if signal == 2:  # Long
                     log_sl = round(close_preis * (1.0 - sl_aktuell), 5)
@@ -1638,7 +1890,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 n_signale += 1
             if heartbeat_log or signal != 0:
                 trade_loggen(
-                    symbol, signal, prob, regime, paper_trading,
+                    symbol,
+                    signal,
+                    prob,
+                    regime,
+                    paper_trading,
                     entry_price=close_preis,
                     sl_price=log_sl,
                     tp_price=log_tp,
@@ -1676,11 +1932,12 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 # Keine irreführende "< Schwelle" Meldung – Grund steht bereits im Detail-Log
                 logger.info(f"[{symbol}] Kein Trade-Signal (Details siehe oben)")
 
-            # Zeitstempel der verarbeiteten Kerze speichern
-            letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, timeframe)
+            # Zeitstempel der verarbeiteten Kerze speichern (effektiver Zeitrahmen)
+            letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
 
-            # Statistik alle 24 Kerzen (ca. 1x täglich)
-            if n_trades > 0 and n_trades % 24 == 0:
+            # Statistik alle 100 Kerzen (bei M5 ≈ alle 8 Stunden, bei H1 ≈ alle 4 Tage)
+            stat_intervall = 100 if ts_aktiv else 24
+            if n_trades > 0 and n_trades % stat_intervall == 0:
                 dd_aktuell = (
                     (start_equity - paper_kapital) / start_equity
                     if paper_trading
@@ -1731,10 +1988,10 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     parser.add_argument(
         "--schwelle",
         type=float,
-        default=0.52,
+        default=0.45,
         help=(
-            "Mindest-Wahrscheinlichkeit für Trade-Ausführung (Standard: 0.52). "
-            "Gesenkt von 0.60 für mehr Trading-Aktivität (Option 1: Test-Phase)"
+            "Mindest-Wahrscheinlichkeit für Trade-Ausführung (Standard: 0.45). "
+            "Kongruenz-Filter (HTF+LTF müssen übereinstimmen) bietet zusätzliche Absicherung."
         ),
     )
     parser.add_argument(
@@ -2007,7 +2264,11 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             )
             # Feature-Listen aus JSON-Metadatei laden (exakt wie beim Training)
             import json
-            meta_pfad = MODEL_DIR / f"two_stage_{symbol.lower()}_{args.two_stage_ltf_timeframe}_{args.two_stage_version}.json"
+
+            meta_pfad = (
+                MODEL_DIR
+                / f"two_stage_{symbol.lower()}_{args.two_stage_ltf_timeframe}_{args.two_stage_version}.json"
+            )
             if meta_pfad.exists():
                 with open(meta_pfad, "r") as f:
                     meta = json.load(f)

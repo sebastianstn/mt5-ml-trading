@@ -179,6 +179,8 @@ def backtest_kpis_berechnen(symbol: str, timeframe: str = "H1") -> dict:
     """
     if timeframe == "H1":
         trade_path = BACKTEST_DIR / f"{symbol}_trades.csv"
+    elif timeframe == "M5_TWO_STAGE":
+        trade_path = BACKTEST_DIR / f"{symbol}_M5_two_stage_trades.csv"
     else:
         trade_path = BACKTEST_DIR / f"{symbol}_{timeframe}_trades.csv"
     if not trade_path.exists():
@@ -391,7 +393,12 @@ def markdown_bericht_schreiben(
             if timeframe == "H1"
             else (
                 "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
-                f"(`backtest/SYMBOL_{timeframe}_trades.csv`)."
+                "(`backtest/SYMBOL_M5_two_stage_trades.csv`)."
+                if timeframe == "M5_TWO_STAGE"
+                else (
+                    "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
+                    f"(`backtest/SYMBOL_{timeframe}_trades.csv`)."
+                )
             )
         ),
         "- Sobald ein echter Live-PnL-Export verfügbar ist, sollte die Profitabilitätssektion auf Live-Daten umgestellt werden.",
@@ -531,10 +538,11 @@ def main() -> None:
     parser.add_argument(
         "--timeframe",
         default="H1",
-        choices=["H1", "M60", "M30", "M15", "H4"],
+        choices=["H1", "M60", "M30", "M15", "H4", "M5_TWO_STAGE"],
         help=(
             "Timeframe für Backtest-KPI-Dateien (Standard: H1). "
-            "Für M15/M30/M60 werden backtest/SYMBOL_TIMEFRAME_trades.csv ausgewertet."
+            "Für M15/M30/M60 werden backtest/SYMBOL_TIMEFRAME_trades.csv ausgewertet. "
+            "Für M5_TWO_STAGE werden backtest/SYMBOL_M5_two_stage_trades.csv ausgewertet."
         ),
     )
     args = parser.parse_args()

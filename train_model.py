@@ -114,6 +114,10 @@ AUSSCHLUSS_SPALTEN = {
     "bb_mid",
     "bb_lower",  # Absolute BB-Level
     "obv",  # Kumulativer OBV (nicht normiert)
+    "pdh",
+    "pdl",
+    "pwh",
+    "pwl",  # Absolute Key-Level-Preise (nicht normiert)
     "label",  # Zielvariable
 }
 

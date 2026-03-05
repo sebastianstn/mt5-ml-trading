@@ -41,11 +41,41 @@ pip install -r requirements-laptop.txt
 
 Danach Trader starten (Paper-Modus):
 
-- `USDCAD`: Schwelle 0.52, Regime `0,1,2` (Test-Phase Option 1: Zwei-Stufen-Modell)
-- `USDJPY`: Schwelle 0.52, Regime `0,1,2` (Test-Phase Option 1: Zwei-Stufen-Modell)
+- Shadow-Compare starten (Windows): `start_shadow_compare.bat`
+- Setup aktuell: `USDCAD` als stabile Kontrolle (`v4`) vs. `USDJPY` als Kandidat (`v5`)
+- Wichtig: `MT5_SERVER`, `MT5_LOGIN`, `MT5_PASSWORD` müssen gesetzt sein
 
 Details inkl. Dashboard-Sync: `live/mt5/README_MT5_Dashboard.md`.
 Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
+
+### Betriebsrollen: `start_shadow_compare.bat` vs. `LiveSignalDashboard.mq5`
+
+Beide laufen parallel, haben aber **unterschiedliche Aufgaben**:
+
+| Komponente | Hauptrolle | Was sie konkret macht | Ohne diese Komponente... |
+| --- | --- | --- | --- |
+| `start_shadow_compare.bat` (Windows/PowerShell) | **Engine / Ausführung** | Startet `live_trader.py` Prozesse, holt Marktdaten, berechnet Features/Regime, erzeugt Signale, schreibt Logs/CSV, führt Paper-Orders aus | entstehen keine neuen Signale/CSV-Updates |
+| `LiveSignalDashboard.mq5` (MT5-Chart) | **Monitoring / Visualisierung** | Liest CSV aus MT5-Common-Files, zeigt Status (`CONNECTED/STALE/LIVE_*`), zeichnet Entry/SL/TP/History im Chart | läuft Trading weiter, aber Transparenz im Chart fehlt |
+
+**Merksatz:**
+`start_shadow_compare.bat` = *arbeitet* · `LiveSignalDashboard.mq5` = *zeigt an*.
+
+#### Empfohlener Ablauf im Betrieb (Paper)
+
+1. `stop_all_traders.bat` ausführen (sauberer Zustand)
+2. `start_shadow_compare.bat` starten (Engine läuft)
+3. MT5 offen lassen, `LiveSignalDashboard.mq5` auf **einem** Chart aktivieren
+4. Status/Freshness prüfen (`CONNECTED`, `STALE>...`)
+5. KPI/Logs regelmäßig auswerten
+
+> Hinweis: Das Dashboard möglichst nur auf einem Chart aktiv lassen, um doppelte Alerts zu vermeiden.
+
+#### Entwicklung: Was ist maßgebend?
+
+**Single Source of Truth ist das Repository auf dem Linux-Server**
+(`live/mt5/LiveSignalDashboard.mq5`).
+Änderungen dort machen → deployen → in MT5 kompilieren/testen.
+Direkte Hotfixes im MetaEditor danach immer zurück ins Repo übernehmen.
 
 ---
 
@@ -80,6 +110,8 @@ Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
 | 5 | Backtesting | ✅ |
 | 6 | Live-Integration (Paper-Betrieb) | ✅ |
 | 7 | Überwachung & Wartung | 🔄 (Paper-Trading aktiv, KPI-Gates laufen) |
+| 7A | Option 1 Migration (H1/M5 Two-Stage) | 🔄 (Shadow vorbereitet, Start auf Laptop ausstehend) |
+| 7B | SMC/MTF-Gaps | 🔄 (Schritte 1–4 abgeschlossen, Step 5 Laufzeit offen) |
 
 **Aktueller Sub-Fokus:** Test-Phase Option 1 (Zwei-Stufen-Modell HTF/LTF).  
 Details: `Roadmap.md`, Recherche: `reports/HTF_LTF_Strategie_Recherche.md`.
@@ -100,11 +132,11 @@ Details: `Roadmap.md`, Recherche: `reports/HTF_LTF_Strategie_Recherche.md`.
 
 Phase 7 sauber ausführen:
 
-1. Daily Ops diszipliniert pflegen (`reports/daily_ops_checklist_w1.md`)
-2. Wöchentlichen KPI-Report erzeugen (`reports/weekly_kpi_report.py`)
-3. 12 konsekutive GO-Wochen für Eskalationsfreigabe aufbauen
-4. Dokumente regelmäßig mit Guard prüfen (`reports/doc_drift_guard.py` + `reports/doc_sync_checklist.md`)
-5. Tägliche Monitoring-Mail senden (`reports/daily_performance_email.py --tage 1`)
+1. Shadow-Compare auf dem Windows-Laptop starten (`start_shadow_compare.bat`)
+2. Wöchentlichen KPI-Report für Two-Stage erzeugen (`reports/weekly_kpi_report.py --timeframe M5_TWO_STAGE`)
+3. 2 Wochen Shadow-Logs sammeln und v4/v5 vergleichen
+4. Bis dahin strikt **PAPER_ONLY** (keine Eskalation auf Echtgeld)
+5. Dokumente regelmäßig mit Guard prüfen (`reports/doc_drift_guard.py` + `reports/doc_sync_checklist.md`)
 
 ---
 

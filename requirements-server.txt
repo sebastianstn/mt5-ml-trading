@@ -14,6 +14,7 @@ pandas_ta>=0.3.14b
 xgboost>=2.0.0
 lightgbm>=4.0.0
 scikit-learn>=1.3.0
+hmmlearn>=0.3.3
 
 # Hyperparameter-Optimierung
 optuna>=3.4.0

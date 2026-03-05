@@ -92,7 +92,17 @@ def _htf_bias_features(h1_df: pd.DataFrame, htf_model: object) -> pd.DataFrame:
     Returns:
         Bias-Features auf H1-Index (leakage-sicher durch shift(1)).
     """
+    # Exakt dieselben Features verwenden wie beim Training gespeichert.
+    # So vermeiden wir Mismatches, wenn sich globale Ausschlusslisten ändern.
     x_h1 = _feature_matrix(h1_df)
+    if hasattr(htf_model, "feature_name_") and htf_model.feature_name_:
+        model_features = list(htf_model.feature_name_)
+        fehlend = [f for f in model_features if f not in x_h1.columns]
+        if fehlend:
+            raise ValueError(
+                "HTF-Backtest: Fehlende Modell-Features in H1-Daten: " f"{fehlend}"
+            )
+        x_h1 = x_h1[model_features]
     proba = htf_model.predict_proba(x_h1)
     pred_class = np.argmax(proba, axis=1)
 
@@ -110,7 +120,9 @@ def _htf_bias_features(h1_df: pd.DataFrame, htf_model: object) -> pd.DataFrame:
     return htf_bias.shift(1)
 
 
-def _project_bias_to_ltf(ltf_df: pd.DataFrame, htf_bias_df: pd.DataFrame) -> pd.DataFrame:
+def _project_bias_to_ltf(
+    ltf_df: pd.DataFrame, htf_bias_df: pd.DataFrame
+) -> pd.DataFrame:
     """Projiziert H1-Bias auf M5-Zeitstempel via backward asof-merge.
 
     Args:
@@ -156,7 +168,9 @@ def two_stage_signale_generieren(
     """
     models_dir = BASE_DIR / "models"
 
-    meta_path = models_dir / f"two_stage_{symbol.lower()}_{ltf_timeframe}_{version}.json"
+    meta_path = (
+        models_dir / f"two_stage_{symbol.lower()}_{ltf_timeframe}_{version}.json"
+    )
     if not meta_path.exists():
         raise FileNotFoundError(f"Meta-Datei nicht gefunden: {meta_path}")
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -264,7 +278,9 @@ def main() -> None:
 
     regime_erlaubt: Optional[list[int]] = None
     if args.regime_filter:
-        regime_erlaubt = [int(r.strip()) for r in args.regime_filter.split(",") if r.strip()]
+        regime_erlaubt = [
+            int(r.strip()) for r in args.regime_filter.split(",") if r.strip()
+        ]
 
     risiko_config = RisikoConfig(
         kapital=0.0,
@@ -312,11 +328,15 @@ def main() -> None:
             print(f"[WARN] {symbol}: Keine Two-Stage Trades gefunden.")
             continue
 
-        k_ts = kennzahlen_berechnen(trades_ts, f"{symbol}_TWO_STAGE_{args.ltf_timeframe}")
+        k_ts = kennzahlen_berechnen(
+            trades_ts, f"{symbol}_TWO_STAGE_{args.ltf_timeframe}"
+        )
         gates_ts = _gates(k_ts)
 
         # Trades speichern (separater Dateiname für Two-Stage).
-        trade_path = BACKTEST_DIR / f"{symbol}_{args.ltf_timeframe}_two_stage_trades.csv"
+        trade_path = (
+            BACKTEST_DIR / f"{symbol}_{args.ltf_timeframe}_two_stage_trades.csv"
+        )
         trades_ts.to_csv(trade_path)
 
         # 3) Baseline auf gleichem Zeitraum (fairer Vergleich).
@@ -364,10 +384,14 @@ def main() -> None:
             "baseline_gate_sharpe": gates_base["Sharpe>0.8"],
             "baseline_gate_pf": gates_base["PF>1.3"],
             "baseline_gate_dd": gates_base["MaxDD>-10%"],
-            "delta_return_pct": round(k_ts["gesamtrendite_pct"] - k_base["gesamtrendite_pct"], 2),
+            "delta_return_pct": round(
+                k_ts["gesamtrendite_pct"] - k_base["gesamtrendite_pct"], 2
+            ),
             "delta_sharpe": round(k_ts["sharpe_ratio"] - k_base["sharpe_ratio"], 3),
             "delta_pf": round(k_ts["gewinnfaktor"] - k_base["gewinnfaktor"], 3),
-            "delta_maxdd_pct": round(k_ts["max_drawdown_pct"] - k_base["max_drawdown_pct"], 2),
+            "delta_maxdd_pct": round(
+                k_ts["max_drawdown_pct"] - k_base["max_drawdown_pct"], 2
+            ),
         }
         rows.append(row)
 

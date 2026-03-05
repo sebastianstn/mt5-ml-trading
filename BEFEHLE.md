@@ -7,7 +7,7 @@
 ## 📍 Schnellübersicht
 
 | Kategorie | Gerät | Skript |
-|-----------|-------|--------|
+| --------- | ----- | ------ |
 | Daten laden | 🪟 Windows | `data_loader.py` |
 | Features berechnen | 🐧 Linux | `features/feature_engineering.py` |
 | Labels erstellen | 🐧 Linux | `features/labeling.py` |
@@ -46,7 +46,7 @@ python data_loader.py --symbol alle --timeframe M30
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `alle` | Einzelnes Symbol oder `alle` |
 | `--timeframe` | `H1` | H1, M60, M30, M15 |
 | `--bars` | `50000` | Anzahl zu ladender Kerzen |
@@ -66,7 +66,7 @@ python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --a
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `USDCAD` | Handelssymbol (USDCAD, USDJPY aktiv) |
 | `--schwelle` | `0.52` | Mindest-Wahrscheinlichkeit für Trade (Test-Phase: 0.52) |
 | `--regime_filter` | `0,1,2` | Regime-Nummern: 0=Seitwärts, 1=Aufwärts, 2=Abwärts, 3=Hohe Vola |
@@ -93,21 +93,66 @@ python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --a
 **Fenster 1 – USDJPY (Option B):**
 
 ```powershell
-python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+python live\live_trader.py --symbol USDJPY --schwelle 0.55 --regime_filter 1 --atr_sl 1 --atr_faktor 1.5 --mt5_server "$env:MT5_SERVER" --mt5_login $env:MT5_LOGIN --mt5_password "$env:MT5_PASSWORD"
 ```
 
 **Fenster 2 – USDCAD (Regime 2, bewährt):**
 
 ```powershell
-python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "SwissquoteLtd-Server" --mt5_login 6202835 --mt5_password "*0YsQqAk"
+python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --atr_sl 1 --atr_faktor 1.5 --mt5_server "$env:MT5_SERVER" --mt5_login $env:MT5_LOGIN --mt5_password "$env:MT5_PASSWORD"
 ```
 
-| Symbol  | Schwelle | Regime        | Grund                                         |
-|---------|----------|---------------|-----------------------------------------------|
-| USDJPY  | 0.55     | 1 (Aufwärts)  | Option B optimiert (Phase 5 Grid-Search)     |
-| USDCAD  | 0.50     | 2 (Abwärts)   | Bewährte Phase-5/6 Konfiguration (PF 1.355)  |
+| Symbol | Schwelle | Regime | Grund |
+| ------ | -------- | ------ | ----- |
+| USDJPY | 0.55 | 1 (Aufwärts) | Option B optimiert (Phase 5 Grid-Search) |
+| USDCAD | 0.50 | 2 (Abwärts) | Bewährte Phase-5/6 Konfiguration (PF 1.355) |
 
 > ⚠️ **Wichtig:** MT5 Terminal muss offen sein. Laufen beide Fenster, haben Sie Paper-Trading aktiv.
+
+### Shadow-Compare starten (USDCAD v4 vs. USDJPY v5)
+
+> Kontrollierter Rollout auf **Windows Laptop**: USDCAD bleibt auf stabiler v4, USDJPY testet v5.
+
+```powershell
+cd "C:\Users\Sebastian Setnescu\mt5_trading"
+start_shadow_compare.bat
+```
+
+**Voraussetzung (einmalig):**
+
+```powershell
+setx MT5_SERVER "SwissquoteLtd-Server"
+setx MT5_LOGIN "<dein_login>"
+setx MT5_PASSWORD "<dein_passwort>"
+```
+
+### Alle Trader stoppen (vor Neustart empfohlen)
+
+> Beendet alle bekannten Trader-Fenster und laufende `live_trader.py` Prozesse.
+
+```powershell
+cd "C:\Users\Sebastian Setnescu\mt5_trading"
+stop_all_traders.bat
+```
+
+### Rollenklärung: Engine vs. Dashboard (wichtig)
+
+| Komponente | Rolle | Nutzung |
+| --- | --- | --- |
+| `start_shadow_compare.bat` | **Engine** (Ausführung) | Startet die Python-Trader im Hintergrund, erzeugt Signale/CSV/Logs, führt Paper-Orders aus |
+| `LiveSignalDashboard.mq5` | **Dashboard** (Beobachtung) | Liest CSV aus MT5 Common Files, zeigt Status/Freshness und zeichnet Entry/SL/TP/History im Chart |
+
+**Merksatz:** `start_shadow_compare.bat` arbeitet – `LiveSignalDashboard.mq5` zeigt an.
+
+**Empfehlung im Betrieb:**
+
+1. `stop_all_traders.bat`
+2. `start_shadow_compare.bat`
+3. Dashboard-EA auf einem MT5-Chart aktivieren (doppelte Alerts vermeiden)
+
+**Entwicklung:**
+Single Source of Truth bleibt das Repo auf Linux (`live/mt5/LiveSignalDashboard.mq5`).
+Änderung im Repo → deployen → in MT5 kompilieren/testen.
 
 ---
 
@@ -128,7 +173,7 @@ scp data\*_M15.csv "sebastian setnescu@192.168.1.19:/mnt/1T-Data/XGBoost-LightGB
 
 ## 🐧 Linux Server – Befehle
 
-### Virtuelle Umgebung aktivieren
+### Virtuelle Umgebung aktivieren (Linux)
 
 ```bash
 cd /mnt/1T-Data/XGBoost-LightGBM
@@ -146,7 +191,7 @@ python features/feature_engineering.py --symbol USDCAD --timeframe M15
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `alle` | Einzelnes Symbol oder `alle` |
 | `--timeframe` | `H1` | H1, M60, M30, M15 |
 
@@ -166,7 +211,7 @@ python features/labeling.py --symbol alle --modus atr --atr_faktor 1.5 --version
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `alle` | Einzelnes Symbol oder `alle` |
 | `--tp_pct` | `0.003` | Take-Profit (0.3%) |
 | `--sl_pct` | `0.003` | Stop-Loss (0.3%) |
@@ -192,7 +237,7 @@ python train_model.py --symbol USDCAD --version v1 --timeframe M15 --trials 50
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `EURUSD` | Einzelnes Symbol oder `alle` |
 | `--trials` | `50` | Anzahl Optuna-Trials (mehr = besser, aber langsamer) |
 | `--version` | `v1` | Modell-Versions-Suffix |
@@ -211,7 +256,7 @@ python walk_forward.py --symbol alle
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `EURUSD` | Einzelnes Symbol oder `alle` |
 | `--version` | `v1` | Versions-Suffix |
 | `--timeframe` | `H1` | H1, M60, M30, M15 |
@@ -238,7 +283,7 @@ python backtest/backtest.py --symbol USDCAD --zeitraum_von 2024-01-01 --zeitraum
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `EURUSD` | Ein oder mehrere Symbole, oder `alle` |
 | `--schwelle` | `0.55` | Wahrscheinlichkeits-Schwelle |
 | `--tp_pct` | `0.003` | Take-Profit (0.3%) |
@@ -274,7 +319,7 @@ python retraining.py --symbol alle --erzwingen
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--symbol` | `EURUSD` | Einzelnes Symbol oder `alle` |
 | `--erzwingen` | `False` | Retraining erzwingen (ignoriert Sharpe-Trigger) |
 | `--sharpe_limit` | `0.5` | Sharpe < Limit → Retraining auslösen |
@@ -294,12 +339,19 @@ python reports/weekly_kpi_report.py --tage 14
 
 # M15-Zeitrahmen
 python reports/weekly_kpi_report.py --timeframe M15
+
+# Two-Stage Shadow-Monitoring (M5 Trades)
+python reports/weekly_kpi_report.py --tage 7 --timeframe M5_TWO_STAGE
 ```
 
 | Argument | Standard | Beschreibung |
-|----------|----------|-------------|
+| -------- | -------- | ----------- |
 | `--tage` | `7` | Zeitraum in Tagen |
-| `--timeframe` | `H1` | H1, M60, M30, M15, H4 |
+| `--timeframe` | `H1` | H1, M60, M30, M15, H4, M5_TWO_STAGE |
+
+> Bei `--timeframe M5_TWO_STAGE` liest der Report die Dateien
+> `backtest/USDCAD_M5_two_stage_trades.csv` und
+> `backtest/USDJPY_M5_two_stage_trades.csv`.
 
 ---
 
@@ -326,6 +378,7 @@ bash run_pipeline_v2_v3.sh
 ### Automatisch (alle Modelle + Skript)
 
 ```bash
+cd /mnt/1T-Data/XGBoost-LightGBM
 bash deploy_to_laptop.sh
 ```
 
@@ -353,19 +406,31 @@ ssh "sebastian setnescu@192.168.1.19" "echo OK"
 
 ---
 
-## 📊 Aktuelle optimale Konfiguration (Stand: 2026-03-03)
+## 📊 Referenz-Konfiguration (H1-Baseline, Stand: 2026-03-03)
 
 | Symbol | Schwelle | Regime | ATR-SL | Sharpe | Rendite |
-|--------|----------|--------|--------|--------|---------|
+| ------ | -------- | ------ | ------ | ------ | ------- |
 | USDCAD | 0.50 | 2 (Abwärtstrend) | 1.5× ATR | 2.118 | +2.95% |
 | USDJPY | 0.50 | 1 (Aufwärtstrend) | 1.5× ATR | 1.263 | +5.94% |
+
+> Hinweis: Diese Tabelle ist die historische H1-Baseline.
+> Aktueller Fokus (2026-03-05) ist Shadow-Compare im Two-Stage-Setup (M5).
+
+## 📉 Aktueller Two-Stage Status (Stand: 2026-03-05, Stress-Re-Run)
+
+| Symbol | Version | Sharpe | PF | MaxDD | Status |
+| ------ | ------- | ------ | -- | ----- | ------ |
+| USDCAD | v5 | -23.002 | 0.011 | -164.30% | ❌ NO-GO |
+| USDJPY | v5 | -2.140 | 0.692 | -34.36% | ❌ NO-GO |
+
+> Konsequenz: Weiterhin **PAPER_ONLY** und Shadow-Compare-Laufzeit bewerten.
 
 ---
 
 ## 🔑 Regime-Nummern Referenz
 
 | Nummer | Regime | Beschreibung |
-|--------|--------|-------------|
+| ------ | ------ | ----------- |
 | 0 | Seitwärts | Kein klarer Trend |
 | 1 | Aufwärtstrend | Bullish |
 | 2 | Abwärtstrend | Bearish |
@@ -376,7 +441,7 @@ ssh "sebastian setnescu@192.168.1.19" "echo OK"
 ## 📁 Wichtige Pfade
 
 | Was | Linux Server | Windows Laptop |
-|-----|-------------|---------------|
+| --- | ------------ | -------------- |
 | Projektordner | `/mnt/1T-Data/XGBoost-LightGBM/` | `C:\Users\Sebastian Setnescu\mt5_trading\` |
 | venv | `.venv/bin/activate` | `venv\Scripts\activate` |
 | Modelle | `models/` | `models/` |
@@ -387,4 +452,6 @@ ssh "sebastian setnescu@192.168.1.19" "echo OK"
 
 ---
 
-*Letzte Aktualisierung: 2026-03-03*
+## Stand
+
+Letzte Aktualisierung: 2026-03-05

@@ -17,7 +17,7 @@ mit dem langfristigen Ziel, **konsistent profitabel** zu handeln.
 **Realistische Zielwerte (über 6+ Monate Paper-Trading):**
 
 | KPI | Zielwert | Beschreibung |
-|-----|----------|-------------|
+| --- | -------- | ----------- |
 | Sharpe Ratio | > 0.8 | Risikoadjustierte Rendite |
 | Profit Factor | > 1.3 | Gewinn/Verlust-Verhältnis |
 | Max. Drawdown | < 10% | Maximaler Kapitalrückgang |
@@ -131,12 +131,17 @@ Phasenübersicht:
 - ✅ Phase 2 – Feature Engineering (56 Features, 7 Paare)
 - ✅ Phase 3 – Regime Detection (market_regime + adx_14 in allen CSVs)
 - ✅ Phase 4 – Labeling & Modelltraining (LightGBM + XGBoost, 14 Modelle)
-- ✅ Phase 5 – Backtesting (USDCAD Sharpe=1.277, USDJPY Sharpe=1.073)
+- ✅ Phase 5 – Backtesting (H1-Baseline stabil; ATR-SL-Optimierung abgeschlossen)
 - ✅ Phase 6 – Live-Integration (MT5 verbunden, Dashboard+Sync stabil)
 - 🔄 Phase 7 – Überwachung & Wartung (KPI-Gates, 12-GO-Wochen, Retraining)
+- 🔄 Phase 7A – Option 1 (H1/M5 Two-Stage): Shadow vorbereitet, Start auf Laptop ausstehend
+- 🔄 Phase 7B – SMC/MTF-Upgrade: Schritt 1–4 abgeschlossen, Step 5 Laufzeit offen
 
 **Operative Policy aktuell:** Nur `USDCAD` und `USDJPY` sind aktiv im Paper-Betrieb.
 Alle anderen Symbole bleiben Research-only bis zur expliziten Freigabe.
+
+**Aktueller Entscheidungsstatus (2026-03-05):** Two-Stage v5 nach Stress-Re-Run auf beiden Symbolen **NO-GO**.
+Konsequenz: weiter **PAPER_ONLY** + Shadow-Compare-Laufzeit bewerten.
 
 > **Tipp:** Aktualisiere die aktuelle Phase hier wenn du vorankommst,
 > damit Claude immer den richtigen Kontext hat. Details → `Roadmap.md`
@@ -269,4 +274,4 @@ model = joblib.load(MODEL_DIR / "model_v1.pkl")
 
 ---
 
-Letzte Aktualisierung: 2026-03-01
+Letzte Aktualisierung: 2026-03-05

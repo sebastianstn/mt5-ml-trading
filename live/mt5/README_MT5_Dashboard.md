@@ -6,6 +6,8 @@ Diese Dateien helfen dir, Python-Signale in MT5 **zeitnah** zu sehen:
 - `sync_live_logs_to_mt5_common.ps1` → kopiert Python-Logs in MT5 Common Files
 - `install_sync_task.ps1` → registriert den Autostart-Task beim Login
 - `sync_live_logs_task_template.xml` → importierbare Task-Scheduler XML-Vorlage
+- `OPERATOR_CHECKLIST.md` → kompakte Ampel-Checkliste für den laufenden Betrieb
+- `CHART_LESELEITFADEN.md` → ausführliche Anleitung „Wie lese ich den Chart?“
 
 ---
 

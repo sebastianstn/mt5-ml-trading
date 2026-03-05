@@ -7,7 +7,7 @@
 ## 1. Trading-Abkürzungen
 
 | Abkürzung | Ausgeschrieben | Bedeutung |
-|-----------|---------------|-----------|
+| --------- | ------------- | --------- |
 | **MT5** | MetaTrader 5 | Trading-Plattform (läuft auf Windows Laptop) |
 | **SL** | Stop-Loss | Verlustbegrenzung pro Trade |
 | **TP** | Take-Profit | Gewinnziel pro Trade |
@@ -32,6 +32,16 @@
 | **Williams %R** | Williams Percent Range | Überkauft/Überverkauft-Indikator |
 | **+DI / -DI** | Directional Indicator | Richtungskomponenten des ADX |
 | **MTF** | Multi-Timeframe | Features aus höheren Zeitrahmen |
+| **HTF** | Higher Timeframe | Höherer Zeitrahmen (z.B. H1 für Bias) |
+| **LTF** | Lower Timeframe | Niedriger Zeitrahmen (z.B. M5 für Entry) |
+| **SMC** | Smart Money Concepts | Marktstruktur-/Liquiditätskonzepte |
+| **FVG** | Fair Value Gap | Ungleichgewichtslücke im Preisverlauf |
+| **BOS** | Break of Structure | Strukturbruch im Trendverlauf |
+| **MSS** | Market Structure Shift | Früher Strukturwechsel vor BOS |
+| **PDH/PDL** | Previous Day High/Low | Vortageshoch/Vortagestief |
+| **PWH/PWL** | Previous Week High/Low | Vorwochenhoch/Vorwochentief |
+| **HMM** | Hidden Markov Model | Probabilistisches Regime-Modell |
+| **Kill Zone** | Kill Zone | Zeitfenster mit erhöhter Marktaktivität |
 | **SAR** | Parabolic Stop and Reverse | (geplant) |
 
 ---
@@ -39,7 +49,7 @@
 ## 2. ML-Abkürzungen
 
 | Abkürzung | Ausgeschrieben | Bedeutung |
-|-----------|---------------|-----------|
+| --------- | ------------- | --------- |
 | **ML** | Machine Learning | Maschinelles Lernen |
 | **XGB** | Extreme Gradient Boosting | Gradient-Boosting-Modell (Baseline) |
 | **LGBM** | Light Gradient Boosting Machine | Gradient-Boosting-Modell (Hauptmodell) |
@@ -63,7 +73,7 @@
 ## 3. Deutsche Projektbegriffe
 
 | Begriff | Bedeutung |
-|---------|-----------|
+| ------- | --------- |
 | **Schwelle** | Mindest-Wahrscheinlichkeit für Trade-Auslösung (z.B. 0.50 = 50%) |
 | **Kerze / Barren** | Ein Datenpunkt (OHLCV) in einem Zeitrahmen |
 | **Schranke** | Barriere im Double-Barrier-Labeling (TP/SL-Level) |
@@ -75,6 +85,8 @@
 | **Toleranz** | F1-Abweichung, unter der ein neues Modell noch deployed wird |
 | **Warm-Up** | Anfangsperiode mit NaN (z.B. SMA200 braucht 200 Kerzen) |
 | **Paper-Trading** | Simulierter Handel ohne echtes Geld |
+| **Two-Stage** | Zwei-Stufen-Modell mit HTF-Bias + LTF-Entry (z.B. H1→M5) |
+| **Shadow-Compare** | Kontrollierter Vergleich alt vs. neu im Paper-Betrieb |
 | **Heartbeat** | Regelmäßiges Lebenszeichen-Log pro Kerze |
 | **Kill-Switch** | Automatischer Stopp bei zu hohem Drawdown (>15%) |
 | **Ausschluss-Spalten** | Spalten die NICHT als ML-Input genutzt werden |
@@ -89,7 +101,7 @@
 ## 4. Regime-Klassifikation
 
 | Nr. | Name | Bedingung |
-|-----|------|-----------|
+| --- | ---- | --------- |
 | **0** | Seitwärts | ADX < 25 und normale Volatilität |
 | **1** | Aufwärtstrend | ADX > 25 und Close > SMA50 |
 | **2** | Abwärtstrend | ADX > 25 und Close < SMA50 |
@@ -102,7 +114,7 @@
 ## 5. Klassen-Labels
 
 | Wert (intern) | Wert (CSV) | Name | Bedeutung |
-|---------------|-----------|------|-----------|
+| ------------- | ---------- | ---- | --------- |
 | 0 | -1 | **Short** | Verkaufs-Signal |
 | 1 | 0 | **Neutral** | Kein Signal (kein Trade) |
 | 2 | +1 | **Long** | Kauf-Signal |
@@ -112,7 +124,7 @@
 ## 6. Währungspaare
 
 | Code | Basis / Quote | Status |
-|------|--------------|--------|
+| ---- | ------------ | ------ |
 | **USDCAD** | US-Dollar / Kanad. Dollar | ✅ Aktiv (Paper) – Regime 2 |
 | **USDJPY** | US-Dollar / Jap. Yen | ✅ Aktiv (Paper) – Regime 1 |
 | **EURUSD** | Euro / US-Dollar | Research-only |
@@ -126,8 +138,9 @@
 ## 7. Zeitrahmen (Timeframes)
 
 | Code | Bedeutung | Minuten/Kerze |
-|------|-----------|---------------|
+| ---- | --------- | ------------- |
 | **M15** | 15-Minuten | 15 |
+| **M5** | 5-Minuten | 5 |
 | **M30** | 30-Minuten | 30 |
 | **M60** | 60-Minuten (= H1) | 60 |
 | **H1** | 1-Stunde (Standard) | 60 |
@@ -170,6 +183,10 @@
 
 `adx_14`, `market_regime`
 
+### SMC/MTF-Feature-Familien (Phase 7B)
+
+`key_levels_*` (z.B. PDH/PDL/PWH/PWL), `fvg_*`, `bos_*`, `mss_*`, `killzone_*`, `market_regime_hmm`
+
 ### Externe Features
 
 `fear_greed_value`, `fear_greed_class`, `btc_funding_rate`
@@ -185,7 +202,7 @@
 ### CSV-Dateien (data/)
 
 | Muster | Beispiel | Inhalt |
-|--------|---------|--------|
+| ------ | -------- | ------ |
 | `SYMBOL_TF.csv` | `USDCAD_H1.csv` | Rohdaten (OHLCV) |
 | `SYMBOL_TF_features.csv` | `USDCAD_H1_features.csv` | + Indikatoren + Regime |
 | `SYMBOL_TF_labeled.csv` | `USDCAD_H1_labeled.csv` | + Labels (v1) |
@@ -194,7 +211,7 @@
 ### Modell-Dateien (models/)
 
 | Muster | Beispiel | Inhalt |
-|--------|---------|--------|
+| ------ | -------- | ------ |
 | `lgbm_symbol_vN.pkl` | `lgbm_usdcad_v1.pkl` | LightGBM H1 |
 | `xgb_symbol_vN.pkl` | `xgb_usdcad_v1.pkl` | XGBoost H1 |
 | `lgbm_symbol_TF_vN.pkl` | `lgbm_usdcad_M15_v1.pkl` | Anderer Timeframe |
@@ -205,7 +222,7 @@
 ### Versions-Schema
 
 | Prefix | Bedeutung |
-|--------|-----------|
+| ------ | --------- |
 | **v1** | Standard-Labeling (TP=SL=0.3%) |
 | **v2** | Horizon=10 |
 | **v3** | Asymmetrisch (RRR 2:1) |
@@ -217,7 +234,7 @@
 ## 10. Labeling-Modi
 
 | Modus | Methode | Barrieren |
-|-------|---------|-----------|
+| ----- | ------- | --------- |
 | **standard** | Feste symmetrische Barrieren | TP = SL = 0.3% |
 | **rrr** | Asymmetrisch (Risk-Reward) | z.B. TP=0.6%, SL=0.3% |
 | **atr** | Dynamisch (volatilitätsbasiert) | TP = SL = ATR_14 × Faktor |
@@ -227,7 +244,7 @@
 ## 11. Datenaufteilung (zeitlich)
 
 | Split | Zeitraum | Zweck |
-|-------|----------|-------|
+| ----- | -------- | ----- |
 | **Training** | 2018-04 bis 2021-12 | Muster lernen (~23.000 Kerzen) |
 | **Validierung** | 2022-01 bis 2022-12 | Modellselektion & Tuning |
 | **Test** | 2023-01 bis heute | **HEILIG** – nur finale Bewertung |
@@ -239,7 +256,7 @@
 ## 12. Wichtige Konstanten
 
 | Konstante | Wert | Bedeutung |
-|-----------|------|-----------|
+| --------- | ---- | --------- |
 | `TP_PCT` | 0.003 | Take-Profit 0.3% |
 | `SL_PCT` | 0.003 | Stop-Loss 0.3% |
 | `LOT` | 0.01 | Micro-Lot |
@@ -257,7 +274,7 @@
 ## 13. Python-Bibliotheken
 
 | Bibliothek | Zweck | Gerät |
-|-----------|-------|-------|
+| ---------- | ----- | ----- |
 | **MetaTrader5** | MT5-API (Daten, Orders) | 🪟 Windows |
 | **pandas** | DataFrames, CSV I/O | Beide |
 | **numpy** | Numerische Berechnungen | Beide |
@@ -281,7 +298,7 @@
 ## 14. Weitere Fachbegriffe
 
 | Begriff | Bedeutung |
-|---------|-----------|
+| ------- | --------- |
 | **Double-Barrier** | Labeling-Methode: TP-Barriere + SL-Barriere + Zeitschranke |
 | **Walk-Forward** | Expanding-Window-Validierung (5 Fenster) |
 | **Equity-Kurve** | Kapitalverlauf über Zeit |
@@ -316,6 +333,13 @@
   Größter zwischenzeitlicher Kapitalrückgang; wichtig für Risiko- und Stress-Toleranz im Phase-7-Betrieb.
 
 > Praxisregel für Phase 7: Eine Konfiguration gilt nur dann als nachhaltig „GO", wenn **Ertrag + Risiko + Stabilität** gemeinsam passen (nicht nur eine einzelne Kennzahl).
+
+### Aktueller Two-Stage Stress-Status (2026-03-05)
+
+- USDCAD v5: Sharpe -23.002, PF 0.011, MaxDD -164.30% → **NO-GO**
+- USDJPY v5: Sharpe -2.140, PF 0.692, MaxDD -34.36% → **NO-GO**
+
+Konsequenz: Betrieb weiterhin **PAPER_ONLY** und Shadow-Compare-Laufzeit abwarten.
 
 ---
 
@@ -355,4 +379,4 @@ Für Go/No-Go im laufenden Betrieb immer **mehrere KPIs gemeinsam** betrachten (
 
 ---
 
-Letzte Aktualisierung: 2026-03-03
+Letzte Aktualisierung: 2026-03-05

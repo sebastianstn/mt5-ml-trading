@@ -30,6 +30,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Optional: HMM-Regime-Detection (falls installiert)
+try:
+    from hmmlearn.hmm import GaussianHMM
+
+    HAS_HMMLEARN = True
+except ImportError:
+    HAS_HMMLEARN = False
+
 # Logging konfigurieren
 logging.basicConfig(
     level=logging.INFO,
@@ -728,6 +736,293 @@ def zeitbasierte_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
+# 8b. Kill-Zone Features (präzise Session-Fenster)
+# ============================================================
+
+
+def killzone_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Berechnet präzisere Kill-Zone-Features für Intraday-Entries.
+
+    Im Unterschied zu breiten Session-Flags markieren Kill Zones
+    die typischen Hochaktivitäts-Fenster:
+      - London Open: 07:00–09:00 UTC
+      - New York Open: 13:00–15:00 UTC
+      - Asia Open: 00:00–02:00 UTC
+
+    Args:
+        df: OHLCV DataFrame mit DatetimeIndex (UTC)
+
+    Returns:
+        DataFrame mit Kill-Zone-Spalten.
+    """
+    result = df.copy()
+
+    if isinstance(result.index, pd.DatetimeIndex):
+        stunde = result.index.hour
+    else:
+        stunde = pd.to_datetime(result.index).hour
+
+    # Präzise Handelsfenster für Entry-Timing
+    result["killzone_london_open"] = ((stunde >= 7) & (stunde < 9)).astype(int)
+    result["killzone_ny_open"] = ((stunde >= 13) & (stunde < 15)).astype(int)
+    result["killzone_asia_open"] = ((stunde >= 0) & (stunde < 2)).astype(int)
+
+    logger.info("Kill-Zone-Features: London/NY/Asia Open ✓")
+    return result
+
+
+# ============================================================
+# 8c. Key-Level Features (PDH/PDL/PWH/PWL)
+# ============================================================
+
+
+def key_level_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Berechnet Key-Level-Distanzen (Previous Day/Week High/Low).
+
+    LOOK-AHEAD-BIAS PRÄVENTION:
+    - Tages-/Wochenlevels werden immer mit .shift(1) verzögert.
+    - Eine Kerze sieht also nie High/Low derselben laufenden Periode.
+
+    Args:
+        df: OHLCV DataFrame mit DatetimeIndex (UTC)
+
+    Returns:
+        DataFrame mit Key-Level-Spalten.
+    """
+    result = df.copy()
+
+    # Previous Day Levels
+    day_high = result["high"].resample("1d").max().shift(1)
+    day_low = result["low"].resample("1d").min().shift(1)
+    result["pdh"] = day_high.reindex(result.index, method="ffill")
+    result["pdl"] = day_low.reindex(result.index, method="ffill")
+
+    # Previous Week Levels (Woche startet Montag)
+    week_high = result["high"].resample("W-MON").max().shift(1)
+    week_low = result["low"].resample("W-MON").min().shift(1)
+    result["pwh"] = week_high.reindex(result.index, method="ffill")
+    result["pwl"] = week_low.reindex(result.index, method="ffill")
+
+    close_safe = result["close"].replace(0, np.nan)
+    # Distanz-Features (normalisiert) – für Modell besser als absolute Preisniveaus
+    result["dist_pdh_pct"] = (result["close"] - result["pdh"]) / close_safe
+    result["dist_pdl_pct"] = (result["close"] - result["pdl"]) / close_safe
+    result["dist_pwh_pct"] = (result["close"] - result["pwh"]) / close_safe
+    result["dist_pwl_pct"] = (result["close"] - result["pwl"]) / close_safe
+
+    # Nähe zu einem Key-Level (0.15% Toleranzband)
+    level_tol = 0.0015
+    result["near_key_level"] = (
+        (result["dist_pdh_pct"].abs() <= level_tol)
+        | (result["dist_pdl_pct"].abs() <= level_tol)
+        | (result["dist_pwh_pct"].abs() <= level_tol)
+        | (result["dist_pwl_pct"].abs() <= level_tol)
+    ).astype(int)
+
+    logger.info("Key-Level-Features: PDH/PDL/PWH/PWL + Distanz ✓")
+    return result
+
+
+# ============================================================
+# 8d. FVG-Features (Fair Value Gaps)
+# ============================================================
+
+
+def fvg_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Berechnet einfache Fair-Value-Gap (FVG) Features mit 3-Kerzen-Logik.
+
+    Bullish FVG: low[t] > high[t-2]
+    Bearish FVG: high[t] < low[t-2]
+
+    Args:
+        df: OHLCV DataFrame
+
+    Returns:
+        DataFrame mit FVG-Spalten.
+    """
+    result = df.copy()
+
+    high_shift2 = result["high"].shift(2)
+    low_shift2 = result["low"].shift(2)
+
+    bull_fvg = result["low"] > high_shift2
+    bear_fvg = result["high"] < low_shift2
+
+    result["fvg_bullish"] = bull_fvg.astype(int)
+    result["fvg_bearish"] = bear_fvg.astype(int)
+
+    # Gap-Größe in % des Close (signiert: bullish positiv, bearish negativ)
+    close_safe = result["close"].replace(0, np.nan)
+    bull_gap = (result["low"] - high_shift2) / close_safe
+    bear_gap = (low_shift2 - result["high"]) / close_safe
+    result["fvg_gap_pct"] = np.where(
+        bull_fvg,
+        bull_gap,
+        np.where(bear_fvg, -bear_gap, 0.0),
+    )
+
+    logger.info("FVG-Features: bullish/bearish + gap_pct ✓")
+    return result
+
+
+# ============================================================
+# 8e. MSS/BOS Features (Marktstruktur)
+# ============================================================
+
+
+def mss_bos_features(df: pd.DataFrame, pivot_bars: int = 20) -> pd.DataFrame:
+    """
+    Berechnet Marktstruktur-Features (BOS und MSS) ohne Future-Leak.
+
+    Methodik (leakage-sicher):
+    - Struktur-Level basieren ausschließlich auf Vergangenheitsdaten via shift(1).
+    - BOS bullish: close > rolling_max(high, pivot_bars) der Vergangenheit
+    - BOS bearish: close < rolling_min(low, pivot_bars) der Vergangenheit
+    - MSS: erster BOS in Gegenrichtung zum letzten dominanten BOS
+
+    Args:
+        df: OHLCV DataFrame
+        pivot_bars: Rückblickfenster für Struktur-Level
+
+    Returns:
+        DataFrame mit MSS/BOS-Spalten.
+    """
+    result = df.copy()
+
+    prev_swing_high = result["high"].shift(1).rolling(pivot_bars).max()
+    prev_swing_low = result["low"].shift(1).rolling(pivot_bars).min()
+
+    bos_bull = (result["close"] > prev_swing_high).astype(int)
+    bos_bear = (result["close"] < prev_swing_low).astype(int)
+
+    result["bos_bull"] = bos_bull
+    result["bos_bear"] = bos_bear
+
+    # Struktur-Bias: 1=bullish, -1=bearish, 0=neutral
+    structure_bias = np.where(bos_bull == 1, 1, np.where(bos_bear == 1, -1, 0))
+    result["structure_bias"] = (
+        pd.Series(structure_bias, index=result.index).ffill().fillna(0)
+    )
+
+    prev_bias = result["structure_bias"].shift(1).fillna(0)
+    result["mss_bull"] = ((bos_bull == 1) & (prev_bias < 0)).astype(int)
+    result["mss_bear"] = ((bos_bear == 1) & (prev_bias > 0)).astype(int)
+
+    logger.info("MSS/BOS-Features: BOS bull/bear, MSS bull/bear, structure_bias ✓")
+    return result
+
+
+# ============================================================
+# 8f. HMM-Regime-Feature (probabilistisch)
+# ============================================================
+
+
+def hmm_regime_feature(
+    df: pd.DataFrame,
+    n_states: int = 4,
+    min_train_bars: int = 400,
+    refit_interval: int = 2000,
+) -> pd.DataFrame:
+    """
+    Berechnet ein HMM-basiertes Regime-Feature mit Walk-Forward-Fit.
+
+    Ablauf:
+    - HMM wird auf einem wachsenden historischen Fenster trainiert.
+    - Refit nur alle `refit_interval` Bars (Performance).
+    - Für jede Bar wird der Regime-State ohne Nutzung zukünftiger Bars geschätzt.
+
+    Falls `hmmlearn` nicht installiert ist, wird robust auf das bestehende
+    regelbasierte `market_regime` zurückgefallen.
+
+    Args:
+        df: DataFrame mit mindestens close und atr_pct
+        n_states: Anzahl HMM-Zustände
+        min_train_bars: Mindesthistorie vor erstem Fit
+        refit_interval: Refit-Frequenz
+
+    Returns:
+        DataFrame mit zusätzlicher Spalte `market_regime_hmm`.
+    """
+    result = df.copy()
+
+    if not HAS_HMMLEARN:
+        logger.warning(
+            "hmmlearn nicht installiert – market_regime_hmm nutzt Fallback market_regime"
+        )
+        result["market_regime_hmm"] = result.get("market_regime", 0)
+        return result
+
+    log_ret = np.log(result["close"] / result["close"].shift(1)).fillna(0.0)
+    atr_pct = result["atr_pct"].ffill().fillna(0.0)
+    x = np.column_stack([log_ret.values, atr_pct.values])
+
+    states = np.full(len(result), np.nan)
+    hmm_model: GaussianHMM | None = None
+
+    train_window = 5000
+
+    for i in range(min_train_bars, len(result)):
+        if hmm_model is None or (i - min_train_bars) % refit_interval == 0:
+            try:
+                start_idx = max(0, i - train_window)
+                hmm_model = GaussianHMM(
+                    n_components=n_states,
+                    covariance_type="diag",
+                    n_iter=150,
+                    random_state=42,
+                )
+                hmm_model.fit(x[start_idx:i])
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.warning("HMM-Fit fehlgeschlagen bei i=%s: %s", i, e)
+                hmm_model = None
+
+        if hmm_model is not None:
+            try:
+                states[i] = int(hmm_model.predict(x[i : i + 1])[0])
+            except Exception:  # pylint: disable=broad-exception-caught
+                states[i] = np.nan
+
+    state_series = pd.Series(states, index=result.index).ffill().fillna(0).astype(int)
+
+    # Zustände semantisch auf 4 Regime mappen (0=Seitwärts,1=Auf,2=Ab,3=HighVola)
+    # Mapping basiert auf in-sample Statistik der bereits berechneten States.
+    state_stats = (
+        pd.DataFrame(
+            {
+                "state": state_series,
+                "ret": log_ret,
+                "vol": atr_pct,
+            }
+        )
+        .groupby("state")
+        .agg(ret_mean=("ret", "mean"), vol_mean=("vol", "mean"))
+    )
+
+    if len(state_stats) >= 2:
+        high_vol_state = int(state_stats["vol_mean"].idxmax())
+        ret_sorted = state_stats.drop(
+            index=high_vol_state, errors="ignore"
+        ).sort_values("ret_mean")
+        bear_state = int(ret_sorted.index[0]) if len(ret_sorted) > 0 else high_vol_state
+        bull_state = (
+            int(ret_sorted.index[-1]) if len(ret_sorted) > 0 else high_vol_state
+        )
+        regime_map = {s: 0 for s in state_stats.index}
+        regime_map[high_vol_state] = 3
+        regime_map[bull_state] = 1
+        regime_map[bear_state] = 2
+        result["market_regime_hmm"] = state_series.map(regime_map).fillna(0).astype(int)
+    else:
+        result["market_regime_hmm"] = result.get("market_regime", 0)
+
+    logger.info("HMM-Regime-Feature: market_regime_hmm ✓")
+    return result
+
+
+# ============================================================
 # 9. NaN-Bereinigung
 # ============================================================
 
@@ -789,6 +1084,15 @@ def features_berechnen(symbol: str, timeframe: str = "H1") -> bool:
         df = kerzenmuster_features(df, timeframe=timeframe)  # ← verwendet atr_14
         df = multitimeframe_features(df)
         df = zeitbasierte_features(df)
+        df = killzone_features(df)
+        df = key_level_features(df)
+        df = fvg_features(df)
+        df = mss_bos_features(df)
+
+        # Bestehendes regelbasiertes Regime bleibt erhalten; HMM-Regime kommt zusätzlich.
+        # In Echtzeit ist HMM optional (Fallback aktiv wenn hmmlearn fehlt).
+        # Das Training kann dann explizit beide Regime-Features nutzen.
+        df = hmm_regime_feature(df)
         df = nan_bereinigung(df)
 
     except ValueError as e:

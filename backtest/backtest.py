@@ -405,9 +405,21 @@ def signale_generieren(  # pylint: disable=too-many-locals
     logger.info(f"[{symbol}] Lade Modell: {modell_pfad.name}")
     modell = joblib.load(modell_pfad)
 
-    # Features aufbereiten (gleiche Spalten wie beim Training)
-    feature_spalten = [c for c in df.columns if c not in AUSSCHLUSS_SPALTEN]
-    x_features = df[feature_spalten].copy()
+    # Features aufbereiten (exakt wie beim Training des Modells)
+    if hasattr(modell, "feature_name_") and modell.feature_name_:
+        modell_features = list(modell.feature_name_)
+    else:
+        modell_features = [c for c in df.columns if c not in AUSSCHLUSS_SPALTEN]
+
+    fehlende = [f for f in modell_features if f not in df.columns]
+    if fehlende:
+        logger.warning(
+            f"[{symbol}] Fehlende Modell-Features im Backtest-DF: {fehlende} – werden mit 0 ergänzt"
+        )
+        for feat in fehlende:
+            df[feat] = 0.0
+
+    x_features = df[modell_features].copy()
 
     # NaN-Werte mit Median auffüllen (Sicherheitsnetz)
     nan_anzahl = x_features.isna().sum().sum()

@@ -21,7 +21,7 @@ LAPTOP_ZIELORDNER="C:/Users/sebastian setnescu/mt5_trading"  # Absoluter Pfad (f
 LAPTOP_ZIELORDNER_SFTP="mt5_trading"          # Relativer Pfad für sftp (startet im Home-Dir des Users)
 
 # Linux-Server Pfade
-SERVER_BASIS="/mnt/1T-Data/XGBoost-LightGBM"
+SERVER_BASIS="/mnt/1Tb-Data/XGBoost-LightGBM"
 MODELL_ORDNER="${SERVER_BASIS}/models"
 LIVE_SKRIPT="${SERVER_BASIS}/live/live_trader.py"
 MT5_DASHBOARD_SKRIPT="${SERVER_BASIS}/live/mt5/LiveSignalDashboard.mq5"

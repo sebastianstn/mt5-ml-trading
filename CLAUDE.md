@@ -39,7 +39,7 @@ Eskalation auf Echtgeld erst nach 12 konsekutiven GO-Wochen.
 
 > **Kritisch:** `MetaTrader5` Python-Bibliothek funktioniert NUR auf Windows. `data_loader.py`
 > und `live_trader.py` müssen auf dem Windows 11 Laptop ausgeführt werden. Alle anderen
-> Skripte laufen auf dem Linux-Server unter `/mnt/1T-Data/XGBoost-LightGBM/`.
+> Skripte laufen auf dem Linux-Server unter `/mnt/1Tb-Data/XGBoost-LightGBM/`.
 
 ---
 
@@ -61,7 +61,7 @@ Eskalation auf Echtgeld erst nach 12 konsekutiven GO-Wochen.
 ## 📁 Projektstruktur
 
 ```text
-mt5_ml_trading/                        # /mnt/1T-Data/XGBoost-LightGBM/
+mt5_ml_trading/                        # /mnt/1Tb-Data/XGBoost-LightGBM/
 ├── .github/
 │   └── copilot-instructions.md        # Instruktionen für GitHub Copilot
 ├── CLAUDE.md                          # Diese Datei – Instruktionen für Claude Code

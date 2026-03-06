@@ -27,12 +27,12 @@ Shadow-Mode (Two-Stage):
 Modell-Übertragung vom Linux-Server auf den Windows Laptop:
     Auf dem Linux-Server ausführen:
         # Single-Stage (H1):
-        scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_usdcad_v1.pkl USER@LAPTOP:./models/
-        scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v1.pkl USER@LAPTOP:./models/
+        scp /mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdcad_v1.pkl USER@LAPTOP:./models/
+        scp /mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v1.pkl USER@LAPTOP:./models/
 
         # Two-Stage (H1 + M5, für USDJPY):
-        scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_htf_bias_usdjpy_H1_v4.pkl USER@LAPTOP:./models/
-        scp /mnt/1T-Data/XGBoost-LightGBM/models/lgbm_ltf_entry_usdjpy_M5_v4.pkl USER@LAPTOP:./models/
+        scp /mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_htf_bias_usdjpy_H1_v4.pkl USER@LAPTOP:./models/
+        scp /mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_ltf_entry_usdjpy_M5_v4.pkl USER@LAPTOP:./models/
 
 Verwendung (Windows, venv aktiviert):
     # Single-Stage (H1):
@@ -2386,7 +2386,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         print(
             f"Modell nicht gefunden: {modell_pfad}\n"
             f"Bitte Modell vom Linux-Server übertragen:\n"
-            f"  scp SERVER:/mnt/1T-Data/XGBoost-LightGBM/models/"
+            f"  scp SERVER:/mnt/1Tb-Data/XGBoost-LightGBM/models/"
             f"{modell_name_hinweis} ./models/"
         )
         return

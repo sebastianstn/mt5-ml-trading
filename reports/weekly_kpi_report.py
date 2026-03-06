@@ -15,7 +15,7 @@ Wichtig:
 Läuft auf: Linux-Server
 
 Verwendung:
-    cd /mnt/1T-Data/XGBoost-LightGBM
+    cd /mnt/1Tb-Data/XGBoost-LightGBM
     source .venv/bin/activate
     python reports/weekly_kpi_report.py
     python reports/weekly_kpi_report.py --tage 7

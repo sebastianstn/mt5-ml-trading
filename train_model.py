@@ -20,7 +20,7 @@ Ablauf:
 Läuft auf: Linux-Server
 
 Verwendung:
-    cd /mnt/1T-Data/XGBoost-LightGBM
+    cd /mnt/1Tb-Data/XGBoost-LightGBM
     source venv/bin/activate
     python train_model.py [--symbol EURUSD] [--trials 50]
 

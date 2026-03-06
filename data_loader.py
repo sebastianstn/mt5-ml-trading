@@ -391,7 +391,7 @@ def main() -> None:
     print("\nNächster Schritt: Alle CSV auf den Linux-Server übertragen.")
     print("Befehl (in PowerShell aus dem data/-Ordner):")
     print("  cd C:\\Users\\Sebastian Setnescu\\mt5_trading\\data")
-    print("  scp *.csv stnsebi@192.168.1.4:/mnt/1T-Data/XGBoost-LightGBM/data/")
+    print("  scp *.csv stnsebi@192.168.1.4:/mnt/1Tb-Data/XGBoost-LightGBM/data/")
     print("=" * 60)
 
 

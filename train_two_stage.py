@@ -18,7 +18,7 @@ Läuft auf:
     Linux-Server
 
 Verwendung:
-    cd /mnt/1T-Data/XGBoost-LightGBM
+    cd /mnt/1Tb-Data/XGBoost-LightGBM
     source .venv/bin/activate
     python train_two_stage.py --symbol USDCAD --ltf_timeframe M5 --version v4
 """

@@ -2,7 +2,7 @@ param(
     [string]$ProjectDir = "C:\Users\Sebastian Setnescu\mt5_trading",
     [string]$LinuxUser = "stnsebi",
     [string]$LinuxHost = "192.168.1.4",
-    [string]$LinuxDataDir = "/mnt/1T-Data/XGBoost-LightGBM/data",
+    [string]$LinuxDataDir = "/mnt/1Tb-Data/XGBoost-LightGBM/data",
     [int]$Bars = 50000
 )
 

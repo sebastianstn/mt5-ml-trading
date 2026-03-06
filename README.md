@@ -23,7 +23,7 @@ Aktueller Betriebsmodus: **Paper-Trading aktiv** (USDCAD + USDJPY).
 ### Linux-Server (Training/Backtest)
 
 ```bash
-cd /mnt/1T-Data/XGBoost-LightGBM
+cd /mnt/1Tb-Data/XGBoost-LightGBM
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-server.txt
@@ -53,7 +53,7 @@ Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
 Vergleich der Signal-Schwellen `0.50`, `0.55`, `0.60` auf Basis von `logs/*_live_trades.csv`:
 
 ```bash
-cd /mnt/1T-Data/XGBoost-LightGBM
+cd /mnt/1Tb-Data/XGBoost-LightGBM
 source .venv/bin/activate
 python scripts/evaluate_threshold_kpis.py --symbols USDCAD,USDJPY --hours 72 --thresholds 0.50,0.55,0.60 --threshold_operator ge
 ```
@@ -78,7 +78,7 @@ Wichtig für Entry-Logik im Live-Trader:
 Kalibrierung prüfen/erzeugen (Platt oder Isotonic), damit Schwellen wie `0.55` belastbarer sind:
 
 ```bash
-cd /mnt/1T-Data/XGBoost-LightGBM
+cd /mnt/1Tb-Data/XGBoost-LightGBM
 source .venv/bin/activate
 python scripts/calibrate_probabilities.py \
   --model_path models/lgbm_usdjpy_v4.pkl \
@@ -150,7 +150,7 @@ Direkte Hotfixes im MetaEditor danach immer zurück ins Repo übernehmen.
 ## Projektstruktur
 
 ```text
-/mnt/1T-Data/XGBoost-LightGBM/
+/mnt/1Tb-Data/XGBoost-LightGBM/
 ├── data/                    # Rohdaten, Features, Labels
 ├── features/                # Feature-/Label-/Regime-Pipelines
 ├── models/                  # Modellartefakte (.pkl)

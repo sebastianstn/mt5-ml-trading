@@ -28,7 +28,7 @@
 // ║   - Braucht KEINE Ticks – funktioniert auch am Wochenende   ║
 // ╚══════════════════════════════════════════════════════════════╝
 #property strict                    // Strenger Compiler-Modus (faengt mehr Fehler ab)
-#property version "2.21"            // Versionsnummer – erhoehe bei jeder Aenderung
+#property version "2.23"            // Versionsnummer – erhoehe bei jeder Aenderung
 #property description "MT5 Dashboard fuer Python Live-Signale (USDCAD/USDJPY)"
 #property description "Liest CSV aus Common/Files und zeigt Status, Alerts + Chart-Zeichnungen."
 #property description "v2.21: +Countdown, Spread, ATR/Vola, Session, Regime, Modus"
@@ -53,6 +53,7 @@ input bool InpUseCommonFiles = true;        // true = lese aus MT5 Common/Files 
 input int InpRefreshSeconds = 5;            // Wie oft (in Sekunden) die CSV neu gelesen wird
                                             // 5 = alle 5 Sekunden aktualisieren
 input bool InpEnableAlerts = true;          // true = Popup-Alert wenn ein neues Long/Short-Signal kommt
+input bool InpAlertPrintToJournal = false;  // true = Alert-Text zusaetzlich ins Journal (sonst nur Popup)
 
 // --- Freshness / "Wie alt duerfen die Daten sein?" ---
 // Wenn die CSV-Daten aelter als X Minuten sind, gelten sie als "STALE" (veraltet).
@@ -374,6 +375,45 @@ bool ParseBool(const string raw)
     return (v == "1" || v == "true" || v == "ja" || v == "yes");
 }
 
+// NormalizeMojibake() – korrigiert typische UTF-8/ANSI-Artefakte aus CSV-Texten.
+string NormalizeMojibake(const string raw)
+{
+    string text = raw;
+    StringReplace(text, "Ã¤", "ä");
+    StringReplace(text, "Ã¶", "ö");
+    StringReplace(text, "Ã¼", "ü");
+    StringReplace(text, "Ã„", "Ä");
+    StringReplace(text, "Ã–", "Ö");
+    StringReplace(text, "Ãœ", "Ü");
+    StringReplace(text, "ÃŸ", "ß");
+    return text;
+}
+
+// RegimeNameFromId() – robustes Mapping auf konsistente Regime-Texte.
+string RegimeNameFromId(const int regime)
+{
+    if (regime == 0) return "Seitwärts";
+    if (regime == 1) return "Aufwärtstrend";
+    if (regime == 2) return "Abwärtstrend";
+    if (regime == 3) return "Hohe Volatilität";
+    return "Unbekannt";
+}
+
+// NormalizeRegimeName() – bevorzugt CSV-Text, faellt sonst auf Regime-ID zurueck.
+string NormalizeRegimeName(const string raw, const int regime)
+{
+    string name = NormalizeMojibake(raw);
+    StringReplace(name, "Seitwaerts", "Seitwärts");
+    StringReplace(name, "Aufwaertstrend", "Aufwärtstrend");
+    StringReplace(name, "Abwaertstrend", "Abwärtstrend");
+    StringReplace(name, "Hohe Volatilitaet", "Hohe Volatilität");
+    StringTrimLeft(name);
+    StringTrimRight(name);
+    if (StringLen(name) == 0 || StringCompare(name, "?") == 0 || StringCompare(name, "Unbekannt") == 0)
+        return RegimeNameFromId(regime);
+    return name;
+}
+
 // SafeField() – Holt ein Feld aus dem Array, mit Fallback bei ungueltigem Index.
 // Schuetzt vor Absturz wenn eine CSV-Zeile weniger Spalten hat als erwartet.
 // Beispiel: SafeField(cols, 5, "0") → cols[5] oder "0" wenn Index ungueltig
@@ -478,7 +518,7 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
 
     // Marktphase: 0=Range, 1=Trending, 2=Volatile
     out.regime = (int)StringToInteger(SafeField(last, idx_regime, "-1"));
-    out.regime_name = SafeField(last, idx_regime_nm, "?");
+    out.regime_name = NormalizeRegimeName(SafeField(last, idx_regime_nm, "?"), out.regime);
 
     // Paper-Trading Flag und Modus
     out.paper = ParseBool(SafeField(last, idx_paper, "true"));
@@ -753,7 +793,8 @@ void MaybeAlert(const SignalSnapshot &snap, datetime &last_alert_ts)
         TimeToString(snap.ts, TIME_DATE | TIME_MINUTES));
 
     Alert(msg);   // MT5-Popup (und Sound wenn aktiviert)
-    Print(msg);   // Ins Journal schreiben
+    if (InpAlertPrintToJournal)
+        Print(msg);   // Optional: Ins Journal schreiben
     last_alert_ts = snap.ts;  // Zeitstempel merken (verhindert doppelte Alerts)
 }
 

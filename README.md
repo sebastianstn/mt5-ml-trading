@@ -48,6 +48,74 @@ Danach Trader starten (Paper-Modus):
 Details inkl. Dashboard-Sync: `live/mt5/README_MT5_Dashboard.md`.
 Deploy-Ablauf Server → Laptop: `reports/deploy_server_to_laptop.md`.
 
+### Threshold-KPI-Auswertung (Linux-Server)
+
+Vergleich der Signal-Schwellen `0.50`, `0.55`, `0.60` auf Basis von `logs/*_live_trades.csv`:
+
+```bash
+cd /mnt/1T-Data/XGBoost-LightGBM
+source .venv/bin/activate
+python scripts/evaluate_threshold_kpis.py --symbols USDCAD,USDJPY --hours 72 --thresholds 0.50,0.55,0.60 --threshold_operator ge
+```
+
+Artefakte:
+
+- `reports/threshold_eval/summary.csv` (Ranking pro Symbol/Threshold)
+- `reports/threshold_eval/detail.csv` (Regime-Details pro Symbol/Threshold)
+
+Hinweis zur Vergleichbarkeit:
+
+- `--threshold_operator ge` entspricht `>=` (Live-Logik)
+- `--threshold_operator gt` entspricht `>` (Backtest-Logik)
+
+Wichtig für Entry-Logik im Live-Trader:
+
+- Empfohlenes Mapping: `--decision_mapping long_prob --schwelle 0.55 --short_schwelle 0.45`
+- Das entspricht: Long nur bei `prob_long >= 0.55`, Short nur bei `prob_long <= 0.45`
+
+### Probability-Kalibrierung (Linux-Server)
+
+Kalibrierung prüfen/erzeugen (Platt oder Isotonic), damit Schwellen wie `0.55` belastbarer sind:
+
+```bash
+cd /mnt/1T-Data/XGBoost-LightGBM
+source .venv/bin/activate
+python scripts/calibrate_probabilities.py \
+  --model_path models/lgbm_usdjpy_v4.pkl \
+  --data_csv data/processed/USDJPY_H1_regime_labelled.csv \
+  --label_col label \
+  --method sigmoid \
+  --output_model models/lgbm_usdjpy_v4_calibrated_sigmoid.pkl \
+  --report_path reports/threshold_eval/calibration_report_usdjpy_sigmoid.json
+```
+
+### Demo-Micro-Reactive Modus (Windows-Laptop)
+
+Wenn du im Demo-Betrieb bewusst mehr Bewegung/mehr Trades sehen willst:
+
+- `start_demo_micro_reactive.bat` starten
+- Dieser Modus setzt aggressivere Parameter:
+  - `--decision_mapping long_prob`
+  - `--schwelle 0.52 --short_schwelle 0.48`
+  - `--regime_source market_regime_hmm`
+  - `--regime_filter 0,1,2,3` (alle Regimes)
+  - `--two_stage_kongruenz 0` (Filter aus, mehr Durchsatz)
+
+Stufen für noch mehr Aktivität (nur Demo/Paper):
+
+1. Stufe A: `0.55 / 0.45` (konservativ)
+2. Stufe B: `0.52 / 0.48` (reaktiv, aktueller Demo-Micro-Mode)
+3. Stufe C: `0.50 / 0.50` (maximal aktiv, viele Trades)
+
+Turbo-Testplan (30-60 Minuten):
+
+1. Starte `start_demo_micro_reactive.bat` (Stufe B) und beobachte:
+   - Dashboard `Dir/Prob` Wechsel
+   - Anzahl Alerts/Signale
+   - Einträge in `logs/*_live_trades.csv`
+2. Wenn zu wenig Aktivität: stoppe beide Trader und starte `start_demo_turbo_max.bat` (Stufe C).
+3. Nach dem Test wieder auf konservative Settings zurückgehen (`start_shadow_compare.bat`), bevor du KPI-Entscheidungen triffst.
+
 ### Betriebsrollen: `start_shadow_compare.bat` vs. `LiveSignalDashboard.mq5`
 
 Beide laufen parallel, haben aber **unterschiedliche Aufgaben**:

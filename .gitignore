@@ -12,6 +12,7 @@ env/
 .env
 *.env
 .env.local
+.claude/
 
 # --- Rohdaten (zu groß für Git) ---
 data/

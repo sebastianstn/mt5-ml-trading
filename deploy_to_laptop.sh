@@ -181,6 +181,20 @@ if [ -f "${SHADOW_START_SKRIPT}" ]; then
     echo "        ✅ start_shadow_compare.bat"
 fi
 
+# Batch-Skript für aggressiven Demo-Micro-Reactive Modus
+DEMO_MICRO_SKRIPT="${SERVER_BASIS}/start_demo_micro_reactive.bat"
+if [ -f "${DEMO_MICRO_SKRIPT}" ]; then
+    sftp_put "${DEMO_MICRO_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_demo_micro_reactive.bat"
+    echo "        ✅ start_demo_micro_reactive.bat"
+fi
+
+# Batch-Skript für Demo-Turbo-Max (maximale Aktivität)
+DEMO_TURBO_SKRIPT="${SERVER_BASIS}/start_demo_turbo_max.bat"
+if [ -f "${DEMO_TURBO_SKRIPT}" ]; then
+    sftp_put "${DEMO_TURBO_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_demo_turbo_max.bat"
+    echo "        ✅ start_demo_turbo_max.bat"
+fi
+
 # Batch-Skript zum sauberen Stoppen aller Trader
 STOP_ALL_SKRIPT="${SERVER_BASIS}/stop_all_traders.bat"
 if [ -f "${STOP_ALL_SKRIPT}" ]; then
@@ -218,16 +232,24 @@ echo ""
 echo "       Option B) Shadow-Compare (empfohlen aktuell):"
 echo "                 Doppelklick auf: start_shadow_compare.bat"
 echo ""
-echo "       Option C) Alle Trader sauber stoppen (vor Neustart empfohlen):"
+echo "       Option C) Demo-Micro-Reactive (mehr Aktivität/mehr Trades):"
+echo "                 Doppelklick auf: start_demo_micro_reactive.bat"
+echo ""
+echo "       Option D) Demo-Turbo-Max (maximale Aktivität):"
+echo "                 Doppelklick auf: start_demo_turbo_max.bat"
+echo ""
+echo "       Option E) Alle Trader sauber stoppen (vor Neustart empfohlen):"
 echo "                 Doppelklick auf: stop_all_traders.bat"
 echo ""
-echo "       Option D) Manuell in zwei separaten PowerShell-Fenstern:"
+echo "       Option F) Manuell in zwei separaten PowerShell-Fenstern:"
 cat <<'EOF'
                                  Fenster 1 (USDCAD v4):
                                      python live\live_trader.py `
                                          --symbol USDCAD `
                                          --version v4 `
-                                         --schwelle 0.45 `
+                                         --schwelle 0.55 `
+                                         --short_schwelle 0.45 `
+                                         --decision_mapping long_prob `
                                          --regime_filter 0,1,2 `
                                          --atr_sl 1 `
                                          --atr_faktor 1.5 `
@@ -240,7 +262,9 @@ cat <<'EOF'
                                      python live\live_trader.py `
                                          --symbol USDJPY `
                                          --version v5 `
-                                         --schwelle 0.45 `
+                                         --schwelle 0.55 `
+                                         --short_schwelle 0.45 `
+                                         --decision_mapping long_prob `
                                          --regime_filter 0,1,2 `
                                          --atr_sl 1 `
                                          --atr_faktor 1.5 `
@@ -252,7 +276,7 @@ EOF
 echo ""
 echo "  ⚠️  Aktuelle Einstellung (2026-03-05):"
 echo "       - Shadow-Compare: USDCAD v4 (Kontrolle) vs USDJPY v5 (Kandidat)"
-echo "       - Schwelle: 0.45, Regime: 0,1,2"
+echo "       - Schwelle: Long>=0.55 / Short<=0.45, Regime: 0,1,2"
 echo "       - Betriebsmodus: PAPER_ONLY"
 echo ""
 echo "  Modelle übertragen:"

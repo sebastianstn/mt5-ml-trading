@@ -47,14 +47,14 @@ echo.
 
 cd /d "C:\Users\Sebastian Setnescu\mt5_trading"
 
-REM Fenster 1: USDCAD stabil auf v4
-start "MT5-Shadow-USDCAD-v4" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && venv\Scripts\activate.bat && python live\live_trader.py --symbol USDCAD --version v4 --schwelle 0.45 --regime_filter 0,1,2 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
+REM Fenster 1: USDCAD stabil auf v4 (strengeres Mapping: Long>=55%, Short<=45%)
+start "MT5-Shadow-USDCAD-v4" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && venv\Scripts\activate.bat && python live\live_trader.py --symbol USDCAD --version v4 --schwelle 0.55 --short_schwelle 0.45 --decision_mapping long_prob --regime_filter 0,1,2 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
 
 REM Warte 5 Sekunden vor dem zweiten Start (MT5-Verbindung stabilisieren)
 timeout /t 5 /nobreak >nul
 
-REM Fenster 2: USDJPY als v5-Kandidat
-start "MT5-Shadow-USDJPY-v5" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && venv\Scripts\activate.bat && python live\live_trader.py --symbol USDJPY --version v5 --schwelle 0.45 --regime_filter 0,1,2 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v5 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
+REM Fenster 2: USDJPY als v5-Kandidat (strengeres Mapping: Long>=55%, Short<=45%)
+start "MT5-Shadow-USDJPY-v5" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && venv\Scripts\activate.bat && python live\live_trader.py --symbol USDJPY --version v5 --schwelle 0.55 --short_schwelle 0.45 --decision_mapping long_prob --regime_filter 0,1,2 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v5 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
 
 echo.
 echo ✅ Shadow-Compare gestartet!

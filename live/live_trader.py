@@ -801,7 +801,45 @@ def btc_funding_holen() -> float:
         return 0.0
 
 
-def externe_features_einfuegen(df: pd.DataFrame) -> pd.DataFrame:
+def externe_features_holen(
+    cache: Optional[dict] = None, max_age_seconds: int = 240
+) -> dict:
+    """
+    Holt externe Features optional mit Cache, um API-Rauschen zu reduzieren.
+
+    Args:
+        cache: Optionales Cache-Dict, das zwischen Loop-Durchläufen weitergegeben wird.
+        max_age_seconds: Maximales Alter der Cache-Werte in Sekunden.
+
+    Returns:
+        Dict mit fear_greed_value, fear_greed_class, btc_funding_rate.
+    """
+    now_ts = time.time()
+    if cache is not None:
+        cached_ts = float(cache.get("fetched_at", 0.0))
+        if cached_ts > 0 and (now_ts - cached_ts) <= max_age_seconds:
+            return {
+                "fear_greed_value": float(cache.get("fear_greed_value", 50.0)),
+                "fear_greed_class": float(cache.get("fear_greed_class", 1.0)),
+                "btc_funding_rate": float(cache.get("btc_funding_rate", 0.0)),
+            }
+
+    fg = fear_greed_holen()
+    btc_rate = btc_funding_holen()
+    values = {
+        "fear_greed_value": float(fg["fear_greed_value"]),
+        "fear_greed_class": float(fg["fear_greed_class"]),
+        "btc_funding_rate": float(btc_rate),
+    }
+    if cache is not None:
+        cache.update(values)
+        cache["fetched_at"] = now_ts
+    return values
+
+
+def externe_features_einfuegen(
+    df: pd.DataFrame, external_features: Optional[dict] = None
+) -> pd.DataFrame:
     """
     Fügt Fear & Greed und BTC Funding Rate als Features ein.
 
@@ -810,16 +848,17 @@ def externe_features_einfuegen(df: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df: Feature-DataFrame (bereits mit technischen Indikatoren)
+        external_features: Optional bereits geholte externe Features (für Loop-Caching)
 
     Returns:
         DataFrame mit 3 zusätzlichen Spalten.
     """
-    fg = fear_greed_holen()
-    btc_rate = btc_funding_holen()
+    if external_features is None:
+        external_features = externe_features_holen()
 
-    df["fear_greed_value"] = fg["fear_greed_value"]
-    df["fear_greed_class"] = fg["fear_greed_class"]
-    df["btc_funding_rate"] = btc_rate
+    df["fear_greed_value"] = float(external_features.get("fear_greed_value", 50.0))
+    df["fear_greed_class"] = float(external_features.get("fear_greed_class", 1.0))
+    df["btc_funding_rate"] = float(external_features.get("btc_funding_rate", 0.0))
     return df
 
 
@@ -832,6 +871,9 @@ def signal_generieren(
     df: pd.DataFrame,
     modell: object,
     schwelle: float = 0.60,
+    short_schwelle: Optional[float] = None,
+    decision_mapping: str = "class",
+    regime_spalte: str = "market_regime",
     regime_erlaubt: Optional[list] = None,
 ) -> Tuple[int, float, int, float]:
     """
@@ -841,6 +883,11 @@ def signal_generieren(
         df:              Feature-DataFrame (alle 45 Features vorhanden)
         modell:          Geladenes LightGBM-Modell
         schwelle:        Mindest-Wahrscheinlichkeit für Trade-Ausführung
+        short_schwelle:  Optionale Short-Schwelle (wenn None => wie schwelle bzw. 1-schwelle)
+        decision_mapping:
+            "class"     => Long wenn proba_long >= schwelle, Short wenn proba_short >= short_schwelle
+            "long_prob" => Long wenn proba_long >= schwelle, Short wenn proba_long <= short_schwelle
+        regime_spalte:   Welche Regime-Spalte genutzt wird ("market_regime" oder "market_regime_hmm")
         regime_erlaubt:  Erlaubte Regime-Nummern (None = alle)
 
     Returns:
@@ -854,8 +901,13 @@ def signal_generieren(
     # Wir verwenden die letzte vollständige Kerze für das Signal
     letzte_kerze = df.iloc[[-2]]  # -2: letzte geschlossene Kerze (sicher!)
 
-    # Aktuelles Regime
-    aktuelles_regime = int(letzte_kerze["market_regime"].iloc[0])
+    # Aktuelles Regime aus konfigurierter Spalte lesen (mit sicherem Fallback)
+    regime_spalte_eff = regime_spalte if regime_spalte in letzte_kerze.columns else "market_regime"
+    if regime_spalte_eff != regime_spalte:
+        logger.warning(
+            f"Regime-Spalte '{regime_spalte}' nicht vorhanden – fallback auf '{regime_spalte_eff}'"
+        )
+    aktuelles_regime = int(letzte_kerze[regime_spalte_eff].iloc[0])
 
     # ATR als Prozent vom Close (für dynamisches Stop-Loss)
     atr_pct = 0.0
@@ -903,24 +955,42 @@ def signal_generieren(
     # proba[:,0] = Short (0→-1), proba[:,1] = Neutral, proba[:,2] = Long
     proba = modell.predict_proba(x_features)[0]
     raw_pred = int(np.argmax(proba))
+    long_prob = float(proba[2])
+    short_prob = float(proba[0])
+    short_schwelle_eff = float(short_schwelle) if short_schwelle is not None else float(
+        1.0 - schwelle if decision_mapping == "long_prob" else schwelle
+    )
 
     # DEBUG: Detailliertes Logging der Wahrscheinlichkeiten
     logger.info(
         f"Modell-Output: Short={proba[0]:.1%}, Neutral={proba[1]:.1%}, Long={proba[2]:.1%} | "
-        f"raw_pred={raw_pred} | Schwelle={schwelle:.1%}"
+        f"raw_pred={raw_pred} | Mapping={decision_mapping} | "
+        f"Long-Schwelle={schwelle:.1%} | Short-Schwelle={short_schwelle_eff:.1%}"
     )
 
     # Signal mit Schwellenwert-Filter
-    if raw_pred == 2 and proba[2] >= schwelle:
-        logger.info(
-            f"→ Long-Signal ausgelöst (proba[2]={proba[2]:.1%} >= {schwelle:.1%})"
-        )
-        return 2, float(proba[2]), aktuelles_regime, atr_pct  # Long-Signal
-    if raw_pred == 0 and proba[0] >= schwelle:
-        logger.info(
-            f"→ Short-Signal ausgelöst (proba[0]={proba[0]:.1%} >= {schwelle:.1%})"
-        )
-        return -1, float(proba[0]), aktuelles_regime, atr_pct  # Short-Signal
+    if decision_mapping == "long_prob":
+        if long_prob >= schwelle:
+            logger.info(
+                f"→ Long-Signal ausgelöst (proba_long={long_prob:.1%} >= {schwelle:.1%})"
+            )
+            return 2, long_prob, aktuelles_regime, atr_pct
+        if long_prob <= short_schwelle_eff:
+            logger.info(
+                f"→ Short-Signal ausgelöst (proba_long={long_prob:.1%} <= {short_schwelle_eff:.1%})"
+            )
+            return -1, 1.0 - long_prob, aktuelles_regime, atr_pct
+    else:
+        if raw_pred == 2 and long_prob >= schwelle:
+            logger.info(
+                f"→ Long-Signal ausgelöst (proba_long={long_prob:.1%} >= {schwelle:.1%})"
+            )
+            return 2, long_prob, aktuelles_regime, atr_pct
+        if raw_pred == 0 and short_prob >= short_schwelle_eff:
+            logger.info(
+                f"→ Short-Signal ausgelöst (proba_short={short_prob:.1%} >= {short_schwelle_eff:.1%})"
+            )
+            return -1, short_prob, aktuelles_regime, atr_pct
 
     logger.info(
         f"→ Kein Signal (raw_pred={raw_pred}, höchste Prob={max(proba):.1%}, aber Schwelle nicht erfüllt)"
@@ -933,6 +1003,10 @@ def shadow_signal_generieren(
     df: pd.DataFrame,
     modell: object,
     schwelle: float = 0.60,
+    short_schwelle: Optional[float] = None,
+    decision_mapping: str = "class",
+    regime_spalte: str = "market_regime",
+    two_stage_kongruenz: bool = True,
     regime_erlaubt: Optional[list] = None,
     two_stage_config: Optional[dict] = None,
 ) -> Tuple[int, float, int, float]:
@@ -950,6 +1024,10 @@ def shadow_signal_generieren(
         df:               Feature-DataFrame (mit allen Features)
         modell:           Single-Stage-Modell (Fallback)
         schwelle:         Wahrscheinlichkeits-Schwelle
+        short_schwelle:   Optionale Short-Schwelle
+        decision_mapping: "class" oder "long_prob"
+        regime_spalte:    Regime-Quelle ("market_regime" oder "market_regime_hmm")
+        two_stage_kongruenz: True=Kongruenzfilter aktiv, False=deaktiviert (aggressiver)
         regime_erlaubt:   Erlaubte Regime oder None
         two_stage_config: Dict mit {
                              "enable": bool,
@@ -966,8 +1044,23 @@ def shadow_signal_generieren(
     """
     # ---- Fallback-Strategie: Single-Stage als Baseline ----
     baseline_signal, baseline_prob, baseline_regime, baseline_atr = signal_generieren(
-        df, modell, schwelle, regime_erlaubt
+        df=df,
+        modell=modell,
+        schwelle=schwelle,
+        short_schwelle=short_schwelle,
+        decision_mapping=decision_mapping,
+        regime_spalte=regime_spalte,
+        regime_erlaubt=regime_erlaubt,
     )
+    if decision_mapping == "long_prob":
+        if baseline_signal == 2:
+            baseline_prob_label = "proba_long"
+        elif baseline_signal == -1:
+            baseline_prob_label = "short_score(1-proba_long)"
+        else:
+            baseline_prob_label = "score"
+    else:
+        baseline_prob_label = "proba_class"
 
     # ---- Two-Stage nur wenn explizit enabled und für freigegebene Symbole ----
     TWO_STAGE_APPROVED = {"USDCAD", "USDJPY"}
@@ -1044,26 +1137,32 @@ def shadow_signal_generieren(
                 # HTF sagt Long, aber LTF will Short → blockieren
                 kongruent = False
 
-        if not kongruent:
+        if two_stage_kongruenz and not kongruent:
             logger.info(
                 f"[{symbol}] ⛔ KONGRUENZ-FILTER | "
                 f"LTF-Signal={ltf_signal} BLOCKIERT (HTF-Bias={htf_bias}) | "
-                f"LTF-Prob={ts_signal.prob:.1%} | Baseline={baseline_signal} (prob={baseline_prob:.1%})"
+                f"LTF-Prob={ts_signal.prob:.1%} | Baseline={baseline_signal} "
+                f"({baseline_prob_label}={baseline_prob:.1%})"
             )
             # Signal auf Neutral setzen, Keep Prob für Logging
             return (0, ts_signal.prob, baseline_regime, baseline_atr)
+        if not two_stage_kongruenz and not kongruent:
+            logger.info(
+                f"[{symbol}] ⚠️ KONGRUENZ-FILTER DEAKTIVIERT | "
+                f"LTF-Signal={ltf_signal} wird trotz HTF-Bias={htf_bias} durchgelassen"
+            )
 
         # Logging: Shadow vs. Baseline Vergleich
         if ts_signal.signal != baseline_signal:
             logger.info(
                 f"[{symbol}] 🔀 SHADOW-DIVERGENZ | "
                 f"Two-Stage={ts_signal.signal} (prob={ts_signal.prob:.1%}, HTF-bias={ts_signal.htf_bias_klasse}) | "
-                f"Baseline={baseline_signal} (prob={baseline_prob:.1%})"
+                f"Baseline={baseline_signal} ({baseline_prob_label}={baseline_prob:.1%})"
             )
         else:
             logger.info(
                 f"[{symbol}] ✓ SHADOW-KONGRUENZ | Signal={ts_signal.signal} | "
-                f"Two-Stage-Prob={ts_signal.prob:.1%}, Baseline-Prob={baseline_prob:.1%}"
+                f"Two-Stage-Prob={ts_signal.prob:.1%}, Baseline-{baseline_prob_label}={baseline_prob:.1%}"
             )
 
         # Two-Stage-Signal verwenden (Shadow-Mode aktiv)
@@ -1587,6 +1686,10 @@ def neue_kerze_abwarten(
 def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches
     symbol: str,
     schwelle: float,
+    short_schwelle: Optional[float],
+    decision_mapping: str,
+    regime_spalte: str,
+    two_stage_kongruenz: bool,
     regime_erlaubt: Optional[list],
     paper_trading: bool,
     lot: float,
@@ -1612,6 +1715,10 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     Args:
         symbol:          Handelssymbol
         schwelle:        Wahrscheinlichkeits-Schwelle (z.B. 0.60)
+        short_schwelle:  Optionale Short-Schwelle
+        decision_mapping: Mapping-Modus ("class" oder "long_prob")
+        regime_spalte:   Regime-Quelle ("market_regime" oder "market_regime_hmm")
+        two_stage_kongruenz: True=Kongruenzfilter aktiv, False=deaktiviert
         regime_erlaubt:  Erlaubte Regime oder None für alle
         paper_trading:   True = Paper-Modus (kein echtes Geld!)
         lot:             Lot-Größe
@@ -1636,7 +1743,16 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     logger.info("=" * 65)
     logger.info(f"LIVE-TRADER GESTARTET – {symbol}")
     logger.info(f"Modus:          {modus_str}")
-    logger.info(f"Schwelle:       {schwelle:.0%}")
+    logger.info(f"Long-Schwelle:  {schwelle:.0%}")
+    if short_schwelle is None:
+        logger.info("Short-Schwelle: auto")
+    else:
+        logger.info(f"Short-Schwelle: {short_schwelle:.0%}")
+    logger.info(f"Mapping-Modus:  {decision_mapping}")
+    logger.info(f"Regime-Quelle:  {regime_spalte}")
+    logger.info(
+        f"Kongruenz-Filter: {'aktiv' if two_stage_kongruenz else 'deaktiviert (aggressiv)'}"
+    )
     logger.info(f"Regime-Filter:  {regime_str}")
     if atr_sl_aktiv:
         logger.info(
@@ -1713,6 +1829,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     # HTF-Cache Variablen (nur für Two-Stage M5-Takt)
     letzte_htf_kerzen_zeit: Optional[datetime] = None
     cached_h1_df_clean: Optional[pd.DataFrame] = None
+    externe_feature_cache: dict = {}
 
     while True:
         try:
@@ -1724,6 +1841,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             # Neue Kerze erkannt!
             jetzt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"\n[{symbol}] Neue {effektiver_tf}-Kerze | {jetzt} UTC")
+            externe_features = externe_features_holen(cache=externe_feature_cache)
 
             # ---- Kill-Switch prüfen ----
             # Im Live-Modus: aktuellen MT5-Kontostand lesen
@@ -1760,7 +1878,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     htf_df_raw = mt5_daten_holen(symbol, timeframe="H1")
                     if htf_df_raw is not None and len(htf_df_raw) >= 250:
                         htf_df = features_berechnen(htf_df_raw, timeframe="H1")
-                        htf_df = externe_features_einfuegen(htf_df)
+                        htf_df = externe_features_einfuegen(
+                            htf_df, external_features=externe_features
+                        )
                         cached_h1_df_clean = htf_df.dropna(subset=FEATURE_SPALTEN)
                         two_stage_config["htf_df"] = cached_h1_df_clean
                         letzte_htf_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, "H1")
@@ -1799,7 +1919,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     continue
 
                 ltf_df = features_berechnen(ltf_df_raw, timeframe=ltf_tf)
-                ltf_df = externe_features_einfuegen(ltf_df)
+                ltf_df = externe_features_einfuegen(
+                    ltf_df, external_features=externe_features
+                )
                 ltf_df_clean = ltf_df.dropna(subset=FEATURE_SPALTEN)
                 two_stage_config["ltf_df"] = ltf_df_clean
 
@@ -1832,7 +1954,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     continue
 
                 df = features_berechnen(df, timeframe=timeframe)
-                df = externe_features_einfuegen(df)
+                df = externe_features_einfuegen(df, external_features=externe_features)
 
                 # NaN-Zeilen am Anfang (Warm-Up) entfernen
                 if hasattr(modell, "feature_name_") and modell.feature_name_:
@@ -1851,7 +1973,16 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
             # ---- Schritt 4: Signal generieren (Shadow-Mode) ----
             signal, prob, regime, atr_pct = shadow_signal_generieren(
-                symbol, df_clean, modell, schwelle, regime_erlaubt, two_stage_config
+                symbol=symbol,
+                df=df_clean,
+                modell=modell,
+                schwelle=schwelle,
+                short_schwelle=short_schwelle,
+                decision_mapping=decision_mapping,
+                regime_spalte=regime_spalte,
+                two_stage_kongruenz=two_stage_kongruenz,
+                regime_erlaubt=regime_erlaubt,
+                two_stage_config=two_stage_config,
             )
             regime_name = REGIME_NAMEN.get(regime, "?")
 
@@ -1988,10 +2119,51 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     parser.add_argument(
         "--schwelle",
         type=float,
-        default=0.45,
+        default=0.55,
         help=(
-            "Mindest-Wahrscheinlichkeit für Trade-Ausführung (Standard: 0.45). "
+            "Long-Schwelle für Trade-Ausführung (Standard: 0.55). "
             "Kongruenz-Filter (HTF+LTF müssen übereinstimmen) bietet zusätzliche Absicherung."
+        ),
+    )
+    parser.add_argument(
+        "--short_schwelle",
+        type=float,
+        default=-1.0,
+        help=(
+            "Optionale Short-Schwelle. "
+            "Bei --decision_mapping class: proba_short >= short_schwelle. "
+            "Bei --decision_mapping long_prob: proba_long <= short_schwelle. "
+            "Standard: -1 (auto)."
+        ),
+    )
+    parser.add_argument(
+        "--decision_mapping",
+        type=str,
+        choices=["class", "long_prob"],
+        default="class",
+        help=(
+            "Signal-Mapping: class (klassische Klassen-Proba) oder long_prob "
+            "(Long bei >= long_schwelle, Short bei <= short_schwelle)."
+        ),
+    )
+    parser.add_argument(
+        "--regime_source",
+        type=str,
+        choices=["market_regime", "market_regime_hmm"],
+        default="market_regime",
+        help=(
+            "Quelle für Regime-Filter. "
+            "market_regime_hmm ist oft reaktiver (mehr Regime-Wechsel)."
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_kongruenz",
+        type=int,
+        choices=[0, 1],
+        default=1,
+        help=(
+            "1 = HTF/LTF Kongruenzfilter aktiv (sicherer, weniger Trades), "
+            "0 = Kongruenzfilter aus (aggressiver, mehr Trades)."
         ),
     )
     parser.add_argument(
@@ -2144,6 +2316,10 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     # ---- ATR-SL Konfiguration aus CLI ----
     atr_sl_aktiv = bool(args.atr_sl)
     atr_sl_faktor = args.atr_faktor
+    short_schwelle: Optional[float] = (
+        None if float(args.short_schwelle) < 0.0 else float(args.short_schwelle)
+    )
+    two_stage_kongruenz = bool(args.two_stage_kongruenz)
 
     # ---- Regime-Filter parsen ----
     regime_erlaubt = None
@@ -2301,6 +2477,10 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     trading_loop(
         symbol=symbol,
         schwelle=args.schwelle,
+        short_schwelle=short_schwelle,
+        decision_mapping=args.decision_mapping,
+        regime_spalte=args.regime_source,
+        two_stage_kongruenz=two_stage_kongruenz,
         regime_erlaubt=regime_erlaubt,
         paper_trading=paper_trading,
         lot=args.lot,

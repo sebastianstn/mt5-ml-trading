@@ -20,6 +20,20 @@ LAPTOP_IP="192.168.1.19"           # IP-Adresse des Laptops (z.B. 192.168.1.x)
 LAPTOP_ZIELORDNER="C:/Users/sebastian setnescu/mt5_trading"  # Absoluter Pfad (für PowerShell mkdir)
 LAPTOP_ZIELORDNER_SFTP="mt5_trading"          # Relativer Pfad für sftp (startet im Home-Dir des Users)
 
+# ------------------------------------------------------------
+# SSH ControlMaster – einmal Passwort, dann Tunnel wiederverwenden
+# ------------------------------------------------------------
+SSH_CONTROL_DIR=$(mktemp -d)
+SSH_CONTROL_PATH="${SSH_CONTROL_DIR}/ssh-%r@%h:%p"
+SSH_OPTS="-o ControlPath=${SSH_CONTROL_PATH}"
+
+# Aufräum-Funktion: SSH-Tunnel schließen wenn Skript beendet wird
+cleanup() {
+    ssh -o ControlPath="${SSH_CONTROL_PATH}" -O exit "${LAPTOP_BENUTZER}@${LAPTOP_IP}" 2>/dev/null || true
+    rm -rf "${SSH_CONTROL_DIR}"
+}
+trap cleanup EXIT
+
 # Linux-Server Pfade
 SERVER_BASIS="/mnt/1Tb-Data/XGBoost-LightGBM"
 MODELL_ORDNER="${SERVER_BASIS}/models"
@@ -37,7 +51,8 @@ sftp_put() {
 
     tmp_out=$(mktemp)
 
-    if sftp -q -b - "${LAPTOP_BENUTZER}@${LAPTOP_IP}" >"${tmp_out}" 2>&1 <<SFTP_END
+    # ControlPath nutzt den bestehenden SSH-Tunnel → kein erneutes Passwort nötig
+    if sftp -q -o ControlPath="${SSH_CONTROL_PATH}" -b - "${LAPTOP_BENUTZER}@${LAPTOP_IP}" >"${tmp_out}" 2>&1 <<SFTP_END
 put "${local_path}" "${remote_path}"
 SFTP_END
     then
@@ -51,24 +66,16 @@ SFTP_END
     return 1
 }
 
-# Welche Modelle übertragen? (v4 Kontrollgruppe + v5 Kandidat für Shadow-Compare)
+# Welche Modelle übertragen? (nur v4 – v5 wurde gestoppt)
 MODELLE=(
     "lgbm_usdcad_v4.pkl"                    # USDCAD H1 – Single-Stage Fallback (v4)
-    "lgbm_usdcad_v5.pkl"                    # USDCAD H1 – Single-Stage Fallback (v5)
     "lgbm_htf_bias_usdcad_H1_v4.pkl"        # USDCAD HTF-Bias (Two-Stage)
-    "lgbm_htf_bias_usdcad_H1_v5.pkl"        # USDCAD HTF-Bias (Two-Stage)
     "lgbm_ltf_entry_usdcad_M5_v4.pkl"       # USDCAD LTF-Entry (Two-Stage)
-    "lgbm_ltf_entry_usdcad_M5_v5.pkl"       # USDCAD LTF-Entry (Two-Stage)
     "two_stage_usdcad_M5_v4.json"            # USDCAD Two-Stage Metadaten (Feature-Listen)
-    "two_stage_usdcad_M5_v5.json"            # USDCAD Two-Stage Metadaten (Feature-Listen)
     "lgbm_usdjpy_v4.pkl"                    # USDJPY H1 – Single-Stage Fallback (v4)
-    "lgbm_usdjpy_v5.pkl"                    # USDJPY H1 – Single-Stage Fallback (v5)
     "lgbm_htf_bias_usdjpy_H1_v4.pkl"        # USDJPY HTF-Bias (Two-Stage)
-    "lgbm_htf_bias_usdjpy_H1_v5.pkl"        # USDJPY HTF-Bias (Two-Stage)
     "lgbm_ltf_entry_usdjpy_M5_v4.pkl"       # USDJPY LTF-Entry (Two-Stage)
-    "lgbm_ltf_entry_usdjpy_M5_v5.pkl"       # USDJPY LTF-Entry (Two-Stage)
     "two_stage_usdjpy_M5_v4.json"            # USDJPY Two-Stage Metadaten (Feature-Listen)
-    "two_stage_usdjpy_M5_v5.json"            # USDJPY Two-Stage Metadaten (Feature-Listen)
 )
 
 # Optionale Modelle (nur Info bei Nichtvorhandensein, kein Warnsignal)
@@ -85,9 +92,10 @@ echo "  Ziel: ${LAPTOP_BENUTZER}@${LAPTOP_IP}"
 echo "=================================================="
 echo ""
 
-echo "[ 1/4 ] Teste SSH-Verbindung zum Laptop..."
-if ssh -o ConnectTimeout=5 "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "echo 'SSH OK'" 2>/dev/null; then
-    echo "        ✅ SSH-Verbindung erfolgreich"
+echo "[ 1/4 ] Teste SSH-Verbindung zum Laptop (Passwort wird nur einmal abgefragt)..."
+# ControlMaster-Tunnel aufbauen: bleibt für alle weiteren SSH/SFTP-Befehle offen
+if ssh -o ConnectTimeout=10 -o ControlMaster=yes -o ControlPath="${SSH_CONTROL_PATH}" -o ControlPersist=300 "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "echo 'SSH OK'"; then
+    echo "        ✅ SSH-Verbindung erfolgreich (Tunnel aktiv)"
 else
     echo "        ❌ SSH-Verbindung fehlgeschlagen!"
     echo ""
@@ -106,11 +114,12 @@ fi
 echo ""
 echo "[ 2/4 ] Erstelle Ordnerstruktur auf Laptop..."
 # Windows braucht PowerShell statt mkdir -p (cmd.exe kennt -p nicht)
-ssh "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "powershell -Command \"New-Item -ItemType Directory -Force -Path '${LAPTOP_ZIELORDNER}/live','${LAPTOP_ZIELORDNER}/live/mt5','${LAPTOP_ZIELORDNER}/models','${LAPTOP_ZIELORDNER}/logs' | Out-Null; Write-Output 'Ordner erstellt'\""
+ssh ${SSH_OPTS} "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "powershell -Command \"New-Item -ItemType Directory -Force -Path '${LAPTOP_ZIELORDNER}/live','${LAPTOP_ZIELORDNER}/live/mt5','${LAPTOP_ZIELORDNER}/models','${LAPTOP_ZIELORDNER}/logs','${LAPTOP_ZIELORDNER}/scripts' | Out-Null; Write-Output 'Ordner erstellt'\""
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/live/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/live/mt5/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/models/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/logs/"
+echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/scripts/"
 
 # ------------------------------------------------------------
 # Modelle übertragen
@@ -160,6 +169,18 @@ else
     echo "        ⚠️  LiveSignalDashboard.mq5 nicht gefunden – übersprungen"
 fi
 
+# MT5 Sync-Skripte (PowerShell, für Scheduled Tasks)
+MT5_SYNC_SKRIPT="${SERVER_BASIS}/live/mt5/sync_live_logs_to_mt5_common.ps1"
+MT5_INSTALL_TASK="${SERVER_BASIS}/live/mt5/install_sync_task.ps1"
+if [ -f "${MT5_SYNC_SKRIPT}" ]; then
+    sftp_put "${MT5_SYNC_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/live/mt5/sync_live_logs_to_mt5_common.ps1"
+    echo "        ✅ live/mt5/sync_live_logs_to_mt5_common.ps1"
+fi
+if [ -f "${MT5_INSTALL_TASK}" ]; then
+    sftp_put "${MT5_INSTALL_TASK}" "${LAPTOP_ZIELORDNER_SFTP}/live/mt5/install_sync_task.ps1"
+    echo "        ✅ live/mt5/install_sync_task.ps1"
+fi
+
 # Two-Stage-Signal-Modul (für Shadow-Mode)
 TWO_STAGE_SKRIPT="${SERVER_BASIS}/live/two_stage_signal.py"
 if [ -f "${TWO_STAGE_SKRIPT}" ]; then
@@ -170,29 +191,15 @@ fi
 sftp_put "${REQUIREMENTS}" "${LAPTOP_ZIELORDNER_SFTP}/requirements-laptop.txt"
 echo "        ✅ requirements-laptop.txt"
 
-# Batch-Skript für automatischen Start beider Trader
-sftp_put "${SERVER_BASIS}/start_both_traders.bat" "${LAPTOP_ZIELORDNER_SFTP}/start_both_traders.bat"
-echo "        ✅ start_both_traders.bat"
+# Batch-Skript zum Starten (Demo-Live mit PnL-Tracking)
+sftp_put "${SERVER_BASIS}/start_paper_trading.bat" "${LAPTOP_ZIELORDNER_SFTP}/start_paper_trading.bat"
+echo "        ✅ start_paper_trading.bat (Demo-Live, PnL-Tracking aktiv)"
 
-# Batch-Skript für kontrollierten Shadow-Compare
-SHADOW_START_SKRIPT="${SERVER_BASIS}/start_shadow_compare.bat"
-if [ -f "${SHADOW_START_SKRIPT}" ]; then
-    sftp_put "${SHADOW_START_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_shadow_compare.bat"
-    echo "        ✅ start_shadow_compare.bat"
-fi
-
-# Batch-Skript für aggressiven Demo-Micro-Reactive Modus
-DEMO_MICRO_SKRIPT="${SERVER_BASIS}/start_demo_micro_reactive.bat"
-if [ -f "${DEMO_MICRO_SKRIPT}" ]; then
-    sftp_put "${DEMO_MICRO_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_demo_micro_reactive.bat"
-    echo "        ✅ start_demo_micro_reactive.bat"
-fi
-
-# Batch-Skript für Demo-Turbo-Max (maximale Aktivität)
-DEMO_TURBO_SKRIPT="${SERVER_BASIS}/start_demo_turbo_max.bat"
-if [ -f "${DEMO_TURBO_SKRIPT}" ]; then
-    sftp_put "${DEMO_TURBO_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_demo_turbo_max.bat"
-    echo "        ✅ start_demo_turbo_max.bat"
+# Batch-Skript für neue Top-Testphase (Paper, Two-Stage v4)
+TOPCONFIG_START_SKRIPT="${SERVER_BASIS}/start_testphase_topconfig.bat"
+if [ -f "${TOPCONFIG_START_SKRIPT}" ]; then
+    sftp_put "${TOPCONFIG_START_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_testphase_topconfig.bat"
+    echo "        ✅ start_testphase_topconfig.bat (Top-Konfiguration, Paper)"
 fi
 
 # Batch-Skript zum sauberen Stoppen aller Trader
@@ -200,6 +207,24 @@ STOP_ALL_SKRIPT="${SERVER_BASIS}/stop_all_traders.bat"
 if [ -f "${STOP_ALL_SKRIPT}" ]; then
     sftp_put "${STOP_ALL_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/stop_all_traders.bat"
     echo "        ✅ stop_all_traders.bat"
+fi
+
+# Windows Sync-Task Skripte für Logs (Laptop -> Linux)
+WIN_SYNC_SKRIPT="${SERVER_BASIS}/scripts/windows_sync_live_logs.ps1"
+WIN_TASK_REGISTER_SKRIPT="${SERVER_BASIS}/scripts/windows_register_live_log_sync_task.ps1"
+WIN_TASK_TEMPLATE="${SERVER_BASIS}/scripts/windows_task_live_log_sync.xml.template"
+
+if [ -f "${WIN_SYNC_SKRIPT}" ]; then
+    sftp_put "${WIN_SYNC_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_sync_live_logs.ps1"
+    echo "        ✅ scripts/windows_sync_live_logs.ps1"
+fi
+if [ -f "${WIN_TASK_REGISTER_SKRIPT}" ]; then
+    sftp_put "${WIN_TASK_REGISTER_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_register_live_log_sync_task.ps1"
+    echo "        ✅ scripts/windows_register_live_log_sync_task.ps1"
+fi
+if [ -f "${WIN_TASK_TEMPLATE}" ]; then
+    sftp_put "${WIN_TASK_TEMPLATE}" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_task_live_log_sync.xml.template"
+    echo "        ✅ scripts/windows_task_live_log_sync.xml.template"
 fi
 
 # ------------------------------------------------------------
@@ -225,32 +250,29 @@ echo "       pip install -r requirements-laptop.txt"
 echo ""
 echo "  5. MT5 Terminal öffnen und angemeldet lassen"
 echo ""
-echo "  6. Paper-Trading starten:"
-echo "       Option A) Baseline-Betrieb (beide v4):"
-echo "                 Doppelklick auf: start_both_traders.bat"
+echo "  6. Demo-Live-Trading starten (PnL-Tracking aktiv):"
+echo "       Doppelklick auf: start_paper_trading.bat"
 echo ""
-echo "       Option B) Shadow-Compare (empfohlen aktuell):"
-echo "                 Doppelklick auf: start_shadow_compare.bat"
+echo "     Startet USDCAD v4 + USDJPY v4 (Two-Stage, Regime 1+2)"
+echo "     Demo-Konto → kein echtes Geld, aber echte Orders mit PnL"
 echo ""
-echo "       Option C) Demo-Micro-Reactive (mehr Aktivität/mehr Trades):"
-echo "                 Doppelklick auf: start_demo_micro_reactive.bat"
-echo ""
-echo "       Option D) Demo-Turbo-Max (maximale Aktivität):"
-echo "                 Doppelklick auf: start_demo_turbo_max.bat"
-echo ""
-echo "       Option E) Alle Trader sauber stoppen (vor Neustart empfohlen):"
+echo "       Option B) Alle Trader sauber stoppen (vor Neustart empfohlen):"
 echo "                 Doppelklick auf: stop_all_traders.bat"
 echo ""
-echo "       Option F) Manuell in zwei separaten PowerShell-Fenstern:"
+echo "       Option C) Neue Top-Testphase (Paper) starten:"
+echo "                 Doppelklick auf: start_testphase_topconfig.bat"
+echo ""
+echo "       Option D) Manuell in zwei separaten PowerShell-Fenstern:"
 cat <<'EOF'
                                  Fenster 1 (USDCAD v4):
                                      python live\live_trader.py `
                                          --symbol USDCAD `
                                          --version v4 `
+                                         --paper_trading 0 `
                                          --schwelle 0.55 `
                                          --short_schwelle 0.45 `
                                          --decision_mapping long_prob `
-                                         --regime_filter 0,1,2 `
+                                         --regime_filter 1,2 `
                                          --atr_sl 1 `
                                          --atr_faktor 1.5 `
                                          --lot 0.01 `
@@ -258,26 +280,27 @@ cat <<'EOF'
                                          --two_stage_ltf_timeframe M5 `
                                          --two_stage_version v4
 
-                                 Fenster 2 (USDJPY v5):
+                                 Fenster 2 (USDJPY v4):
                                      python live\live_trader.py `
                                          --symbol USDJPY `
-                                         --version v5 `
+                                         --version v4 `
+                                         --paper_trading 0 `
                                          --schwelle 0.55 `
                                          --short_schwelle 0.45 `
                                          --decision_mapping long_prob `
-                                         --regime_filter 0,1,2 `
+                                         --regime_filter 1,2 `
                                          --atr_sl 1 `
                                          --atr_faktor 1.5 `
                                          --lot 0.01 `
                                          --two_stage_enable 1 `
                                          --two_stage_ltf_timeframe M5 `
-                                         --two_stage_version v5
+                                         --two_stage_version v4
 EOF
 echo ""
-echo "  ⚠️  Aktuelle Einstellung (2026-03-05):"
-echo "       - Shadow-Compare: USDCAD v4 (Kontrolle) vs USDJPY v5 (Kandidat)"
-echo "       - Schwelle: Long>=0.55 / Short<=0.45, Regime: 0,1,2"
-echo "       - Betriebsmodus: PAPER_ONLY"
+echo "  ⚠️  Aktuelle Einstellung (2026-03-08):"
+echo "       - Operativ: USDCAD v4 + USDJPY v4"
+echo "       - Schwelle: Long>=0.55 / Short<=0.45, Regime: 1,2"
+echo "       - Betriebsmodus: Demo-Live (paper_trading=0)"
 echo ""
 echo "  Modelle übertragen:"
 for MODELL in "${MODELLE[@]}"; do

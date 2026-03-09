@@ -70,7 +70,16 @@ def parse_args() -> argparse.Namespace:
         "--log_dir",
         type=str,
         default="logs",
-        help="Pfad zum Log-Ordner mit *_live_trades.csv (Standard: logs)",
+        help="Pfad zum Log-Ordner mit *_{signals|closes}.csv (Standard: logs)",
+    )
+    parser.add_argument(
+        "--file_suffix",
+        type=str,
+        default="_signals.csv",
+        help=(
+            "Datei-Suffix pro Symbol (Standard: _signals.csv). "
+            "Beispiel: --file_suffix _closes.csv"
+        ),
     )
     parser.add_argument(
         "--symbols",
@@ -90,7 +99,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeframe",
         type=str,
-        choices=["H1", "M30", "M15"],
+        choices=["H1", "M30", "M15", "M5_TWO_STAGE"],
         default="H1",
         help="Trader-Zeitrahmen für Stale-Check (Standard: H1)",
     )
@@ -129,10 +138,12 @@ def timeframe_minutes(timeframe: str) -> int:
         return 60
     if timeframe == "M30":
         return 30
+    if timeframe == "M5_TWO_STAGE":
+        return 5
     return 15
 
 
-def load_symbol_log(log_dir: Path, symbol: str) -> pd.DataFrame:
+def load_symbol_log(log_dir: Path, symbol: str, file_suffix: str) -> pd.DataFrame:
     """
     Lädt die CSV-Logdatei eines Symbols.
 
@@ -147,7 +158,7 @@ def load_symbol_log(log_dir: Path, symbol: str) -> pd.DataFrame:
         FileNotFoundError: Wenn die CSV-Datei nicht existiert.
         ValueError: Wenn Pflichtspalten fehlen.
     """
-    log_file = log_dir / f"{symbol}_live_trades.csv"
+    log_file = log_dir / f"{symbol}{file_suffix}"
     if not log_file.exists():
         raise FileNotFoundError(f"Logdatei nicht gefunden: {log_file}")
 
@@ -381,7 +392,11 @@ def main() -> None:
     kpis: List[SymbolKPI] = []
     for symbol in symbols:
         try:
-            df_symbol = load_symbol_log(log_dir=log_dir, symbol=symbol)
+            df_symbol = load_symbol_log(
+                log_dir=log_dir,
+                symbol=symbol,
+                file_suffix=args.file_suffix,
+            )
             df_window = filter_time_window(df=df_symbol, hours=args.hours)
             kpi = compute_symbol_kpis(
                 symbol=symbol,

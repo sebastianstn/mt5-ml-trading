@@ -1,0 +1,30 @@
+{
+  "model_path": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v4.pkl",
+  "data_csv": "/mnt/1Tb-Data/XGBoost-LightGBM/data/USDJPY_H1_labeled_v4.csv",
+  "label_col": "label",
+  "method": "sigmoid",
+  "output_model": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v4_calibrated_sigmoid.pkl",
+  "n_rows_total": 48957,
+  "n_rows_calibration": 34269,
+  "n_rows_test": 14688,
+  "label_mapping": {
+    "-1": 0,
+    "0": 1,
+    "1": 2
+  },
+  "metrics_before": {
+    "log_loss": 1.0291813411431987,
+    "brier_multiclass": 0.6168787733900064,
+    "ece": 0.038427983070382934
+  },
+  "metrics_after": {
+    "log_loss": 1.0732354474491783,
+    "brier_multiclass": 0.6380007300037672,
+    "ece": 0.11983317587746721
+  },
+  "delta": {
+    "log_loss": 0.044054,
+    "brier_multiclass": 0.021122,
+    "ece": 0.081405
+  }
+}

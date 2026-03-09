@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD036 MD040 MD060 -->
+
 # Wie lese ich den MT5-Chart grundsätzlich?
 
 Diese Anleitung hilft dir, den Dashboard-Chart fachlich korrekt zu lesen und zwischen normalem Verhalten und Problemfall zu unterscheiden.
@@ -131,7 +133,7 @@ Vorgehen: Kleine Änderung -> kurzer Lauf -> Wirkung prüfen -> nächste Änderu
 
 ## 8) Betriebsregel (dauerhaft)
 
-Single Source of Truth für den EA bleibt:
+Single Source of Truth für den Indikator bleibt:
 
 - `live/mt5/LiveSignalDashboard.mq5` im Linux-Repo
 
@@ -144,7 +146,7 @@ Workflow:
 
 ---
 
-# TEIL 2: Technische Chartanalyse – Kerzen + Indikatoren lesen
+## TEIL 2: Technische Chartanalyse – Kerzen + Indikatoren lesen
 
 Diese Sektion hilft dir, die **Preisaktion** und die **Overlays** (EMA20/EMA50/EMA200 + RSI14) zu verstehen und damit den Dashboard-Status zu verifizieren.
 
@@ -530,7 +532,7 @@ Nutze diese Punkte zur Überprüfung:
 - [ ] Entry/SL/TP Boxen plausibel positioniert?
 - [ ] History-Pfeile vorhanden? (sollten wachsen)
 - [ ] Prob und Regime konsistent mit Kerzen/EMA?
-- [ ] Keine Fehlerausgabe im EA-Logs?
+- [ ] Keine Fehlerausgabe im Indikator-Log?
 
 Wenn alle ✅ → System läuft nominal.
 Falls ❌ irgendwo → Screenshot machen + melden!
@@ -549,7 +551,7 @@ Falls ❌ irgendwo → Screenshot machen + melden!
 
 ---
 
-# TEIL 3: Die mathematische Logik – Wie EMA & RSI Entry/Exit-Signale generieren
+## TEIL 3: Die mathematische Logik – Wie EMA & RSI Entry/Exit-Signale generieren
 
 Diese Sektion erklärt, **WIE** EMA und RSI funktionieren, **WANN** sie Signale erzeugen und **WARUM** das System diese für Entry/Exit-Erkennung nutzt.
 
@@ -810,7 +812,7 @@ Das System folgt **jedem Kerzen-Abschluss** diesem Workflow:
    │  ├─ Entry-Preis = Close
    │  ├─ SL = Close ± 1.5 × ATR14
    │  ├─ TP = Close ± 2.0 × ATR14
-   └─ CSVs aktualisieren (live_trades.csv)
+   └─ CSVs aktualisieren (`*_signals.csv`, optional `*_closes.csv`)
 
 7. DASHBOARD AKTUALISIEREN
    ├─ "Dir=Long | Prob=0.62 | Regime=Trend"

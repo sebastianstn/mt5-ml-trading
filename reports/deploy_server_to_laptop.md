@@ -48,10 +48,12 @@ Vorteile:
 1. MT5 offen und verbunden.
 2. Trader-Prozesse neu starten (USDCAD, USDJPY).
 3. Logs prüfen:
-   - `logs/USDCAD_live_trades.csv`
-   - `logs/USDJPY_live_trades.csv`
+   - `logs/USDCAD_signals.csv`
+   - `logs/USDJPY_signals.csv`
+   - optional `logs/USDCAD_closes.csv`, `logs/USDJPY_closes.csv`
 4. Sync prüfen (`MT5_Sync_Live_Logs`).
 5. Dashboard prüfen: kein permanentes `MISSING` / `STALE`.
+6. Auto-Log-Sync Richtung Linux prüfen (`scripts/windows_sync_live_logs.ps1`).
 
 ---
 
@@ -67,6 +69,7 @@ Vorteile:
 - `live_trader.py` startet ohne Import-Fehler.
 - Heartbeat-Einträge erscheinen regelmäßig (auch bei `Kein` Signal).
 - CSVs werden in MT5 `Common\Files` gespiegelt.
+- Signal-/Close-Logs werden regelmäßig auf den Linux-Server synchronisiert.
 
 ---
 

@@ -1,0 +1,30 @@
+{
+  "model_path": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdcad_v4.pkl",
+  "data_csv": "/mnt/1Tb-Data/XGBoost-LightGBM/data/USDCAD_H1_labeled_v4.csv",
+  "label_col": "label",
+  "method": "sigmoid",
+  "output_model": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdcad_v4_calibrated_sigmoid.pkl",
+  "n_rows_total": 48957,
+  "n_rows_calibration": 34269,
+  "n_rows_test": 14688,
+  "label_mapping": {
+    "-1": 0,
+    "0": 1,
+    "1": 2
+  },
+  "metrics_before": {
+    "log_loss": 0.9416396180959101,
+    "brier_multiclass": 0.5584628628064204,
+    "ece": 0.05113527725313407
+  },
+  "metrics_after": {
+    "log_loss": 0.9346579252979286,
+    "brier_multiclass": 0.5520621251047145,
+    "ece": 0.08874284003612427
+  },
+  "delta": {
+    "log_loss": -0.006982,
+    "brier_multiclass": -0.006401,
+    "ece": 0.037608
+  }
+}

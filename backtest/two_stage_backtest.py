@@ -238,6 +238,27 @@ def two_stage_signale_generieren(
     result["signal"] = signal
     result["prob_signal"] = prob_signal
 
+    # Bug-Fix: market_regime von H1 auf M5 projizieren, damit der
+    # Regime-Filter in trades_simulieren auch auf M5-Daten greift.
+    regime_col = None
+    for col in ("market_regime", "market_regime_hmm"):
+        if col in h1_df.columns:
+            regime_col = col
+            break
+
+    if regime_col is not None and "market_regime" not in result.columns:
+        h1_regime = h1_df[[regime_col]].copy()
+        h1_regime = h1_regime.rename(columns={regime_col: "market_regime"})
+        h1_reset = h1_regime.reset_index().rename(columns={"time": "timestamp"})
+        res_reset = result.reset_index().rename(columns={"time": "timestamp"})
+        merged = pd.merge_asof(
+            res_reset.sort_values("timestamp"),
+            h1_reset.sort_values("timestamp"),
+            on="timestamp",
+            direction="backward",
+        )
+        result["market_regime"] = merged["market_regime"].values
+
     return result, result.index[0], result.index[-1]
 
 
@@ -263,14 +284,20 @@ def main() -> None:
     parser.add_argument("--symbol", nargs="+", default=["USDCAD", "USDJPY"])
     parser.add_argument("--version", default="v4")
     parser.add_argument("--ltf_timeframe", default="M5", choices=["M5", "M15"])
-    parser.add_argument("--schwelle", type=float, default=0.52)
-    parser.add_argument("--regime_filter", type=str, default="0,1,2")
-    parser.add_argument("--tp_pct", type=float, default=0.003)
+    parser.add_argument("--schwelle", type=float, default=0.55)
+    parser.add_argument("--regime_filter", type=str, default="1,2")
+    parser.add_argument("--tp_pct", type=float, default=0.009)
     parser.add_argument("--sl_pct", type=float, default=0.003)
-    parser.add_argument("--horizon", type=int, default=5)
+    parser.add_argument("--horizon", type=int, default=24)
     parser.add_argument("--atr_sl", action="store_true", default=True)
     parser.add_argument("--atr_faktor", type=float, default=1.5)
     parser.add_argument("--spread_faktor", type=float, default=1.0)
+    parser.add_argument(
+        "--cooldown_bars",
+        type=int,
+        default=12,
+        help="Mindest-Pause zwischen Trades in Bars (12 M5-Bars = 1h)",
+    )
     args = parser.parse_args()
 
     # Zielsymbole normalisieren (nur aktive Paare empfohlen).
@@ -322,6 +349,7 @@ def main() -> None:
             spread_faktor=args.spread_faktor,
             swap_aktiv=False,
             timeframe=args.ltf_timeframe,
+            cooldown_bars=args.cooldown_bars,
         )
 
         if trades_ts.empty:

@@ -2,15 +2,19 @@
 weekly_kpi_report.py – Automatischer Wochenreport für 2 Kernsymbole
 
 Zweck:
-    Erstellt einen kompakten KPI-Report für USDCAD und USDJPY mit
-    Go/No-Go-Ampel auf Basis von:
-      1) Live-Aktivitätsdaten (logs/SYMBOL_live_trades.csv, falls vorhanden)
+        Erstellt einen kompakten KPI-Report für USDCAD und USDJPY mit
+        Go/No-Go-Ampel auf Basis von:
+            1) Live-Aktivitätsdaten (logs/SYMBOL_signals.csv, falls vorhanden)
       2) Profitabilitätsdaten aus Backtest-Trades (backtest/SYMBOL_trades.csv)
 
 Wichtig:
     Die Live-Logdateien enthalten standardmäßig Signal-/Operativdaten,
     aber keinen realisierten P&L. Daher wird die Profitabilität aus den
     Backtest-Trades berechnet, bis ein echter Live-PnL-Export vorliegt.
+
+    Wichtig für Phase 7:
+    Weekly KPI-Gates werden NUR mit frischen Live-Daten bewertet.
+    Fehlen frische Live-Events (stale), wird der Symbolstatus hart auf NO-GO gesetzt.
 
 Läuft auf: Linux-Server
 
@@ -21,8 +25,8 @@ Verwendung:
     python reports/weekly_kpi_report.py --tage 7
 
 Eingabe:
-    logs/USDCAD_live_trades.csv (optional)
-    logs/USDJPY_live_trades.csv (optional)
+    logs/USDCAD_signals.csv (optional)
+    logs/USDJPY_signals.csv (optional)
     backtest/USDCAD_trades.csv
     backtest/USDJPY_trades.csv
 
@@ -57,6 +61,9 @@ REPORTS_DIR = BASE_DIR / "reports"
 # Kernsymbole laut aktueller Betriebsstrategie
 KERN_SYMBOLE = ["USDCAD", "USDJPY"]
 
+# Aktuelle Live-Log-Suffixe aus live_trader.py
+LIVE_SIGNAL_SUFFIX = "_signals.csv"
+
 # Persistente Historie für Wochen-Gates
 KPI_HISTORY_PATH = REPORTS_DIR / "weekly_kpi_history.csv"
 
@@ -66,6 +73,9 @@ ZIEL_SHARPE = 0.80
 ZIEL_MAX_DD = -10.0  # in Prozent (negativ)
 ZIEL_WIN_RATE = 45.0  # in Prozent
 ZIEL_SIGNALE_WOCHE = 5  # Mindestaktivität
+
+# Stale-Logik für "frische Live-Daten erzwingen"
+STALE_FACTOR = 1.5
 
 # 3-Monats-Regel (ca. 12 Wochen): Eskalation nur bei stabilen GO-Werten
 PAPER_GATE_WOCHEN = 12
@@ -92,9 +102,13 @@ class SymbolKPI:
 
     symbol: str
     live_signale: int
+    live_events: int
     live_long_pct: float
     live_short_pct: float
     live_avg_prob: float
+    live_last_event_utc: str
+    live_minutes_since_last: Optional[float]
+    live_fresh: bool
     profit_factor: float
     sharpe_ratio: float
     max_drawdown_pct: float
@@ -114,7 +128,7 @@ def lade_live_log(symbol: str, tage: int) -> Optional[pd.DataFrame]:
     Returns:
         Gefilterter DataFrame oder None, wenn keine Datei vorhanden ist.
     """
-    live_path = LOG_DIR / f"{symbol}_live_trades.csv"
+    live_path = LOG_DIR / f"{symbol}{LIVE_SIGNAL_SUFFIX}"
     if not live_path.exists():
         logger.warning("[%s] Kein Live-Log gefunden: %s", symbol, live_path)
         return None
@@ -131,7 +145,27 @@ def lade_live_log(symbol: str, tage: int) -> Optional[pd.DataFrame]:
     return df[df["time"] >= cutoff].copy()
 
 
-def live_kpis_berechnen(symbol: str, tage: int) -> dict:
+def timeframe_minutes(timeframe: str) -> int:
+    """Übersetzt den Timeframe-String in Minuten.
+
+    Args:
+        timeframe: Timeframe aus CLI.
+
+    Returns:
+        Minuten pro Kerze.
+    """
+    mapping = {
+        "H1": 60,
+        "M60": 60,
+        "M30": 30,
+        "M15": 15,
+        "M5_TWO_STAGE": 5,
+        "H4": 240,
+    }
+    return mapping.get(timeframe, 60)
+
+
+def live_kpis_berechnen(symbol: str, tage: int, timeframe: str = "H1") -> dict:
     """Berechnet operative Live-KPIs für ein Symbol.
 
     Args:
@@ -145,9 +179,13 @@ def live_kpis_berechnen(symbol: str, tage: int) -> dict:
     if df is None or df.empty:
         return {
             "live_signale": 0,
+            "live_events": 0,
             "live_long_pct": 0.0,
             "live_short_pct": 0.0,
             "live_avg_prob": 0.0,
+            "live_last_event_utc": "",
+            "live_minutes_since_last": None,
+            "live_fresh": False,
         }
 
     # Richtungsspalte: "Long" / "Short" / ggf. andere Werte
@@ -155,12 +193,33 @@ def live_kpis_berechnen(symbol: str, tage: int) -> dict:
     n_long = int((df["richtung"] == "Long").sum()) if "richtung" in df.columns else 0
     n_short = int((df["richtung"] == "Short").sum()) if "richtung" in df.columns else 0
     avg_prob = float(df["prob"].mean()) if "prob" in df.columns else 0.0
+    n_signale = int((df["signal"] != 0).sum()) if "signal" in df.columns else 0
+
+    last_event_utc = ""
+    minutes_since_last: Optional[float] = None
+    live_fresh = False
+    if n > 0:
+        last_ts = pd.to_datetime(df["time"], errors="coerce").max()
+        if pd.notna(last_ts):
+            now_ts = (
+                pd.Timestamp.now(tz=last_ts.tz)
+                if getattr(last_ts, "tz", None)
+                else pd.Timestamp.now()
+            )
+            minutes_since_last = float((now_ts - last_ts).total_seconds() / 60.0)
+            stale_limit = timeframe_minutes(timeframe) * STALE_FACTOR
+            live_fresh = minutes_since_last <= stale_limit
+            last_event_utc = str(last_ts)
 
     return {
-        "live_signale": n,
+        "live_signale": n_signale,
+        "live_events": n,
         "live_long_pct": (n_long / n * 100) if n > 0 else 0.0,
         "live_short_pct": (n_short / n * 100) if n > 0 else 0.0,
         "live_avg_prob": avg_prob,
+        "live_last_event_utc": last_event_utc,
+        "live_minutes_since_last": minutes_since_last,
+        "live_fresh": live_fresh,
     }
 
 
@@ -238,6 +297,9 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
     Returns:
         Tuple aus (Status, Hinweis).
     """
+    if not bool(kpi.get("live_fresh", False)):
+        return "NO-GO", "Keine frischen Live-Daten (stale/fehlend)"
+
     # Mindestaktivität: sonst keine belastbare Entscheidung
     if int(kpi["live_signale"]) < ZIEL_SIGNALE_WOCHE:
         return "UNKLAR", "Zu wenige Live-Signale im Zeitraum"
@@ -266,7 +328,7 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
     Returns:
         Vollständiges SymbolKPI-Objekt.
     """
-    live = live_kpis_berechnen(symbol, tage)
+    live = live_kpis_berechnen(symbol, tage, timeframe=timeframe)
     try:
         bt = backtest_kpis_berechnen(symbol, timeframe=timeframe)
     except (FileNotFoundError, ValueError) as exc:
@@ -285,9 +347,17 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
     return SymbolKPI(
         symbol=symbol,
         live_signale=int(kombiniert["live_signale"]),
+        live_events=int(kombiniert["live_events"]),
         live_long_pct=float(kombiniert["live_long_pct"]),
         live_short_pct=float(kombiniert["live_short_pct"]),
         live_avg_prob=float(kombiniert["live_avg_prob"]),
+        live_last_event_utc=str(kombiniert.get("live_last_event_utc", "")),
+        live_minutes_since_last=(
+            float(kombiniert["live_minutes_since_last"])
+            if kombiniert.get("live_minutes_since_last") is not None
+            else None
+        ),
+        live_fresh=bool(kombiniert.get("live_fresh", False)),
         profit_factor=float(kombiniert["profit_factor"]),
         sharpe_ratio=float(kombiniert["sharpe_ratio"]),
         max_drawdown_pct=float(kombiniert["max_drawdown_pct"]),
@@ -351,17 +421,26 @@ def markdown_bericht_schreiben(
         "",
         "## Ergebnis je Symbol",
         "",
-        "| Symbol | Status | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | "
+        "| Symbol | Status | Live Fresh | Letztes Event (UTC) | Min seit Event | "
+        "Events | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | "
         "Sharpe (BT) | MaxDD% (BT) | WinRate% (BT) | Hinweis |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
 
     for k in kpis:
         lines.append(
-            "| {symbol} | {status} | {live_signale} | {long:.1f} | {short:.1f} | "
+            "| {symbol} | {status} | {fresh} | {last} | {mins} | {events} | {live_signale} | {long:.1f} | {short:.1f} | "
             "{prob:.3f} | {ret:+.2f} | {pf:.3f} | {sh:.3f} | {dd:.2f} | {wr:.1f} | {hint} |".format(
                 symbol=k.symbol,
                 status=k.status,
+                fresh="OK" if k.live_fresh else "STALE",
+                last=k.live_last_event_utc if k.live_last_event_utc else "-",
+                mins=(
+                    f"{k.live_minutes_since_last:.1f}"
+                    if k.live_minutes_since_last is not None
+                    else "-"
+                ),
+                events=k.live_events,
                 live_signale=k.live_signale,
                 long=k.live_long_pct,
                 short=k.live_short_pct,
@@ -386,6 +465,7 @@ def markdown_bericht_schreiben(
         "",
         "## Interpretation",
         "",
+        "- **Live-Freshness** ist ein hartes Gate: ohne frische Events wird der Status auf NO-GO gesetzt.",
         "- **Live-Signale** zeigen operative Aktivität; bei zu wenigen Signalen ist die Bewertung statistisch schwach.",
         (
             "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
@@ -455,6 +535,10 @@ def historie_aktualisieren_und_gate_pruefen(
                 "USDJPY_dd",
                 "USDCAD_winrate",
                 "USDJPY_winrate",
+                "USDCAD_live_events",
+                "USDJPY_live_events",
+                "USDCAD_live_fresh",
+                "USDJPY_live_fresh",
                 "USDCAD_live_signale",
                 "USDJPY_live_signale",
             ]
@@ -477,6 +561,10 @@ def historie_aktualisieren_und_gate_pruefen(
         "USDJPY_dd": usdjpy.max_drawdown_pct if usdjpy else 0.0,
         "USDCAD_winrate": usdcad.win_rate_pct if usdcad else 0.0,
         "USDJPY_winrate": usdjpy.win_rate_pct if usdjpy else 0.0,
+        "USDCAD_live_events": usdcad.live_events if usdcad else 0,
+        "USDJPY_live_events": usdjpy.live_events if usdjpy else 0,
+        "USDCAD_live_fresh": int(usdcad.live_fresh) if usdcad else 0,
+        "USDJPY_live_fresh": int(usdjpy.live_fresh) if usdjpy else 0,
         "USDCAD_live_signale": usdcad.live_signale if usdcad else 0,
         "USDJPY_live_signale": usdjpy.live_signale if usdjpy else 0,
     }

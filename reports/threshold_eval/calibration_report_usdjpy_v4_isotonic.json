@@ -1,0 +1,30 @@
+{
+  "model_path": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v4.pkl",
+  "data_csv": "/mnt/1Tb-Data/XGBoost-LightGBM/data/USDJPY_H1_labeled_v4.csv",
+  "label_col": "label",
+  "method": "isotonic",
+  "output_model": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdjpy_v4_calibrated_isotonic.pkl",
+  "n_rows_total": 48957,
+  "n_rows_calibration": 34269,
+  "n_rows_test": 14688,
+  "label_mapping": {
+    "-1": 0,
+    "0": 1,
+    "1": 2
+  },
+  "metrics_before": {
+    "log_loss": 1.0291813411431987,
+    "brier_multiclass": 0.6168787733900064,
+    "ece": 0.038427983070382934
+  },
+  "metrics_after": {
+    "log_loss": 1.0788552114774528,
+    "brier_multiclass": 0.6386833657503622,
+    "ece": 0.12406415284221203
+  },
+  "delta": {
+    "log_loss": 0.049674,
+    "brier_multiclass": 0.021805,
+    "ece": 0.085636
+  }
+}

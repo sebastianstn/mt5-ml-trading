@@ -1,0 +1,30 @@
+{
+  "model_path": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdcad_v4.pkl",
+  "data_csv": "/mnt/1Tb-Data/XGBoost-LightGBM/data/USDCAD_H1_labeled_v4.csv",
+  "label_col": "label",
+  "method": "isotonic",
+  "output_model": "/mnt/1Tb-Data/XGBoost-LightGBM/models/lgbm_usdcad_v4_calibrated_isotonic.pkl",
+  "n_rows_total": 48957,
+  "n_rows_calibration": 34269,
+  "n_rows_test": 14688,
+  "label_mapping": {
+    "-1": 0,
+    "0": 1,
+    "1": 2
+  },
+  "metrics_before": {
+    "log_loss": 0.9416396180959101,
+    "brier_multiclass": 0.5584628628064204,
+    "ece": 0.05113527725313407
+  },
+  "metrics_after": {
+    "log_loss": 0.9446116990394929,
+    "brier_multiclass": 0.5523110996423921,
+    "ece": 0.07729130548918517
+  },
+  "delta": {
+    "log_loss": 0.002972,
+    "brier_multiclass": -0.006152,
+    "ece": 0.026156
+  }
+}

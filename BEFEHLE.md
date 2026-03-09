@@ -126,6 +126,24 @@ setx MT5_LOGIN "<dein_login>"
 setx MT5_PASSWORD "<dein_passwort>"
 ```
 
+### Testphase starten (neue Top-Konfiguration, Two-Stage v4)
+
+> Empfohlener Start für die aktuelle Testphase auf dem Windows-Laptop.
+
+```powershell
+cd "C:\Users\Sebastian Setnescu\mt5_trading"
+.\start_testphase_topconfig.bat
+```
+
+Verwendete Kernparameter:
+
+- `--schwelle 0.54`
+- `--regime_filter 0,1,2`
+- `--two_stage_enable 1`
+- `--two_stage_ltf_timeframe M5`
+- `--two_stage_version v4`
+- `--paper_trading 1`
+
 ### Alle Trader stoppen (vor Neustart empfohlen)
 
 > Beendet alle bekannten Trader-Fenster und laufende `live_trader.py` Prozesse.
@@ -352,6 +370,20 @@ python reports/weekly_kpi_report.py --tage 7 --timeframe M5_TWO_STAGE
 > Bei `--timeframe M5_TWO_STAGE` liest der Report die Dateien
 > `backtest/USDCAD_M5_two_stage_trades.csv` und
 > `backtest/USDJPY_M5_two_stage_trades.csv`.
+
+### Testphase-Auswertung (`scripts/evaluate_mt5_testphase.py`)
+
+> Bewertet laufende MT5-Paper-Tests auf Basis von `logs/*_signals.csv` und
+> `logs/*_closes.csv` (Freshness + Aktivität + KPI-Gates).
+
+```bash
+python scripts/evaluate_mt5_testphase.py --hours 48 --symbols USDCAD,USDJPY --timeframe M5
+```
+
+Artefakte:
+
+- `reports/testphase/mt5_testphase_eval_<timestamp>.csv`
+- `reports/testphase/mt5_testphase_eval_latest.csv`
 
 ---
 

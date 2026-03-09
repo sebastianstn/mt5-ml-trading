@@ -30,7 +30,7 @@ Ziel: In 3–5 Minuten prüfen, ob das System stabil läuft und ob Eingriff nöt
 1. MT5 ist geöffnet und eingeloggt.
 2. `stop_all_traders.bat` ausführen (sauberer Zustand).
 3. `start_shadow_compare.bat` starten.
-4. Dashboard-EA auf **einem** Chart aktivieren.
+4. Dashboard-Indikator auf **einem** Chart aktivieren.
 5. Im Dashboard prüfen:
    - `STATUS=CONNECTED`
    - `STALE>70min (SignalTF)`

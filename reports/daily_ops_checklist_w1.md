@@ -18,8 +18,9 @@
 - [x] `live_trader.py` für **USDCAD** läuft (Paper)
 - [x] `live_trader.py` für **USDJPY** läuft (Paper)
 - [x] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [x] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [x] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [x] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [x] `logs/*_closes.csv` (optional) plausibel
+- [x] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [x] MT5 Dashboard: kein permanentes `MISSING`
 - [x] MT5 Dashboard: kein permanentes `STALE`
 - [x] `logs/live_trader.log` auf ERROR/Traceback geprüft
@@ -41,8 +42,9 @@
 - [ ] `live_trader.py` für **USDCAD** läuft (Paper)
 - [ ] `live_trader.py` für **USDJPY** läuft (Paper)
 - [ ] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [ ] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [ ] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_closes.csv` (optional) plausibel
+- [ ] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [ ] MT5 Dashboard: kein permanentes `MISSING`
 - [ ] MT5 Dashboard: kein permanentes `STALE`
 - [ ] `logs/live_trader.log` auf ERROR/Traceback geprüft
@@ -64,8 +66,9 @@
 - [ ] `live_trader.py` für **USDCAD** läuft (Paper)
 - [ ] `live_trader.py` für **USDJPY** läuft (Paper)
 - [ ] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [ ] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [ ] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_closes.csv` (optional) plausibel
+- [ ] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [ ] MT5 Dashboard: kein permanentes `MISSING`
 - [ ] MT5 Dashboard: kein permanentes `STALE`
 - [ ] `logs/live_trader.log` auf ERROR/Traceback geprüft
@@ -87,8 +90,9 @@
 - [ ] `live_trader.py` für **USDCAD** läuft (Paper)
 - [ ] `live_trader.py` für **USDJPY** läuft (Paper)
 - [ ] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [ ] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [ ] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_closes.csv` (optional) plausibel
+- [ ] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [ ] MT5 Dashboard: kein permanentes `MISSING`
 - [ ] MT5 Dashboard: kein permanentes `STALE`
 - [ ] `logs/live_trader.log` auf ERROR/Traceback geprüft
@@ -110,8 +114,9 @@
 - [ ] `live_trader.py` für **USDCAD** läuft (Paper)
 - [ ] `live_trader.py` für **USDJPY** läuft (Paper)
 - [ ] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [ ] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [ ] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_closes.csv` (optional) plausibel
+- [ ] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [ ] MT5 Dashboard: kein permanentes `MISSING`
 - [ ] MT5 Dashboard: kein permanentes `STALE`
 - [ ] `logs/live_trader.log` auf ERROR/Traceback geprüft
@@ -133,8 +138,9 @@
 - [ ] `live_trader.py` für **USDCAD** läuft (Paper)
 - [ ] `live_trader.py` für **USDJPY** läuft (Paper)
 - [ ] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [ ] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [ ] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_closes.csv` (optional) plausibel
+- [ ] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [ ] MT5 Dashboard: kein permanentes `MISSING`
 - [ ] MT5 Dashboard: kein permanentes `STALE`
 - [ ] `logs/live_trader.log` auf ERROR/Traceback geprüft
@@ -156,8 +162,9 @@
 - [ ] `live_trader.py` für **USDCAD** läuft (Paper)
 - [ ] `live_trader.py` für **USDJPY** läuft (Paper)
 - [ ] Sync-Task `MT5_Sync_Live_Logs` läuft fehlerfrei
-- [ ] `logs/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
-- [ ] `Common\Files/*_live_trades.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_signals.csv` aktualisiert (Zeitstempel frisch)
+- [ ] `logs/*_closes.csv` (optional) plausibel
+- [ ] `Common\Files/*_signals.csv` aktualisiert (Zeitstempel frisch)
 - [ ] MT5 Dashboard: kein permanentes `MISSING`
 - [ ] MT5 Dashboard: kein permanentes `STALE`
 - [ ] `logs/live_trader.log` auf ERROR/Traceback geprüft

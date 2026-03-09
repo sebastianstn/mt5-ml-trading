@@ -1,6 +1,6 @@
 # Wöchentlicher KPI-Report (USDCAD / USDJPY)
 
-**Erstellt:** 2026-03-05 13:20
+**Erstellt:** 2026-03-08 23:14
 **Zeitraum (Live-Aktivität):** letzte 7 Tage
 **Gesamtstatus:** **NO-GO**
 **Timeframe:** `M5_TWO_STAGE`
@@ -17,20 +17,21 @@
 
 ## Ergebnis je Symbol
 
-| Symbol | Status | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | Sharpe (BT) | MaxDD% (BT) | WinRate% (BT) | Hinweis |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| USDCAD | NO-GO | 6 | 16.7 | 0.0 | 0.118 | -170.50 | 0.011 | -22.910 | -170.46 | 3.9 | KPI unter Ziel: PF, Sharpe, DD, WinRate |
-| USDJPY | NO-GO | 5 | 0.0 | 20.0 | 0.306 | -10.07 | 0.866 | -0.834 | -34.13 | 60.3 | KPI unter Ziel: PF, Sharpe, DD |
+| Symbol | Status | Live Fresh | Letztes Event (UTC) | Min seit Event | Events | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | Sharpe (BT) | MaxDD% (BT) | WinRate% (BT) | Hinweis |
+|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| USDCAD | NO-GO | STALE | - | - | 0 | 0 | 0.0 | 0.0 | 0.000 | +3.32 | 1.762 | 3.736 | -0.70 | 58.5 | Keine frischen Live-Daten (stale/fehlend) |
+| USDJPY | NO-GO | STALE | - | - | 0 | 0 | 0.0 | 0.0 | 0.000 | +16.44 | 4.273 | 10.324 | -0.75 | 76.4 | Keine frischen Live-Daten (stale/fehlend) |
 
 ## 3-Monats Paper-Gate (stabile Werte)
 
-- Letzte 12 Wochen insgesamt erfasst: 4
+- Letzte 12 Wochen insgesamt erfasst: 6
 - Konsekutive GO-Wochen aktuell: 0
 - Entscheidungsstatus: **PAPER_ONLY**
 - Begründung: Noch 12 GO-Woche(n) ohne Unterbrechung nötig für kontrollierte Eskalation.
 
 ## Interpretation
 
+- **Live-Freshness** ist ein hartes Gate: ohne frische Events wird der Status auf NO-GO gesetzt.
 - **Live-Signale** zeigen operative Aktivität; bei zu wenigen Signalen ist die Bewertung statistisch schwach.
 - **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades (`backtest/SYMBOL_M5_two_stage_trades.csv`).
 - Sobald ein echter Live-PnL-Export verfügbar ist, sollte die Profitabilitätssektion auf Live-Daten umgestellt werden.

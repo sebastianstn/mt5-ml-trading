@@ -2,7 +2,7 @@
 
 Diese Dateien helfen dir, Python-Signale in MT5 **zeitnah** zu sehen:
 
-- `LiveSignalDashboard.mq5` → MT5 Expert Advisor (Chart-Panel + Alerts)
+- `LiveSignalDashboard.mq5` → MT5 Indikator (Chart-Panel + Alerts)
 - `sync_live_logs_to_mt5_common.ps1` → kopiert Python-Logs in MT5 Common Files
 - `install_sync_task.ps1` → registriert den Autostart-Task beim Login
 - `sync_live_logs_task_template.xml` → importierbare Task-Scheduler XML-Vorlage
@@ -11,7 +11,7 @@ Diese Dateien helfen dir, Python-Signale in MT5 **zeitnah** zu sehen:
 
 ---
 
-## Aktueller Stand (2026-03-01)
+## Aktueller Stand (2026-03-09)
 
 - Paper-Betrieb für `USDCAD` und `USDJPY` läuft.
 - Sync-Task ist produktiv nutzbar (`LastTaskResult = 0`).
@@ -20,13 +20,13 @@ Diese Dateien helfen dir, Python-Signale in MT5 **zeitnah** zu sehen:
 
 ---
 
-## 1) EA in MT5 installieren (Windows Laptop)
+## 1) Indikator in MT5 installieren (Windows Laptop)
 
 1. MT5 öffnen
 2. `Datei -> Datenordner öffnen`
-3. In `MQL5/Experts/` die Datei `LiveSignalDashboard.mq5` kopieren
+3. In `MQL5/Indicators/` die Datei `LiveSignalDashboard.mq5` kopieren
 4. In MT5 MetaEditor öffnen, Datei kompilieren
-5. EA auf ein Chart ziehen
+5. Indikator auf ein Chart ziehen
 
 Empfohlene Inputs:
 
@@ -40,10 +40,15 @@ Empfohlene Inputs:
 
 ## 2) Logs aus Python in MT5 verfügbar machen
 
-Der EA liest aus:
+Der Indikator liest aus (aktuell):
 
-`%APPDATA%\MetaQuotes\Terminal\Common\Files\USDCAD_live_trades.csv`
-`%APPDATA%\MetaQuotes\Terminal\Common\Files\USDJPY_live_trades.csv`
+`%APPDATA%\MetaQuotes\Terminal\Common\Files\USDCAD_signals.csv`
+`%APPDATA%\MetaQuotes\Terminal\Common\Files\USDJPY_signals.csv`
+
+Optional (für Auswertungen/Close-Events):
+
+`%APPDATA%\MetaQuotes\Terminal\Common\Files\USDCAD_closes.csv`
+`%APPDATA%\MetaQuotes\Terminal\Common\Files\USDJPY_closes.csv`
 
 Nutze dazu das Skript:
 
@@ -63,8 +68,9 @@ Beispiel:
 
 Wenn alles passt, sollten im Zielordner erscheinen:
 
-- `USDCAD_live_trades.csv`
-- `USDJPY_live_trades.csv`
+- `USDCAD_signals.csv`
+- `USDJPY_signals.csv`
+- optional zusätzlich `*_closes.csv`
 
 ### 2.2 Dauerlauf (empfohlen während Paper-Trading)
 
@@ -107,7 +113,7 @@ Damit läuft der Sync automatisch nach Windows-Login.
 
 ### 2.4 Verifikation in MT5
 
-Im EA-Dashboard sollte oben der Gesamtstatus von `WAITING_FOR_CSV` auf `CONNECTED` wechseln,
+Im Dashboard sollte oben der Gesamtstatus von `WAITING_FOR_CSV` auf `CONNECTED` wechseln,
 sobald beide Dateien verfügbar und frisch sind.
 
 ---
@@ -123,7 +129,7 @@ sobald beide Dateien verfügbar und frisch sind.
    - Mit `-ExecutionPolicy Bypass` starten (wie oben)
 
 3. **Doppelte Dashboard-Logs**
-   - EA nur auf **einem** Chart laufen lassen (liest ohnehin beide Symbole)
+   - Indikator nur auf **einem** Chart laufen lassen (liest ohnehin beide Symbole)
 
 4. **Automated trading is disabled**
    - Für dieses Dashboard nicht kritisch (Dateilesen funktioniert trotzdem)
@@ -145,6 +151,19 @@ Beispiel (minimal):
 - Modus (PAPER/LIVE)
 - Datenfrische (OK/STALE)
 - Neue Signale werden per `Alert()` gemeldet
+
+---
+
+## 5) Kompatibilitätshinweis (wichtig)
+
+- `LiveSignalDashboard.mq5` (v2.24) ist auf das aktuelle Logging von `live_trader.py` ausgerichtet.
+- Robustes Parsing von Zeitformaten (`YYYY-MM-DD HH:MM:SS`, ISO-Varianten).
+- Robustes Mapping von `richtung` plus Fallback auf numerisches Feld `signal` (`2/-1/0`).
+
+- Wenn das Dashboard trotz vorhandener CSV auf `NO_TS`/`MISSING` bleibt:
+   1. Indikator neu kompilieren
+   2. neu auf den Chart ziehen
+   3. prüfen, dass `InpUseCommonFiles=true` gesetzt ist
 
 ---
 

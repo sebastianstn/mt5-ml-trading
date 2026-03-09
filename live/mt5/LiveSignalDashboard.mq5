@@ -9,7 +9,7 @@
 // ║   WIE ES FUNKTIONIERT (Gesamtbild):                         ║
 // ║   1. Python (live_trader.py) laeuft auf dem Windows-Laptop   ║
 // ║      und schreibt alle 5 Min eine CSV-Datei ins MT5-         ║
-// ║      Common/Files-Verzeichnis (z.B. USDJPY_live_trades.csv) ║
+// ║      Common/Files-Verzeichnis (z.B. USDJPY_signals.csv)     ║
 // ║   2. Dieser Indikator liest diese CSV-Datei alle 5 Sekunden ║
 // ║   3. Er zeigt die Daten als:                                 ║
 // ║      - Dashboard-Textbox (oben links)                        ║
@@ -20,7 +20,7 @@
 // ║                                                              ║
 // ║   DATEIPFAD DER CSV:                                         ║
 // ║   C:\Users\...\AppData\Roaming\MetaQuotes\Terminal\          ║
-// ║   Common\Files\USDJPY_live_trades.csv                       ║
+// ║   Common\Files\USDJPY_signals.csv                           ║
 // ║                                                              ║
 // ║   WICHTIG:                                                   ║
 // ║   - Indikator laeuft NUR im Chart-Fenster (kein eigenes)    ║
@@ -28,7 +28,7 @@
 // ║   - Braucht KEINE Ticks – funktioniert auch am Wochenende   ║
 // ╚══════════════════════════════════════════════════════════════╝
 #property strict                    // Strenger Compiler-Modus (faengt mehr Fehler ab)
-#property version "2.23"            // Versionsnummer – erhoehe bei jeder Aenderung
+#property version "2.24"            // Versionsnummer – erhoehe bei jeder Aenderung
 #property description "MT5 Dashboard fuer Python Live-Signale (USDCAD/USDJPY)"
 #property description "Liest CSV aus Common/Files und zeigt Status, Alerts + Chart-Zeichnungen."
 #property description "v2.21: +Countdown, Spread, ATR/Vola, Session, Regime, Modus"
@@ -46,8 +46,8 @@
 // --- Grundeinstellungen ---
 input string InpSymbol1 = "USDCAD";        // Erstes Waehrungspaar das wir ueberwachen
 input string InpSymbol2 = "USDJPY";        // Zweites Waehrungspaar das wir ueberwachen
-input string InpFileSuffix = "_live_trades.csv"; // Dateiendung – Symbol + dies = Dateiname
-                                                  // z.B. "USDJPY" + "_live_trades.csv" = "USDJPY_live_trades.csv"
+input string InpFileSuffix = "_signals.csv"; // Dateiendung – Symbol + dies = Dateiname
+                                               // z.B. "USDJPY" + "_signals.csv" = "USDJPY_signals.csv"
 input bool InpUseCommonFiles = true;        // true = lese aus MT5 Common/Files (alle Terminals teilen sich diesen Ordner)
                                             // false = lese aus MQL5/Files (nur dieses Terminal)
 input int InpRefreshSeconds = 5;            // Wie oft (in Sekunden) die CSV neu gelesen wird
@@ -308,7 +308,7 @@ void ReleaseTechnicalOverlay()
 // ============================================================
 // Die Kommunikation mit Python erfolgt ueber CSV-Dateien.
 // Python (live_trader.py) schreibt Signale in:
-//   C:\Users\...\AppData\Roaming\MetaQuotes\Terminal\Common\Files\SYMBOL_live_trades.csv
+//   C:\Users\...\AppData\Roaming\MetaQuotes\Terminal\Common\Files\SYMBOL_signals.csv
 // Dieses MQL5-Skript liest die CSV alle 5 Sekunden aus und
 // zeigt die Daten visuell auf dem Chart an.
 //
@@ -359,10 +359,10 @@ void ReadCsvLine(const int handle, string &fields[])
 }
 
 // BuildFileName() – Erzeugt den CSV-Dateinamen fuer ein Symbol.
-// Beispiel: BuildFileName("USDCAD") → "USDCAD_live_trades.csv"
+// Beispiel: BuildFileName("USDCAD") → "USDCAD_signals.csv"
 string BuildFileName(const string symbol)
 {
-    return symbol + InpFileSuffix;  // Symbol + Suffix (z.B. "_live_trades.csv")
+    return symbol + InpFileSuffix;  // Symbol + Suffix (z.B. "_signals.csv")
 }
 
 // ParseBool() – Wandelt einen CSV-Text in true/false um.
@@ -373,6 +373,47 @@ bool ParseBool(const string raw)
     string v = raw;
     StringToLower(v);  // In Kleinbuchstaben fuer Vergleich
     return (v == "1" || v == "true" || v == "ja" || v == "yes");
+}
+
+// ParseSignalDirection() – Vereinheitlicht Signal-Texte auf Long/Short/Kein.
+// Akzeptiert z.B. "long", "SHORT", "none", "0", "neutral".
+string ParseSignalDirection(const string raw)
+{
+    string v = raw;
+    StringToLower(v);
+    StringTrimLeft(v);
+    StringTrimRight(v);
+
+    if (v == "long" || v == "buy" || v == "2")
+        return "Long";
+    if (v == "short" || v == "sell" || v == "-1")
+        return "Short";
+    if (v == "kein" || v == "none" || v == "neutral" || v == "0" || v == "")
+        return "Kein";
+
+    return "Kein";
+}
+
+// ParseCsvTime() – robustes Zeit-Parsing fuer CSV-Formate aus Python.
+// Unterstuetzt u.a. "YYYY-MM-DD HH:MM:SS", "YYYY.MM.DD HH:MM" und ISO-T-Varianten.
+datetime ParseCsvTime(const string raw)
+{
+    string ts = raw;
+    StringTrimLeft(ts);
+    StringTrimRight(ts);
+    if (StringLen(ts) == 0)
+        return 0;
+
+    // ISO-8601 und Python-Formate normalisieren
+    StringReplace(ts, "T", " ");
+    StringReplace(ts, "Z", "");
+    StringReplace(ts, "-", ".");
+
+    int plus_pos = StringFind(ts, "+");
+    if (plus_pos > 0)
+        ts = StringSubstr(ts, 0, plus_pos);
+
+    return StringToTime(ts);
 }
 
 // NormalizeMojibake() – korrigiert typische UTF-8/ANSI-Artefakte aus CSV-Texten.
@@ -442,7 +483,7 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     if (InpUseCommonFiles)
         flags |= FILE_COMMON;  // Common-Ordner (fuer alle MT5-Terminals zugaenglich)
 
-    string file_name = BuildFileName(symbol);  // z.B. "USDCAD_live_trades.csv"
+    string file_name = BuildFileName(symbol);  // z.B. "USDCAD_signals.csv"
     int h = FileOpen(file_name, flags, ',');    // Komma als Trennzeichen
     if (h == INVALID_HANDLE)  // Datei konnte nicht geoeffnet werden
     {
@@ -466,6 +507,7 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     // z.B. idx_time = 0, idx_richtung = 1, idx_prob = 2, ...
     int idx_time = FindHeaderIndex(headers, "time");
     int idx_richtung = FindHeaderIndex(headers, "richtung");   // "Long", "Short" oder "Kein"
+    int idx_signal = FindHeaderIndex(headers, "signal");       // 2, -1, 0 (Fallback falls Richtung fehlt)
     int idx_prob = FindHeaderIndex(headers, "prob");            // Wahrscheinlichkeit 0.0 bis 1.0
     int idx_regime = FindHeaderIndex(headers, "regime");        // Marktphase 0, 1, 2
     int idx_regime_nm = FindHeaderIndex(headers, "regime_name"); // z.B. "Trending", "Range"
@@ -508,10 +550,12 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     out.valid = true;      // Snapshot ist gueltig
 
     // Zeitstempel parsen: "2025.06.26 14:00" → datetime
-    out.ts = StringToTime(SafeField(last, idx_time, "1970.01.01 00:00"));
+    out.ts = ParseCsvTime(SafeField(last, idx_time, ""));
 
     // Trading-Signal: "Long", "Short" oder "Kein"
-    out.richtung = SafeField(last, idx_richtung, "Unbekannt");
+    out.richtung = ParseSignalDirection(SafeField(last, idx_richtung, ""));
+    if (StringCompare(out.richtung, "Kein") == 0)
+        out.richtung = ParseSignalDirection(SafeField(last, idx_signal, "0"));
 
     // Modell-Wahrscheinlichkeit: 0.0 bis 1.0 (z.B. 0.67 = 67%)
     out.prob = StringToDouble(SafeField(last, idx_prob, "0"));
@@ -1810,8 +1854,8 @@ void DrawDashboard()
 void RefreshAll()
 {
     // CSV-Dateinamen zusammenbauen
-    string file_1 = BuildFileName(InpSymbol1);  // z.B. "USDCAD_live_trades.csv"
-    string file_2 = BuildFileName(InpSymbol2);  // z.B. "USDJPY_live_trades.csv"
+    string file_1 = BuildFileName(InpSymbol1);  // z.B. "USDCAD_signals.csv"
+    string file_2 = BuildFileName(InpSymbol2);  // z.B. "USDJPY_signals.csv"
 
     // 1. CSV-Dateien lesen und in Snapshots parsen
     bool ok_1 = ReadLatestSnapshot(InpSymbol1, g_snap1);  // USDCAD

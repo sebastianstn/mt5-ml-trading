@@ -23,13 +23,21 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import log_loss
+
+try:
+    # sklearn >= 1.6: Ersatz für cv='prefit'.
+    from sklearn.frozen import FrozenEstimator
+
+    HAS_FROZEN_ESTIMATOR = True
+except ImportError:
+    HAS_FROZEN_ESTIMATOR = False
 
 
 @dataclass(frozen=True)
@@ -54,7 +62,9 @@ def parse_args() -> argparse.Namespace:
             "Isotonic und schreibt Metrik-Report."
         )
     )
-    parser.add_argument("--model_path", required=True, type=str, help="Pfad zum .pkl-Modell")
+    parser.add_argument(
+        "--model_path", required=True, type=str, help="Pfad zum .pkl-Modell"
+    )
     parser.add_argument(
         "--data_csv",
         required=True,
@@ -115,7 +125,9 @@ def build_config(args: argparse.Namespace) -> CalibrationConfig:
     )
 
 
-def multiclass_brier_score(y_true: np.ndarray, proba: np.ndarray, classes: np.ndarray) -> float:
+def multiclass_brier_score(
+    y_true: np.ndarray, proba: np.ndarray, classes: np.ndarray
+) -> float:
     """
     Berechnet Brier-Score fuer Multi-Class (mean squared error auf One-Hot).
 
@@ -137,7 +149,9 @@ def multiclass_brier_score(y_true: np.ndarray, proba: np.ndarray, classes: np.nd
     return float(np.mean(np.sum((one_hot - proba) ** 2, axis=1)))
 
 
-def expected_calibration_error(y_true: np.ndarray, proba: np.ndarray, n_bins: int = 10) -> float:
+def expected_calibration_error(
+    y_true: np.ndarray, proba: np.ndarray, n_bins: int = 10
+) -> float:
     """
     Schaetzt ECE ueber max-Proba und Trefferquote.
 
@@ -172,7 +186,9 @@ def expected_calibration_error(y_true: np.ndarray, proba: np.ndarray, n_bins: in
     return float(ece)
 
 
-def load_dataset_for_model(model: Any, data_csv: Path, label_col: str) -> Tuple[pd.DataFrame, pd.Series]:
+def load_dataset_for_model(
+    model: Any, data_csv: Path, label_col: str
+) -> Tuple[pd.DataFrame, pd.Series]:
     """
     Laedt Datensatz und selektiert Feature-Spalten passend zum Modell.
 
@@ -211,7 +227,9 @@ def load_dataset_for_model(model: Any, data_csv: Path, label_col: str) -> Tuple[
     return X, y
 
 
-def evaluate_probs(y_true: np.ndarray, probs: np.ndarray, classes: np.ndarray) -> Dict[str, float]:
+def evaluate_probs(
+    y_true: np.ndarray, probs: np.ndarray, classes: np.ndarray
+) -> Dict[str, float]:
     """Berechnet Kernmetriken fuer Kalibrierungsqualitaet."""
     return {
         "log_loss": float(log_loss(y_true, probs, labels=list(classes))),
@@ -240,8 +258,28 @@ def run_calibration(config: CalibrationConfig) -> Dict[str, Any]:
         raise ValueError("Modell unterstuetzt kein predict_proba().")
 
     X, y = load_dataset_for_model(model, config.data_csv, config.label_col)
+
+    # Label-Kodierung robust an Modellklassen anpassen.
+    # Typischer Fall im Projekt: CSV-Labels = {-1,0,1}, Modellklassen = {0,1,2}.
+    label_mapping: Dict[int, int] = {}
+    if hasattr(model, "classes_"):
+        model_classes_sorted = sorted([int(c) for c in model.classes_])
+        data_classes_sorted = sorted([int(c) for c in y.unique()])
+        if data_classes_sorted != model_classes_sorted:
+            if len(data_classes_sorted) != len(model_classes_sorted):
+                raise ValueError(
+                    "Label-Klassen in Daten und Modell sind inkompatibel: "
+                    f"data={data_classes_sorted}, model={model_classes_sorted}"
+                )
+            label_mapping = {
+                old: new for old, new in zip(data_classes_sorted, model_classes_sorted)
+            }
+            y = y.map(label_mapping).astype(int)
+
     if len(X) < 100:
-        raise ValueError("Zu wenige Daten fuer stabile Kalibrierung (mind. 100 Zeilen empfohlen).")
+        raise ValueError(
+            "Zu wenige Daten fuer stabile Kalibrierung (mind. 100 Zeilen empfohlen)."
+        )
 
     # Achtung Zeitreihe: shuffle=False.
     split_idx = int(len(X) * (1.0 - config.test_size))
@@ -251,11 +289,23 @@ def run_calibration(config: CalibrationConfig) -> Dict[str, Any]:
 
     # Vorher-Metriken.
     probs_before = model.predict_proba(X_test)
-    classes = np.array(model.classes_) if hasattr(model, "classes_") else np.arange(probs_before.shape[1])
+    classes = (
+        np.array(model.classes_)
+        if hasattr(model, "classes_")
+        else np.arange(probs_before.shape[1])
+    )
     before = evaluate_probs(y_test.to_numpy(), probs_before, classes)
 
     # Kalibrierung mit vortrainiertem Modell.
-    calibrated = CalibratedClassifierCV(estimator=model, method=config.method, cv="prefit")
+    # sklearn >= 1.6 entfernt cv='prefit' -> FrozenEstimator + cv=None.
+    if HAS_FROZEN_ESTIMATOR:
+        calibrated = CalibratedClassifierCV(
+            estimator=FrozenEstimator(model), method=config.method, cv=None
+        )
+    else:
+        calibrated = CalibratedClassifierCV(
+            estimator=model, method=config.method, cv="prefit"
+        )
     calibrated.fit(X_cal, y_cal)
     probs_after = calibrated.predict_proba(X_test)
     after = evaluate_probs(y_test.to_numpy(), probs_after, classes)
@@ -273,11 +323,14 @@ def run_calibration(config: CalibrationConfig) -> Dict[str, Any]:
         "n_rows_total": int(len(X)),
         "n_rows_calibration": int(len(X_cal)),
         "n_rows_test": int(len(X_test)),
+        "label_mapping": label_mapping,
         "metrics_before": before,
         "metrics_after": after,
         "delta": {
             "log_loss": round(after["log_loss"] - before["log_loss"], 6),
-            "brier_multiclass": round(after["brier_multiclass"] - before["brier_multiclass"], 6),
+            "brier_multiclass": round(
+                after["brier_multiclass"] - before["brier_multiclass"], 6
+            ),
             "ece": round(after["ece"] - before["ece"], 6),
         },
     }

@@ -2,7 +2,7 @@ param(
     [string]$TaskName = "MT5_Sync_Live_Logs",
     [string]$SourceDir = "C:\Users\Sebastian Setnescu\mt5_trading\logs",
     [int]$IntervalSec = 5,
-    [switch]$RunHidden,
+    [bool]$RunHidden = $true,
     [switch]$Force
 )
 
@@ -10,7 +10,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Resolve-ScriptPath {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $scriptDir = $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($scriptDir)) {
+        $scriptDir = Split-Path -Parent $PSCommandPath
+    }
     $syncPath = Join-Path $scriptDir "sync_live_logs_to_mt5_common.ps1"
     if (-not (Test-Path $syncPath)) {
         throw "Sync-Skript nicht gefunden: $syncPath"

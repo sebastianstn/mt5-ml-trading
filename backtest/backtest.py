@@ -550,6 +550,16 @@ def trade_simulieren(  # pylint: disable=too-many-arguments,too-many-positional-
         # SL dynamisch: ATR × Faktor → in Preiseinheiten → umgerechnet in %
         sl_abs = atr_wert * cfg.atr_faktor
         sl_pct_aktiv = sl_abs / eintrittspreis
+
+        # Mindest-SL: Muss mindestens 4× Spread-Kosten betragen,
+        # damit TP nach Abzug des Spreads noch profitabel sein kann.
+        spread_als_pct_check = (
+            (spread_kosten / eintrittspreis) if eintrittspreis > 10 else spread_kosten
+        )
+        mindest_sl = 4.0 * spread_als_pct_check
+        if sl_pct_aktiv < mindest_sl:
+            sl_pct_aktiv = mindest_sl
+
         # TP hält die gleiche RRR wie beim festen TP/SL-Verhältnis
         rrr = tp_pct / sl_pct if sl_pct > 0 else 1.0
         tp_pct_aktiv = sl_pct_aktiv * rrr
@@ -706,6 +716,7 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
     spread_faktor: float = 1.0,
     swap_aktiv: bool = False,
     timeframe: str = "H1",
+    cooldown_bars: int = 0,
 ) -> pd.DataFrame:
     """
     Simuliert alle Trades auf dem Test-Set und gibt eine Trade-Liste zurück.
@@ -861,7 +872,11 @@ def trades_simulieren(  # pylint: disable=too-many-arguments,too-many-positional
             )
 
             # Nächste Signal-Suche: nach dem Trade (keine überlappenden Trades)
-            i += ergebnis["n_bars"] + 1
+            # Cooldown: Mindestpause zwischen Trades (wichtig für M5, verhindert Overtrading)
+            sprung = ergebnis["n_bars"] + 1
+            if cooldown_bars > 0:
+                sprung = max(sprung, cooldown_bars)
+            i += sprung
         else:
             i += 1
 

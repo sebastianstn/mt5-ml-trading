@@ -114,11 +114,12 @@ fi
 echo ""
 echo "[ 2/4 ] Erstelle Ordnerstruktur auf Laptop..."
 # Windows braucht PowerShell statt mkdir -p (cmd.exe kennt -p nicht)
-ssh ${SSH_OPTS} "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "powershell -Command \"New-Item -ItemType Directory -Force -Path '${LAPTOP_ZIELORDNER}/live','${LAPTOP_ZIELORDNER}/live/mt5','${LAPTOP_ZIELORDNER}/models','${LAPTOP_ZIELORDNER}/logs','${LAPTOP_ZIELORDNER}/scripts' | Out-Null; Write-Output 'Ordner erstellt'\""
+ssh ${SSH_OPTS} "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "powershell -Command \"New-Item -ItemType Directory -Force -Path '${LAPTOP_ZIELORDNER}/live','${LAPTOP_ZIELORDNER}/live/mt5','${LAPTOP_ZIELORDNER}/models','${LAPTOP_ZIELORDNER}/logs','${LAPTOP_ZIELORDNER}/logs/paper_test128','${LAPTOP_ZIELORDNER}/scripts' | Out-Null; Write-Output 'Ordner erstellt'\""
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/live/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/live/mt5/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/models/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/logs/"
+echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/logs/paper_test128/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/scripts/"
 
 # ------------------------------------------------------------
@@ -227,10 +228,15 @@ fi
 WIN_SYNC_SKRIPT="${SERVER_BASIS}/scripts/windows_sync_live_logs.ps1"
 WIN_TASK_REGISTER_SKRIPT="${SERVER_BASIS}/scripts/windows_register_live_log_sync_task.ps1"
 WIN_TASK_TEMPLATE="${SERVER_BASIS}/scripts/windows_task_live_log_sync.xml.template"
+WIN_WATCHDOG_SKRIPT="${SERVER_BASIS}/scripts/windows_live_log_watchdog.ps1"
 
 if [ -f "${WIN_SYNC_SKRIPT}" ]; then
     sftp_put "${WIN_SYNC_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_sync_live_logs.ps1"
     echo "        ✅ scripts/windows_sync_live_logs.ps1"
+fi
+if [ -f "${WIN_WATCHDOG_SKRIPT}" ]; then
+    sftp_put "${WIN_WATCHDOG_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_live_log_watchdog.ps1"
+    echo "        ✅ scripts/windows_live_log_watchdog.ps1"
 fi
 if [ -f "${WIN_TASK_REGISTER_SKRIPT}" ]; then
     sftp_put "${WIN_TASK_REGISTER_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_register_live_log_sync_task.ps1"
@@ -264,25 +270,31 @@ echo "       pip install -r requirements-laptop.txt"
 echo ""
 echo "  5. MT5 Terminal öffnen und angemeldet lassen"
 echo ""
-echo "  6. Demo-Live-Trading starten (PnL-Tracking aktiv):"
-echo "       Doppelklick auf: start_paper_trading.bat"
+echo "  6. Empfohlener Standard-Start: Test 128 (Paper)"
+echo "       Doppelklick auf: start_paper_trading_test128.bat"
 echo ""
-echo "     Startet USDCAD v4 + USDJPY v4 (Two-Stage, Regime 1+2)"
-echo "     Demo-Konto → kein echtes Geld, aber echte Orders mit PnL"
+echo "     Startet USDCAD + USDJPY im Test-128-Setup"
+echo "     Two-Stage v4 | Paper-Modus | Log-Ordner: logs/paper_test128"
+echo "     MT5-Zugangsdaten sind in start_paper_trading_test128.bat bereits hinterlegt"
 echo ""
-echo "       Option B) Alle Trader sauber stoppen (vor Neustart empfohlen):"
+echo "  7. Direkt danach: Test-128-Logs automatisch zum Linux-Server syncen"
+echo "       Doppelklick auf: register_test128_log_sync_to_server.bat"
+echo "       (nutzt automatisch scripts/windows_live_log_watchdog.ps1)"
+echo ""
+echo "  8. Optional / Alternativen"
+echo ""
+echo "       Option A) Alle Trader sauber stoppen (vor Neustart empfohlen):"
 echo "                 Doppelklick auf: stop_all_traders.bat"
 echo ""
-echo "       Option C) Neue Top-Testphase (Paper) starten:"
+echo "       Option B) Neue Top-Testphase (Paper) starten:"
 echo "                 Doppelklick auf: start_testphase_topconfig.bat"
 echo ""
-echo "       Option D) Test 128 (Paper, empfohlen aus 50er-Feintuning) starten:"
-echo "                 Doppelklick auf: start_paper_trading_test128.bat"
+echo "       Option C) Demo-Live-Trading starten (PnL-Tracking aktiv):"
+echo "                 Doppelklick auf: start_paper_trading.bat"
+echo "                 Startet USDCAD v4 + USDJPY v4 (Two-Stage, Regime 1+2)"
+echo "                 Demo-Konto → kein echtes Geld, aber echte Orders mit PnL"
 echo ""
-echo "       Option E) Test-128-Logs automatisch zum Linux-Server syncen:"
-echo "                 Doppelklick auf: register_test128_log_sync_to_server.bat"
-echo ""
-echo "       Option F) Manuell in zwei separaten PowerShell-Fenstern:"
+echo "       Option D) Manuell in zwei separaten PowerShell-Fenstern:"
 cat <<'EOF'
                                  Fenster 1 (USDCAD v4):
                                      python live\live_trader.py `
@@ -317,10 +329,11 @@ cat <<'EOF'
                                          --two_stage_version v4
 EOF
 echo ""
-echo "  ⚠️  Aktuelle Einstellung (2026-03-08):"
-echo "       - Operativ: USDCAD v4 + USDJPY v4"
-echo "       - Schwelle: Long>=0.55 / Short<=0.45, Regime: 1,2"
-echo "       - Betriebsmodus: Demo-Live (paper_trading=0)"
+echo "  ⚠️  Aktuelle Einstellung (2026-03-10):"
+echo "       - Empfohlener Startpfad: Test 128 + Log-Sync"
+echo "       - Test 128: Paper-Modus (paper_trading=1), Log-Ordner logs/paper_test128"
+echo "       - Alternativ vorhanden: Demo-Live mit start_paper_trading.bat"
+echo "       - MT5-Zugangsdaten sind in start_paper_trading_test128.bat bereits hinterlegt"
 echo ""
 echo "  Modelle übertragen:"
 for MODELL in "${MODELLE[@]}"; do

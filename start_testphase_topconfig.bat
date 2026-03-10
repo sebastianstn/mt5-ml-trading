@@ -23,9 +23,9 @@ if not exist "%BASE_DIR%" (
 )
 
 if not exist "%PYTHON_EXE%" (
-    echo [FEHLER] Python nicht gefunden: %PYTHON_EXE%
-    pause
-    exit /b 1
+    echo [WARNUNG] venv-Python nicht gefunden: %PYTHON_EXE%
+    echo [INFO] Fallback auf System-Python aus PATH ...
+    set "PYTHON_EXE=python"
 )
 
 if not exist "%TRADER_SCRIPT%" (
@@ -44,18 +44,19 @@ echo ================================================
 echo   MT5 Testphase - TOP-Konfiguration (Paper)
 echo   USDCAD + USDJPY ^| Two-Stage v4
 echo   Schwelle=45%% ^| TP=0.6%% ^| SL=0.3%% ^| Horizon=24
-echo   Cooldown=3 Bars ^| ATR-SL 1.5x ^| Regime=0,1,2,3
+echo   Cooldown=3 Bars ^| ATR-SL 1.5x ^| Regime=0,1,2,3 ^| Quelle=HMM
 echo   Konto: %MT5_ACCOUNT_NAME% ^| %MT5_ACCOUNT_TYPE%
 echo   Server: %MT5_SERVER% ^| Login: %MT5_LOGIN%
+echo   Python: %PYTHON_EXE%
 echo ================================================
 
 echo [INFO] Starte USDCAD...
-start "MT5-Testphase-USDCAD-v4" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDCAD --version v4 --paper_trading 1 --schwelle 0.45 --decision_mapping class --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
+start "MT5-Testphase-USDCAD-v4" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDCAD --version v4 --paper_trading 1 --schwelle 0.45 --decision_mapping class --regime_source market_regime_hmm --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
 
 timeout /t 5 /nobreak >nul
 
 echo [INFO] Starte USDJPY...
-start "MT5-Testphase-USDJPY-v4" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDJPY --version v4 --paper_trading 1 --schwelle 0.45 --decision_mapping class --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
+start "MT5-Testphase-USDJPY-v4" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDJPY --version v4 --paper_trading 1 --schwelle 0.45 --decision_mapping class --regime_source market_regime_hmm --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
 
 echo.
 echo [OK] Beide Trader gestartet.

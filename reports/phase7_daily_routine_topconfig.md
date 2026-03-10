@@ -18,6 +18,8 @@ Gültig für:
 
 3. **KPI-Snapshot aktualisieren**
    - `python scripts/monitor_live_kpis.py --log_dir logs --file_suffix _signals.csv --hours 24 --timeframe M5_TWO_STAGE --export_csv reports/live_kpis_latest.csv`
+   - `python reports/daily_phase7_dashboard.py --hours 24 --timeframe M5_TWO_STAGE`
+   - Optional Wochenampel aktualisieren: `python reports/weekly_kpi_report.py --tage 7 --timeframe M5_TWO_STAGE`
 
 ## Abend-Check (3 Schritte, 10 Minuten)
 
@@ -42,6 +44,8 @@ Gültig für:
 Ergebnisdatei:
 
 - `reports/testphase/mt5_testphase_eval_latest.csv`
+- Optional Wochen-Dashboard: `reports/weekly_kpi_report_M5_TWO_STAGE.md`
+- Tages-Dashboard: `reports/phase7_daily_dashboard_latest.csv` und `reports/phase7_daily_dashboard_latest.md`
 
 ## Wenn `verify_live_log_sync.py` = `SYNC_NICHT_OK`
 

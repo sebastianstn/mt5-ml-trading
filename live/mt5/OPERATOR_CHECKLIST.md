@@ -48,6 +48,57 @@ Ziel: In 3–5 Minuten prüfen, ob das System stabil läuft und ob Eingriff nöt
 
 ---
 
+## 1-Minuten-Notfallcheck: Dashboard zeigt `STALE`
+
+Wenn das Dashboard plötzlich `STALE`, `PARTIAL_STALE` oder uralte Minutenwerte zeigt,
+dann diese Schritte in genau dieser Reihenfolge abarbeiten:
+
+- **Schritt 1: Lokale aktive Logs prüfen (Laptop)**
+
+  `C:\Users\<USER>\mt5_trading\logs\paper_test128\USDCAD_signals.csv`
+
+  `C:\Users\<USER>\mt5_trading\logs\paper_test128\USDJPY_signals.csv`
+
+  Jeweils die letzten 5 Zeilen prüfen (`Get-Content ... -Tail 5`).
+
+- **Schritt 2: MT5 Common Files prüfen**
+
+  `%APPDATA%\MetaQuotes\Terminal\Common\Files\USDCAD_signals.csv`
+
+  `%APPDATA%\MetaQuotes\Terminal\Common\Files\USDJPY_signals.csv`
+
+  Wenn lokale Logs frisch sind, aber `Common\Files` alt ist, liegt ein Sync-Problem vor.
+
+- **Schritt 3: Sync manuell anstoßen**
+
+  In `C:\Users\<USER>\mt5_trading\live\mt5\`:
+
+  `powershell -ExecutionPolicy Bypass -File .\sync_live_logs_to_mt5_common.ps1 -SourceDir "C:\Users\<USER>\mt5_trading\logs"`
+
+- **Schritt 4: Wenn `Common\Files` danach frisch ist, aber MT5 weiter stale zeigt**
+
+  `LiveSignalDashboard` vom Chart entfernen, in MetaEditor neu kompilieren und neu auf den Chart ziehen.
+
+- **Schritt 5: Pflicht-Inputs nach Reload prüfen**
+
+  `InpUseCommonFiles=true`
+
+  `InpSymbol1=USDCAD`
+
+  `InpSymbol2=USDJPY`
+
+  `InpUseSignalTimeframeForStale=true`
+
+  `InpSignalTimeframeMinutes=60` (oder passend zum Betrieb)
+
+Merksatz:
+
+- **Logs frisch + Common Files alt** -> Sync prüfen
+- **Logs frisch + Common Files frisch + Chart stale** -> Indikator neu laden
+- **Logs alt** -> Trader/Prozess prüfen bzw. neu starten
+
+---
+
 ## Eskalation: Wann Copilot sofort einbeziehen?
 
 Bitte sofort melden mit Screenshot + Uhrzeit + Symbol, wenn:

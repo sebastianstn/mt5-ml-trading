@@ -6,6 +6,9 @@ param(
     [string]$LinuxHost = "192.168.1.35",
     [string]$LinuxLogsDir = "/mnt/1Tb-Data/XGBoost-LightGBM/logs",
     [string]$Symbols = "USDCAD,USDJPY",
+    [string]$WatchdogTimeframe = "M5_TWO_STAGE",
+    [double]$WatchdogStaleFactor = 1.5,
+    [double]$WatchdogMaxLagMinutes = 0,
     [switch]$RunHidden,
     [switch]$SyncCloses,
     [switch]$RunNow
@@ -107,8 +110,13 @@ $syncArgs = @(
     "-LinuxUser $LinuxUser",
     "-LinuxHost $LinuxHost",
     ('-LinuxLogsDir "{0}"' -f $LinuxLogsDir),
-    ('-Symbols "{0}"' -f $Symbols)
+    ('-Symbols "{0}"' -f $Symbols),
+    ('-WatchdogTimeframe "{0}"' -f $WatchdogTimeframe),
+    ('-WatchdogStaleFactor {0}' -f $WatchdogStaleFactor)
 )
+if ($WatchdogMaxLagMinutes -gt 0) {
+    $syncArgs += ('-WatchdogMaxLagMinutes {0}' -f $WatchdogMaxLagMinutes)
+}
 if (-not [string]::IsNullOrWhiteSpace($LocalLogsDir)) {
     $syncArgs += ('-LocalLogsDir "{0}"' -f $LocalLogsDir)
 }
@@ -197,6 +205,11 @@ Write-Host "User: $taskUser"
 Write-Host "Intervall: alle 5 Minuten"
 if (-not [string]::IsNullOrWhiteSpace($LocalLogsDir)) {
     Write-Host "Lokaler Log-Ordner: $LocalLogsDir"
+}
+Write-Host "Watchdog-Timeframe: $WatchdogTimeframe"
+Write-Host "Watchdog-StaleFactor: $WatchdogStaleFactor"
+if ($WatchdogMaxLagMinutes -gt 0) {
+    Write-Host "Watchdog-MaxLagMinutes: $WatchdogMaxLagMinutes"
 }
 Write-Host "Linux-Zielordner: $LinuxLogsDir"
 

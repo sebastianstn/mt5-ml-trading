@@ -57,6 +57,8 @@ echo.
     -LinuxUser sebastian ^
     -LinuxHost 192.168.1.35 ^
     -Symbols "USDCAD,USDJPY" ^
+    -WatchdogTimeframe "M5_TWO_STAGE" ^
+    -WatchdogStaleFactor 1.5 ^
     -SyncCloses ^
     -RunHidden ^
     -RunNow
@@ -72,6 +74,7 @@ if errorlevel 1 (
 echo.
 echo [OK] Test-128 Log-Sync wurde registriert und direkt gestartet.
 echo Linux-Zielordner: %LINUX_TARGET_DIR%
+echo Watchdog-Artefakte: live_log_watchdog_latest.json / .csv
 echo.
 pause
 exit /b 0

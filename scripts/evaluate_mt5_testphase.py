@@ -195,6 +195,14 @@ def max_drawdown_pct_from_money(
     return float(dd_pct.min())
 
 
+def close_grund_counts(closes: pd.DataFrame) -> dict[str, int]:
+    """Liefert die Verteilung der Close-Gründe für Phase-7-Monitoring."""
+    if closes.empty or "close_grund" not in closes.columns:
+        return {}
+    counts = closes["close_grund"].fillna("UNBEKANNT").astype(str).value_counts()
+    return {str(key): int(value) for key, value in counts.to_dict().items()}
+
+
 def evaluate_symbol(symbol: str, config: EvalConfig) -> dict[str, object]:
     """Bewertet ein einzelnes Symbol auf Basis Signal- und Close-Logs."""
     signal_path = config.log_dir / f"{symbol}_signals.csv"
@@ -247,12 +255,21 @@ def evaluate_symbol(symbol: str, config: EvalConfig) -> dict[str, object]:
     net_pnl_money: Optional[float] = None
     avg_pnl_money: Optional[float] = None
     max_dd_pct: Optional[float] = None
+    avg_dauer_min: Optional[float] = None
+    close_reason_map: dict[str, int] = {}
 
     if not pnl_money.empty:
         win_rate_pct = float((pnl_money > 0).mean() * 100.0)
         net_pnl_money = float(pnl_money.sum())
         avg_pnl_money = float(pnl_money.mean())
         max_dd_pct = max_drawdown_pct_from_money(pnl_money, config.start_equity)
+
+    if not closes.empty and "dauer_min" in closes.columns:
+        dauer_series = pd.to_numeric(closes["dauer_min"], errors="coerce").dropna()
+        if not dauer_series.empty:
+            avg_dauer_min = float(dauer_series.mean())
+
+    close_reason_map = close_grund_counts(closes)
 
     # Gates / Bewertung
     gate_fresh = bool(fresh)
@@ -300,7 +317,15 @@ def evaluate_symbol(symbol: str, config: EvalConfig) -> dict[str, object]:
         "avg_pnl_money": (
             None if avg_pnl_money is None else round(float(avg_pnl_money), 2)
         ),
+        "avg_dauer_min": (
+            None if avg_dauer_min is None else round(float(avg_dauer_min), 1)
+        ),
         "max_dd_pct": None if max_dd_pct is None else round(float(max_dd_pct), 2),
+        "tp_closes": int(close_reason_map.get("TP", 0)),
+        "sl_closes": int(close_reason_map.get("SL", 0)),
+        "close_grund_counts": ", ".join(
+            [f"{name}:{count}" for name, count in close_reason_map.items()]
+        ),
         "gate_fresh": gate_fresh,
         "gate_signal_activity": gate_signal_activity,
         "gate_has_enough_closes": gate_has_enough_closes,

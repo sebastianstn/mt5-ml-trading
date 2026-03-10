@@ -92,6 +92,10 @@
 | **Ausschluss-Spalten** | Spalten die NICHT als ML-Input genutzt werden |
 | **Labeling** | Zuweisung von Labels (Short, Neutral, Long) an historische Daten |
 | **Drift** | Verteilungsverschiebung von Features/Modell über die Zeit |
+| **Stale** | Operativer Monitoring-Begriff: Daten/Logs sind zu alt und nicht mehr frisch genug für verlässliche Bewertung |
+| **WATCH** | Operativer Status: beobachten – noch kein harter Fehler, aber Aktivität oder Datenlage ist nicht ideal |
+| **DRIFT (Monitoring)** | Operativer Monitoring-Begriff: Datei wirkt frisch, aber der Inhalt hinkt hinter Runtime/Heartbeat oder Erwartung hinterher |
+| **INCIDENT** | Operativer Status: echter Störfall – sofort prüfen, weil Datenfluss, Sync oder Trader-Lauf nicht vertrauenswürdig ist |
 | **Look-Ahead-Bias** | Fehler: Zukunftsdaten fließen in Features ein |
 | **Survivorship Bias** | Fehler: Nur erfolgreiche Paare werden ausgewählt |
 | **GO-Woche** | Woche in der alle KPI-Gates erfüllt sind (12 konsekutive nötig) |

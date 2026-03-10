@@ -53,10 +53,13 @@ Voraussetzungen:
 
 # Standard-Bibliotheken
 import argparse
+from contextlib import contextmanager
 import logging
 import os
+import shutil
 import time
-from datetime import datetime, timezone
+import warnings
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol, Tuple, cast
 
@@ -117,6 +120,7 @@ except ImportError:
     def zwei_stufen_signal(*args: Any, **kwargs: Any) -> Any:
         """Fallback-Stummel wenn Two-Stage-Modul lokal nicht importierbar ist."""
         raise ImportError("two_stage_signal nicht verfügbar")
+
 
 # ============================================================
 # Konfiguration und Pfade
@@ -208,6 +212,106 @@ def configure_logging(log_dir: Path) -> Path:
 configure_logging(LOG_DIR)
 logger = logging.getLogger(__name__)
 
+MT5_COMMON_FILES_ENV = "MT5_COMMON_FILES_DIR"
+MT5_COMMON_SYNC_RETRIES = 3
+MT5_COMMON_SYNC_RETRY_DELAY_SEC = 0.2
+
+
+@contextmanager
+def _mute_hmmlearn_convergence_logs() -> Any:
+    """Unterdrückt lokale hmmlearn-Konvergenzmeldungen nur während des Fits."""
+    hmm_logger = logging.getLogger("hmmlearn.base")
+    previous_level = hmm_logger.level
+    try:
+        hmm_logger.setLevel(logging.ERROR)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Model is not converging.*",
+            )
+            yield
+    finally:
+        hmm_logger.setLevel(previous_level)
+
+
+def _resolve_mt5_common_files_dir() -> Optional[Path]:
+    """Ermittelt den MT5-Common-Files-Ordner robust über Override oder APPDATA.
+
+    Returns:
+        Pfad zu ``MetaQuotes/Terminal/Common/Files`` oder ``None``, wenn kein
+        brauchbarer Windows-Pfad verfügbar ist.
+    """
+    override_dir = os.environ.get(MT5_COMMON_FILES_ENV, "").strip()
+    if override_dir:
+        return Path(override_dir).expanduser()
+
+    appdata_dir = os.environ.get("APPDATA", "").strip()
+    if not appdata_dir:
+        return None
+
+    return Path(appdata_dir) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+
+
+def _mirror_csv_to_mt5_common(local_csv_path: Path, target_file_name: str) -> bool:
+    """Spiegelt eine lokale CSV robust nach MT5 Common/Files.
+
+    Die Funktion kopiert immer die komplette aktive CSV-Datei, damit das MT5-
+    Dashboard nicht von einem separaten Root-Log oder Teil-Append abhängt.
+    Kurze Retry-Schleifen helfen bei temporären Datei-Locks durch MT5.
+
+    Args:
+        local_csv_path: Lokale Quell-CSV im aktiven Log-Verzeichnis.
+        target_file_name: Dateiname im MT5 Common/Files-Verzeichnis.
+
+    Returns:
+        ``True`` wenn die Spiegelung erfolgreich war, sonst ``False``.
+    """
+    if not local_csv_path.exists():
+        logger.warning(
+            "MT5-Common-Sync übersprungen: lokale CSV fehlt (%s)",
+            local_csv_path,
+        )
+        return False
+
+    mt5_common_dir = _resolve_mt5_common_files_dir()
+    if mt5_common_dir is None:
+        logger.warning(
+            "MT5-Common-Sync übersprungen: weder %s noch APPDATA verfügbar",
+            MT5_COMMON_FILES_ENV,
+        )
+        return False
+
+    try:
+        mt5_common_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "MT5-Common-Ordner konnte nicht erstellt werden (%s): %s",
+            mt5_common_dir,
+            exc,
+        )
+        return False
+
+    target_csv_path = mt5_common_dir / target_file_name
+    last_error: Optional[OSError] = None
+    for attempt in range(1, MT5_COMMON_SYNC_RETRIES + 1):
+        try:
+            shutil.copy2(local_csv_path, target_csv_path)
+            return True
+        except OSError as exc:
+            last_error = exc
+            if attempt < MT5_COMMON_SYNC_RETRIES:
+                time.sleep(MT5_COMMON_SYNC_RETRY_DELAY_SEC)
+
+    logger.warning(
+        "MT5-Common-Sync fehlgeschlagen nach %d Versuchen: %s -> %s | Fehler: %s",
+        MT5_COMMON_SYNC_RETRIES,
+        local_csv_path,
+        target_csv_path,
+        last_error,
+    )
+    return False
+
+
 # ============================================================
 # Trading-Parameter (müssen mit backtest.py übereinstimmen!)
 # ============================================================
@@ -228,10 +332,16 @@ ATR_SL_FAKTOR = 1.5  # SL = ATR_14 × 1.5 (optimaler Faktor aus Backtest)
 # Ziel = mehr echte Trades sehen, ohne H1/M5-Logik komplett auszuschalten.
 STANDARD_SCHWELLE = 0.45  # Vorher 0.55 → deutlich aggressiver für mehr Entries
 STANDARD_TWO_STAGE_COOLDOWN_BARS = 3  # Vorher 12 → auf M5 nur noch 15 Min Pause
-REGIME_ADX_TREND_SCHWELLE = 18.0  # Vorher implizit 25 → weniger "Seitwärts"-Klassifikation
+REGIME_ADX_TREND_SCHWELLE = (
+    18.0  # Vorher implizit 25 → weniger "Seitwärts"-Klassifikation
+)
 REGIME_HIGH_VOL_FAKTOR = 1.8  # Vorher 1.5 → weniger Bars als reine Hochvola markieren
-STANDARD_TWO_STAGE_ALLOW_NEUTRAL_HTF = True  # Neutraler H1-Bias darf starke M5-Entries zulassen
-STANDARD_STARTUP_OBSERVATION_BARS = 5  # Erst Markt 5 Kerzen beobachten, dann Trades zulassen
+STANDARD_TWO_STAGE_ALLOW_NEUTRAL_HTF = (
+    True  # Neutraler H1-Bias darf starke M5-Entries zulassen
+)
+STANDARD_STARTUP_OBSERVATION_BARS = (
+    5  # Erst Markt 5 Kerzen beobachten, dann Trades zulassen
+)
 
 # Kill-Switch – Harter Stopp bei zu hohem Drawdown (Review-Punkt 8)
 KILL_SWITCH_DD_DEFAULT = 0.15  # Harter Stopp bei 15% Drawdown (Standard)
@@ -240,6 +350,8 @@ KILL_SWITCH_DD_DEFAULT = 0.15  # Harter Stopp bei 15% Drawdown (Standard)
 # Dadurch bleibt das MT5-Dashboard frisch und springt nicht auf "STALE",
 # wenn nur wegen Regime-Filter keine Trades entstehen.
 HEARTBEAT_LOG_DEFAULT = True
+MT5_FUTURE_TIMESTAMP_GRACE_MINUTES = 2
+MT5_MAX_AUTO_UTC_SHIFT_HOURS = 14
 
 # Feature-Berechnung: Mindest-Barren für Warm-Up
 N_BARREN = 500  # SMA200 braucht 200, MTF braucht mehr → 500 als Buffer
@@ -426,6 +538,7 @@ def _mt5_api() -> Any:
     if mt5 is None:
         raise RuntimeError("MetaTrader5 ist nicht verfügbar")
     return cast(Any, mt5)
+
 
 # ============================================================
 # 1. Indikator-Funktionen (identisch mit feature_engineering.py)
@@ -660,9 +773,9 @@ def features_berechnen(
     stoch = ind_stoch(result["high"], result["low"], result["close"])
     result["stoch_k"] = stoch["stoch_k"]
     result["stoch_d"] = stoch["stoch_d"]
-    result["stoch_cross"] = _series_sign(
-        result["stoch_k"] - result["stoch_d"]
-    ).fillna(0)
+    result["stoch_cross"] = _series_sign(result["stoch_k"] - result["stoch_d"]).fillna(
+        0
+    )
 
     result["williams_r"] = ind_williams_r(
         result["high"], result["low"], result["close"]
@@ -859,7 +972,8 @@ def features_berechnen(
                         n_iter=120,
                         random_state=42,
                     )
-                    hmm_model.fit(hmm_input[:i])
+                    with _mute_hmmlearn_convergence_logs():
+                        hmm_model.fit(hmm_input[:i])
 
                 hmm_regimes[i] = int(hmm_model.predict(hmm_input[i : i + 1])[0])
 
@@ -1560,6 +1674,39 @@ def n_barren_fuer_timeframe(timeframe: str) -> int:
     return N_BARREN * bars_per_hour
 
 
+def _infer_mt5_utc_shift_hours(raw_timestamp_utc: datetime) -> int:
+    """Leitet einen Broker→UTC-Stundenshift ab, falls MT5-Zeiten in der Zukunft liegen."""
+    normalized = raw_timestamp_utc
+    now_utc = datetime.now(timezone.utc)
+    future_limit = now_utc + timedelta(minutes=MT5_FUTURE_TIMESTAMP_GRACE_MINUTES)
+    shift_hours = 0
+
+    while normalized > future_limit and shift_hours < MT5_MAX_AUTO_UTC_SHIFT_HOURS:
+        normalized -= timedelta(hours=1)
+        shift_hours += 1
+
+    return shift_hours
+
+
+def _log_mt5_utc_shift(symbol: str, timeframe: str, shift_hours: int) -> None:
+    """Loggt erkannte MT5-Zeitkorrekturen pro Symbol/Zeitrahmen nur bei Änderungen."""
+    shift_cache = cast(
+        dict[str, int],
+        _MT5_RUNTIME_STATE.setdefault("utc_shift_by_stream", {}),
+    )
+    cache_key = f"{symbol}:{timeframe}"
+    previous_shift = shift_cache.get(cache_key)
+    if previous_shift == shift_hours:
+        return
+
+    shift_cache[cache_key] = shift_hours
+    if shift_hours > 0:
+        logger.warning(
+            f"[{symbol}] MT5-Zeitkorrektur aktiv: -{shift_hours}h auf {timeframe}, "
+            "weil Broker-Kerzenzeit als UTC in der Zukunft lag"
+        )
+
+
 def mt5_daten_holen(
     symbol: str,
     timeframe: str = "H1",
@@ -1603,7 +1750,9 @@ def mt5_daten_holen(
         if _MT5_RUNTIME_STATE["ipc_fail_count"] >= _MT5_RECONNECT_AFTER:
             if mt5_reconnect():
                 # Retry nach erfolgreichem Reconnect
-                rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
+                rates = mt5_api.copy_rates_from_pos(
+                    symbol, tf_const, 0, n_bars_effektiv
+                )
                 if rates is not None:
                     logger.info(
                         f"[{symbol}] Daten nach Reconnect erfolgreich geladen ✓"
@@ -1622,8 +1771,16 @@ def mt5_daten_holen(
     _MT5_RUNTIME_STATE["ipc_fail_count"] = 0
 
     df = pd.DataFrame(rates)
-    # MT5 liefert Unix-Timestamp in Sekunden (Broker-Zeitzone)
+    # MT5 liefert Unix-Timestamps, die je nach Broker-Setup als Serverzeit statt
+    # echter UTC auftauchen können. Zukunfts-Zeitstempel werden daher lokal auf
+    # UTC zurückkorrigiert, damit Session-Features und Monitoring stimmen.
     df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    last_raw_ts = df["time"].dropna().max()
+    if pd.notna(last_raw_ts):
+        shift_hours = _infer_mt5_utc_shift_hours(last_raw_ts.to_pydatetime())
+        if shift_hours > 0:
+            df["time"] = df["time"] - pd.Timedelta(hours=shift_hours)
+        _log_mt5_utc_shift(symbol, timeframe, shift_hours)
     df.set_index("time", inplace=True)
     df.rename(columns={"tick_volume": "volume"}, inplace=True)
 
@@ -1663,14 +1820,20 @@ def mt5_letzte_kerze_uhrzeit(symbol: str, timeframe: str = "H1") -> Optional[dat
                 if rates is not None and len(rates) >= 2:
                     _MT5_RUNTIME_STATE["ipc_fail_count"] = 0
                     logger.info(f"[{symbol}] Kerzen-Daten nach Reconnect geladen ✓")
-                    return datetime.fromtimestamp(
+                    raw_timestamp = datetime.fromtimestamp(
                         int(rates[1]["time"]), tz=timezone.utc
                     )
+                    shift_hours = _infer_mt5_utc_shift_hours(raw_timestamp)
+                    _log_mt5_utc_shift(symbol, timeframe, shift_hours)
+                    return raw_timestamp - timedelta(hours=shift_hours)
         return None
     # Erfolg → Fehlerzähler zurücksetzen
     _MT5_RUNTIME_STATE["ipc_fail_count"] = 0
     # Index 1 = letzte geschlossene Kerze
-    return datetime.fromtimestamp(int(rates[1]["time"]), tz=timezone.utc)
+    raw_timestamp = datetime.fromtimestamp(int(rates[1]["time"]), tz=timezone.utc)
+    shift_hours = _infer_mt5_utc_shift_hours(raw_timestamp)
+    _log_mt5_utc_shift(symbol, timeframe, shift_hours)
+    return raw_timestamp - timedelta(hours=shift_hours)
 
 
 def mt5_offene_position(symbol: str) -> bool:
@@ -1864,25 +2027,8 @@ def trade_loggen(
         index=False,
     )
 
-    # Kopie in MT5 Common/Files für LiveSignalDashboard.mq5
-    try:
-        mt5_common = (
-            Path(os.environ.get("APPDATA", ""))
-            / "MetaQuotes"
-            / "Terminal"
-            / "Common"
-            / "Files"
-        )
-        if mt5_common.exists():
-            mt5_csv = mt5_common / f"{symbol}_signals.csv"
-            df_log.to_csv(
-                mt5_csv,
-                mode="a",
-                header=not mt5_csv.exists(),
-                index=False,
-            )
-    except OSError:
-        pass  # Dashboard-Sync ist nice-to-have, kein Fehler
+    # Komplette aktive Signal-CSV nach MT5 Common/Files spiegeln.
+    _mirror_csv_to_mt5_common(log_pfad, f"{symbol}_signals.csv")
 
 
 def trade_close_loggen(
@@ -1897,6 +2043,9 @@ def trade_close_loggen(
     dauer_minuten: int,
     htf_bias: Optional[int] = None,
     ltf_signal: Optional[int] = None,
+    paper_trading: bool = False,
+    sl_price: float = 0.0,
+    tp_price: float = 0.0,
 ) -> None:
     """
     Schreibt ein CLOSE-Event in die Trade-Log-CSV (gleiche Datei wie Signale).
@@ -1915,6 +2064,9 @@ def trade_close_loggen(
         dauer_minuten:  Dauer des Trades in Minuten
         htf_bias:       HTF-Bias bei Eröffnung (0/1/2 oder None)
         ltf_signal:     LTF-Signal bei Eröffnung (-1/0/2 oder None)
+        paper_trading:  True wenn es sich um einen simulierten Paper-Close handelt
+        sl_price:       Ursprünglicher Stop-Loss-Preis des Trades
+        tp_price:       Ursprünglicher Take-Profit-Preis des Trades
     """
     log_pfad = LOG_DIR / f"{symbol}_closes.csv"
 
@@ -1926,11 +2078,11 @@ def trade_close_loggen(
         "prob": 0.0,
         "regime": -1,  # Nicht relevant bei Schließung
         "regime_name": "CLOSE",
-        "paper_trading": False,  # Wurde tatsächlich ausgeführt
-        "modus": "CLOSE",
+        "paper_trading": paper_trading,
+        "modus": "CLOSE_PAPER" if paper_trading else "CLOSE_LIVE",
         "entry_price": round(entry_price, 5),
-        "sl_price": 0.0,  # Nicht relevant bei Schließung
-        "tp_price": 0.0,
+        "sl_price": round(sl_price, 5),
+        "tp_price": round(tp_price, 5),
         "htf_bias": htf_bias if htf_bias is not None else "",
         "ltf_signal": ltf_signal if ltf_signal is not None else "",
         "exit_price": round(exit_price, 5),
@@ -1949,31 +2101,185 @@ def trade_close_loggen(
         index=False,
     )
 
-    # Auch in MT5 Common/Files kopieren
-    try:
-        mt5_common = (
-            Path(os.environ.get("APPDATA", ""))
-            / "MetaQuotes"
-            / "Terminal"
-            / "Common"
-            / "Files"
-        )
-        if mt5_common.exists():
-            mt5_csv = mt5_common / f"{symbol}_closes.csv"
-            df_log.to_csv(
-                mt5_csv,
-                mode="a",
-                header=not mt5_csv.exists(),
-                index=False,
-            )
-    except OSError:
-        pass
+    # Auch aktive Close-CSV robust nach MT5 Common/Files spiegeln.
+    _mirror_csv_to_mt5_common(log_pfad, f"{symbol}_closes.csv")
 
     logger.info(
         f"[{symbol}] 📝 CLOSE-Event geloggt: Ticket={ticket} | "
         f"PnL={pnl_money:+.2f} USD ({pnl_pips:+.1f} Pips) | "
-        f"Grund={close_grund} | Dauer={dauer_minuten} Min"
+        f"Grund={close_grund} | Dauer={dauer_minuten} Min | "
+        f"Modus={'PAPER' if paper_trading else 'LIVE'}"
     )
+
+
+def _letzte_geschlossene_kerze(df: pd.DataFrame) -> pd.Series:
+    """
+    Liefert konsistent die letzte vollständig geschlossene Kerze.
+
+    Args:
+        df: Markt- oder Feature-DataFrame mit DatetimeIndex.
+
+    Returns:
+        Series der letzten geschlossenen Kerze.
+
+    Raises:
+        ValueError: Wenn weniger als zwei Zeilen vorhanden sind.
+    """
+    if len(df) < 2:
+        raise ValueError(
+            "Für die letzte geschlossene Kerze werden mindestens 2 Zeilen benötigt"
+        )
+    return df.iloc[-2]
+
+
+def _paper_pnl_money_berechnen(
+    entry_price: float,
+    exit_price: float,
+    richtung: int,
+    lot: float,
+) -> float:
+    """
+    Berechnet eine einfache Paper-PnL in Quote-Currency.
+
+    Hinweis:
+        Für Phase 7 reicht eine robuste, symbolinterne PnL-Näherung.
+        Die Auswertung erfolgt symbolweise, daher ist keine Cross-Currency-
+        Umrechnung nötig.
+
+    Args:
+        entry_price: Einstiegspreis.
+        exit_price: Ausstiegspreis.
+        richtung: 2=Long, -1=Short.
+        lot: Lot-Größe des Trades.
+
+    Returns:
+        PnL als Geldwert in Quote-Currency.
+    """
+    contract_size = 100000.0
+    price_diff = exit_price - entry_price if richtung == 2 else entry_price - exit_price
+    return price_diff * contract_size * lot
+
+
+def paper_trade_pruefen_und_loggen(
+    symbol: str,
+    letzter_trade: Optional[dict[str, Any]],
+    markt_df: pd.DataFrame,
+    paper_kapital: float,
+    timeframe: str,
+) -> tuple[Optional[dict[str, Any]], float]:
+    """
+    Prüft einen offenen Paper-Trade gegen die seit Entry abgeschlossenen Kerzen.
+
+    Ein Trade wird konservativ behandelt: Wenn TP und SL innerhalb derselben Kerze
+    berührt werden, wird SL angenommen. So vermeiden wir Look-Ahead-Optimismus.
+
+    Args:
+        symbol: Handelssymbol.
+        letzter_trade: Aktuell verfolgter Paper-Trade oder None.
+        markt_df: Rohes OHLCV-DataFrame des aktiven Zeitrahmens.
+        paper_kapital: Aktueller simulierter Kontostand.
+        timeframe: Aktiver Zeitrahmen (z. B. M5 oder H1).
+
+    Returns:
+        Tuple aus aktualisiertem Trade-Zustand und aktualisiertem Paper-Kapital.
+    """
+    if letzter_trade is None or markt_df.empty or len(markt_df) < 2:
+        return letzter_trade, paper_kapital
+
+    entry_bar_time = letzter_trade.get("entry_bar_time")
+    if not isinstance(entry_bar_time, datetime):
+        return letzter_trade, paper_kapital
+
+    letzte_geschlossene_zeit = cast(pd.Timestamp, markt_df.index[-2]).to_pydatetime()
+    if letzte_geschlossene_zeit <= entry_bar_time:
+        return letzter_trade, paper_kapital
+
+    bars_to_check = markt_df.loc[
+        (markt_df.index > pd.Timestamp(entry_bar_time))
+        & (markt_df.index <= pd.Timestamp(letzte_geschlossene_zeit))
+    ]
+    if bars_to_check.empty:
+        return letzter_trade, paper_kapital
+
+    richtung = int(letzter_trade.get("richtung", 0))
+    entry_price = float(letzter_trade.get("entry_price", 0.0))
+    sl_price = float(letzter_trade.get("sl_price", 0.0))
+    tp_price = float(letzter_trade.get("tp_price", 0.0))
+    lot = float(letzter_trade.get("lot", LOT))
+    open_zeit = cast(
+        datetime,
+        letzter_trade.get("open_zeit", datetime.now(timezone.utc)),
+    )
+    bar_minutes = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["H1"])[
+        "minutes_per_bar"
+    ]
+
+    for bar_zeit, bar in bars_to_check.iterrows():
+        bar_high = float(bar["high"])
+        bar_low = float(bar["low"])
+
+        if richtung == 2:
+            sl_hit = bar_low <= sl_price
+            tp_hit = bar_high >= tp_price
+        else:
+            sl_hit = bar_high >= sl_price
+            tp_hit = bar_low <= tp_price
+
+        if not sl_hit and not tp_hit:
+            continue
+
+        if sl_hit and tp_hit:
+            close_grund = "SL"
+            logger.warning(
+                f"[{symbol}] [PAPER] TP und SL in derselben Kerze erreicht – "
+                "konservativ als SL gewertet"
+            )
+        elif tp_hit:
+            close_grund = "TP"
+        else:
+            close_grund = "SL"
+
+        exit_price = tp_price if close_grund == "TP" else sl_price
+        pnl_pips = (
+            (exit_price - entry_price) * _pip_faktor(symbol)
+            if richtung == 2
+            else (entry_price - exit_price) * _pip_faktor(symbol)
+        )
+        pnl_money = _paper_pnl_money_berechnen(
+            entry_price=entry_price,
+            exit_price=exit_price,
+            richtung=richtung,
+            lot=lot,
+        )
+
+        bar_close_time = cast(pd.Timestamp, bar_zeit).to_pydatetime() + timedelta(
+            minutes=bar_minutes
+        )
+        dauer_min = max(int((bar_close_time - open_zeit).total_seconds() / 60), 0)
+
+        trade_close_loggen(
+            symbol=symbol,
+            ticket=int(letzter_trade.get("position_ticket", 0) or 0),
+            richtung=richtung,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            pnl_pips=pnl_pips,
+            pnl_money=pnl_money,
+            close_grund=close_grund,
+            dauer_minuten=dauer_min,
+            htf_bias=cast(Optional[int], letzter_trade.get("htf_bias")),
+            ltf_signal=cast(Optional[int], letzter_trade.get("ltf_signal")),
+            paper_trading=True,
+            sl_price=sl_price,
+            tp_price=tp_price,
+        )
+        logger.info(
+            f"[{symbol}] [PAPER] Trade geschlossen | Grund={close_grund} | "
+            f"Exit={exit_price:.5f} | PnL={pnl_money:+.2f}"
+        )
+        return None, paper_kapital + pnl_money
+
+    return letzter_trade, paper_kapital
 
 
 def offenen_trade_pruefen(
@@ -1998,10 +2304,10 @@ def offenen_trade_pruefen(
     if letzter_trade is None:
         return None
 
-    # Paper-Modus: Keine echte Position → wir können nicht prüfen
-    # Paper-Trades werden sofort als "geschlossen" betrachtet (kein Tracking möglich)
+    # Paper-Modus: Kein MT5-Ticket vorhanden.
+    # Die Prüfung erfolgt separat über OHLC-Kerzen in der Trading-Schleife.
     if paper_trading:
-        return None
+        return letzter_trade
 
     # Live-Modus: MT5 fragen ob die Position noch existiert
     if not MT5_VERFUEGBAR:
@@ -2025,8 +2331,6 @@ def offenen_trade_pruefen(
 
     # Position ist geschlossen! → History abfragen für PnL
     try:
-        from datetime import timedelta
-
         # Trade-History der letzten 7 Tage abfragen (ausreichend für offene Trades)
         jetzt = datetime.now(timezone.utc)
         von = jetzt - timedelta(days=7)
@@ -2415,7 +2719,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     else:
         logger.info(f"TP/SL:          {tp_pct:.1%} / {sl_pct:.1%} (RRR={rrr:.1f}:1)")
     logger.info(f"Cooldown:       {cooldown_bars} Bars zwischen Trades")
-    logger.info(f"Beobachtung:    {startup_observation_bars} neue Kerzen nur beobachten")
+    logger.info(
+        f"Beobachtung:    {startup_observation_bars} neue Kerzen nur beobachten"
+    )
     logger.info(f"Lot-Größe:      {lot}")
     logger.info(
         f"Kill-Switch:    Drawdown > {kill_switch_dd:.0%} → automatischer Stopp"
@@ -2432,9 +2738,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             f"M5-Takt:        AKTIV → Loop auf {ts_cfg.get('ltf_timeframe', 'M5')}, "
             f"HTF-Bias auf H1 (gecached)"
         )
-        logger.info(
-            f"Warte auf neue {ts_cfg.get('ltf_timeframe', 'M5')}-Kerze ..."
-        )
+        logger.info(f"Warte auf neue {ts_cfg.get('ltf_timeframe', 'M5')}-Kerze ...")
     else:
         logger.info(f"Warte auf neue {timeframe}-Kerze ...")
     logger.info("=" * 65)
@@ -2644,6 +2948,17 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
                     continue
 
+            # Paper-Trades gegen die inzwischen abgeschlossenen Kerzen prüfen.
+            markt_df_raw = ltf_df_raw if ts_aktiv else cast(pd.DataFrame, df)
+            if paper_trading and letzter_trade is not None:
+                letzter_trade, paper_kapital = paper_trade_pruefen_und_loggen(
+                    symbol=symbol,
+                    letzter_trade=letzter_trade,
+                    markt_df=markt_df_raw,
+                    paper_kapital=paper_kapital,
+                    timeframe=effektiver_tf,
+                )
+
             # ---- Schritt 4: Signal generieren (Shadow-Mode) ----
             signal, prob, regime, atr_pct = shadow_signal_generieren(
                 symbol=symbol,
@@ -2678,9 +2993,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
             # Signal/Heartbeat in CSV loggen
             # Aktuellen Close-Preis und SL/TP-Niveaus berechnen für Dashboard
-            close_preis = (
-                float(df_clean["close"].iloc[-1]) if len(df_clean) > 0 else 0.0
-            )
+            signal_kerze = _letzte_geschlossene_kerze(df_clean)
+            close_preis = float(signal_kerze["close"])
+            signal_kerzen_zeit = cast(pd.Timestamp, signal_kerze.name).to_pydatetime()
             if signal != 0 and close_preis > 0:
                 if signal == 2:  # Long
                     log_sl = round(close_preis * (1.0 - sl_aktuell), 5)
@@ -2730,6 +3045,10 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                         f"[{symbol}] Cooldown aktiv – noch {cooldown_bars - bars_seit_letztem_trade} "
                         f"Bars warten (von {cooldown_bars})"
                     )
+                elif paper_trading and letzter_trade is not None:
+                    logger.info(
+                        f"[{symbol}] Bereits offener Paper-Trade – kein neuer Trade"
+                    )
                 # Offene Position prüfen (nur 1 Trade gleichzeitig!)
                 elif mt5_offene_position(symbol):
                     logger.info(
@@ -2777,18 +3096,20 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                                 "ltf_signal": trade_ltf,
                             }
                         else:
-                            # Paper-Modus: kein echtes Ticket, PnL nicht trackbar
-                            letzter_trade = None
-
-                        # Paper-Modus: simulierten Kontostand aktualisieren
-                        # Konservative Schätzung: 50% TP, 50% SL (basierend auf ~40% Win-Rate)
-                        # Jeder Trade kostet im Schnitt: 0.5*TP - 0.5*SL = 0 bei 1:1 RRR
-                        # Aber nach Kosten (Spread ~0.01%): leicht negativ
-                        # → Für Kill-Switch: pauschale 0.1% Verlust pro Trade (konservativ)
-                        if paper_trading:
-                            paper_kapital -= (
-                                paper_kapital * 0.001
-                            )  # 0.1% konservative Schätzung
+                            # Paper-Modus: Trade ab jetzt über Kerzen bis TP/SL verfolgen.
+                            letzter_trade = {
+                                "position_ticket": 0,
+                                "deal_ticket": 0,
+                                "richtung": signal,
+                                "entry_price": close_preis,
+                                "sl_price": log_sl,
+                                "tp_price": log_tp,
+                                "lot": lot,
+                                "entry_bar_time": signal_kerzen_zeit,
+                                "open_zeit": datetime.now(timezone.utc),
+                                "htf_bias": trade_htf,
+                                "ltf_signal": trade_ltf,
+                            }
             else:
                 # Keine irreführende "< Schwelle" Meldung – Grund steht bereits im Detail-Log
                 logger.info(f"[{symbol}] Kein Trade-Signal (Details siehe oben)")

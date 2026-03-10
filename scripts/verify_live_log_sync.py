@@ -18,9 +18,14 @@ Exit-Code:
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+WATCHDOG_JSON_NAME = "live_log_watchdog_latest.json"
 
 
 @dataclass
@@ -42,8 +47,25 @@ class FileCheckResult:
     path: Path
     exists: bool
     age_minutes: float | None
+    mtime_age_minutes: float | None
     size_bytes: int | None
     fresh: bool
+    content_timestamp_utc: datetime | None
+
+
+@dataclass
+class WatchdogCheckResult:
+    """Ergebnis der Linux-seitigen Watchdog-Prüfung."""
+
+    path: Path
+    exists: bool
+    age_minutes: float | None
+    mtime_age_minutes: float | None
+    fresh: bool
+    overall_status: str
+    generated_at_utc: datetime | None
+    healthy: bool
+    reason: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,6 +100,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Prüft zusätzlich *_closes.csv als Pflichtdatei",
     )
+    parser.add_argument(
+        "--check_watchdog",
+        action="store_true",
+        help=(
+            "Prüft zusätzlich live_log_watchdog_latest.json auf Existenz, Frische "
+            "und overall_status != INCIDENT"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -95,6 +125,140 @@ def file_age_minutes(file_path: Path) -> float:
     now_utc = datetime.now(tz=timezone.utc)
     # Alter als Minutenwert für einfache Operativ-Grenzen zurückgeben.
     return (now_utc - mtime).total_seconds() / 60.0
+
+
+def csv_content_timestamp_utc(file_path: Path) -> datetime | None:
+    """Liest den letzten gültigen UTC-Zeitstempel aus der CSV-Inhaltsspalte `time`.
+
+    Args:
+        file_path: Pfad zur Signal-/Close-CSV.
+
+    Returns:
+        Letzter gültiger UTC-Zeitstempel aus dem Inhalt oder None.
+    """
+    last_ts: datetime | None = None
+    with file_path.open("r", encoding="utf-8", errors="ignore", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames or "time" not in reader.fieldnames:
+            return None
+
+        for row in reader:
+            raw_value = str(row.get("time", "")).strip()
+            if not raw_value:
+                continue
+            try:
+                parsed = datetime.strptime(raw_value, "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                continue
+            last_ts = parsed
+
+    return last_ts
+
+
+def timestamp_age_minutes(timestamp_utc: datetime) -> float:
+    """Berechnet das Alter eines UTC-Zeitstempels in Minuten."""
+    now_utc = datetime.now(tz=timezone.utc)
+    return (now_utc - timestamp_utc).total_seconds() / 60.0
+
+
+def json_content_timestamp_utc(file_path: Path) -> datetime | None:
+    """Liest den UTC-Zeitstempel `generated_at_utc` aus der Watchdog-JSON."""
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    raw_value = str(payload.get("generated_at_utc", "")).strip()
+    if not raw_value:
+        return None
+
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return None
+
+
+def check_watchdog_file(log_dir: Path, max_age_minutes: float) -> WatchdogCheckResult:
+    """Prüft die synchronisierte Watchdog-Datei auf Existenz, Frische und Status."""
+    file_path = log_dir / WATCHDOG_JSON_NAME
+    if not file_path.exists():
+        return WatchdogCheckResult(
+            path=file_path,
+            exists=False,
+            age_minutes=None,
+            mtime_age_minutes=None,
+            fresh=False,
+            overall_status="FEHLT",
+            generated_at_utc=None,
+            healthy=False,
+            reason="Watchdog-Datei fehlt",
+        )
+
+    mtime_age_min = file_age_minutes(file_path)
+    generated_at_utc = json_content_timestamp_utc(file_path)
+    age_min = (
+        timestamp_age_minutes(generated_at_utc)
+        if generated_at_utc is not None
+        else mtime_age_min
+    )
+    fresh = age_min <= max_age_minutes
+
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return WatchdogCheckResult(
+            path=file_path,
+            exists=True,
+            age_minutes=age_min,
+            mtime_age_minutes=mtime_age_min,
+            fresh=False,
+            overall_status="UNGUELTIG",
+            generated_at_utc=generated_at_utc,
+            healthy=False,
+            reason="Watchdog-Datei ist kein gültiges JSON",
+        )
+
+    overall_status = str(payload.get("overall_status", "")).upper().strip() or "-"
+    if not fresh:
+        return WatchdogCheckResult(
+            path=file_path,
+            exists=True,
+            age_minutes=age_min,
+            mtime_age_minutes=mtime_age_min,
+            fresh=False,
+            overall_status=overall_status,
+            generated_at_utc=generated_at_utc,
+            healthy=False,
+            reason="Watchdog-Datei stale",
+        )
+    if overall_status == "INCIDENT":
+        return WatchdogCheckResult(
+            path=file_path,
+            exists=True,
+            age_minutes=age_min,
+            mtime_age_minutes=mtime_age_min,
+            fresh=True,
+            overall_status=overall_status,
+            generated_at_utc=generated_at_utc,
+            healthy=False,
+            reason="Watchdog meldet INCIDENT",
+        )
+
+    return WatchdogCheckResult(
+        path=file_path,
+        exists=True,
+        age_minutes=age_min,
+        mtime_age_minutes=mtime_age_min,
+        fresh=True,
+        overall_status=overall_status,
+        generated_at_utc=generated_at_utc,
+        healthy=True,
+        reason="Watchdog ok",
+    )
 
 
 def check_single_file(
@@ -121,12 +285,20 @@ def check_single_file(
             path=file_path,
             exists=False,
             age_minutes=None,
+            mtime_age_minutes=None,
             size_bytes=None,
             fresh=False,
+            content_timestamp_utc=None,
         )
 
-    age_min = file_age_minutes(file_path)
+    mtime_age_min = file_age_minutes(file_path)
     size = file_path.stat().st_size
+    content_timestamp = csv_content_timestamp_utc(file_path)
+    age_min = (
+        timestamp_age_minutes(content_timestamp)
+        if content_timestamp is not None
+        else mtime_age_min
+    )
     is_fresh = age_min <= max_age_minutes
 
     return FileCheckResult(
@@ -135,8 +307,10 @@ def check_single_file(
         path=file_path,
         exists=True,
         age_minutes=age_min,
+        mtime_age_minutes=mtime_age_min,
         size_bytes=size,
         fresh=is_fresh,
+        content_timestamp_utc=content_timestamp,
     )
 
 
@@ -149,16 +323,35 @@ def format_row(result: FileCheckResult) -> str:
     Returns:
         Formatierte Tabellenzeile.
     """
-    status = (
-        "OK"
-        if result.exists and result.fresh
-        else "FEHLT" if not result.exists else "STALE"
-    )
+    status = "FEHLT"
+    if result.exists and result.fresh:
+        status = "OK"
+    elif result.exists:
+        status = "DRIFT"
+        if result.mtime_age_minutes is None or result.mtime_age_minutes > 10.0:
+            status = "STALE"
+
     age_str = "-" if result.age_minutes is None else f"{result.age_minutes:6.1f}"
+    mtime_str = (
+        "-" if result.mtime_age_minutes is None else f"{result.mtime_age_minutes:6.1f}"
+    )
     size_str = "-" if result.size_bytes is None else f"{result.size_bytes:8d}"
     return (
         f"{result.symbol:7} | {result.kind:7} | {status:6} | "
-        f"{age_str:>8} | {size_str:>8} | {result.path.name}"
+        f"{age_str:>8} | {mtime_str:>8} | {size_str:>8} | {result.path.name}"
+    )
+
+
+def format_watchdog_row(result: WatchdogCheckResult) -> str:
+    """Formatiert das Watchdog-Ergebnis für die Terminal-Ausgabe."""
+    status = "OK" if result.healthy else "INCIDENT"
+    age_str = "-" if result.age_minutes is None else f"{result.age_minutes:6.1f}"
+    mtime_str = (
+        "-" if result.mtime_age_minutes is None else f"{result.mtime_age_minutes:6.1f}"
+    )
+    return (
+        f"WATCHDG | global  | {status:8} | {age_str:>8} | {mtime_str:>8} | "
+        f"{result.overall_status:>8} | {result.path.name} | {result.reason}"
     )
 
 
@@ -198,21 +391,35 @@ def main() -> None:
                 )
             )
 
-    print("=" * 92)
+    watchdog_result = (
+        check_watchdog_file(log_dir=log_dir, max_age_minutes=args.max_age_minutes)
+        if args.check_watchdog
+        else None
+    )
+
+    print("=" * 120)
     print("LIVE LOG SYNC VERIFY")
     print(
         f"log_dir={log_dir} | symbols={','.join(symbols)} | max_age_minutes={args.max_age_minutes}"
     )
-    print("=" * 92)
-    print("Symbol  | Typ     | Status | Alter(min) | Größe(B) | Datei")
-    print("-" * 92)
+    print("=" * 120)
+    print("Symbol  | Typ     | Status | EventAlter | mtimeAlt | Größe(B) | Datei")
+    print("-" * 120)
 
     for res in results:
         print(format_row(res))
 
+    if watchdog_result is not None:
+        print("-" * 120)
+        print("Quelle  | Scope   | Status   | EventAlter | mtimeAlt | Overall  | Datei | Hinweis")
+        print("-" * 120)
+        print(format_watchdog_row(watchdog_result))
+
     # Gesamtstatus: alle Pflichtdateien müssen existieren und frisch sein.
     all_ok = all(r.exists and r.fresh for r in results)
-    print("-" * 92)
+    if watchdog_result is not None:
+        all_ok = all_ok and watchdog_result.healthy
+    print("-" * 120)
     print("SYNC_OK" if all_ok else "SYNC_NICHT_OK")
 
     raise SystemExit(0 if all_ok else 1)

@@ -54,6 +54,12 @@ Nutze dazu das Skript:
 
 - `sync_live_logs_to_mt5_common.ps1`
 
+Wichtig:
+
+- Das Sync-Skript durchsucht jetzt standardmäßig auch Unterordner unter `logs/`
+- Dadurch werden aktive Läufe wie `logs\paper_test128\USDCAD_signals.csv` bevorzugt,
+  selbst wenn im Root-Ordner noch ältere `*_signals.csv` liegen
+
 ### 2.1 Einmaliger Testlauf (Windows PowerShell)
 
 1. PowerShell als normaler Benutzer öffnen
@@ -125,13 +131,19 @@ sobald beide Dateien verfügbar und frisch sind.
    - Prüfe, ob `live_trader.py` auf dem Laptop läuft und `logs/*.csv` schreibt
    - Prüfe MT5 Input `InpUseCommonFiles=true`
 
-2. **PowerShell blockiert Skript**
+2. **Dashboard zeigt uralte Werte wie `STALE (1900 min)` obwohl `paper_test128` läuft**
+   - Häufige Ursache: Im Root-Ordner `logs\` liegen alte `USDCAD_signals.csv` / `USDJPY_signals.csv`,
+     während der aktive Lauf in `logs\paper_test128\` schreibt
+   - Der aktualisierte Sync bevorzugt automatisch die frischste Datei je Symbol aus Unterordnern
+   - Task nach Update einmal neu starten, damit die neue Skriptversion aktiv ist
+
+3. **PowerShell blockiert Skript**
    - Mit `-ExecutionPolicy Bypass` starten (wie oben)
 
-3. **Doppelte Dashboard-Logs**
+4. **Doppelte Dashboard-Logs**
    - Indikator nur auf **einem** Chart laufen lassen (liest ohnehin beide Symbole)
 
-4. **Automated trading is disabled**
+5. **Automated trading is disabled**
    - Für dieses Dashboard nicht kritisch (Dateilesen funktioniert trotzdem)
    - Für echte Trade-Ausführung im MT5-Terminal AutoTrading aktivieren
 

@@ -19,9 +19,38 @@
 | Paper-Trading | 🪟 Windows | `live/live_trader.py` |
 | Deploy auf Laptop | 🐧 Linux | `deploy_to_laptop.sh` |
 
+> 🚨 Bei Dashboard-Problemen mit `STALE` / `PARTIAL_STALE` siehe direkt:
+> `BEFEHLE_STALE_NOTFALL.md`
+>
+> Relevante Verzeichnisse im Workspace:
+> [Projektwurzel](./) · [MT5-Dashboard-Skripte](live/mt5/) · [Test128-Logs](logs/paper_test128/)
+
+### Im Notfall zuerst öffnen
+
+1. [`BEFEHLE_STALE_NOTFALL.md`](BEFEHLE_STALE_NOTFALL.md) – wenn das Dashboard `STALE` oder `PARTIAL_STALE` zeigt
+2. [`live/mt5/OPERATOR_CHECKLIST.md`](live/mt5/OPERATOR_CHECKLIST.md) – wenn du die Prüf-Reihenfolge Schritt für Schritt brauchst
+3. [`logs/paper_test128/`](logs/paper_test128/) – wenn du direkt in die aktiven Signal- und Close-Logs schauen willst
+
+### Wichtige Schnellzugriffe
+
+| Bereich | Direktlink | Zweck |
+| ------- | ---------- | ----- |
+| Stale-Notfallhilfe | [`BEFEHLE_STALE_NOTFALL.md`](BEFEHLE_STALE_NOTFALL.md) | Sofortbefehle für `STALE` / `PARTIAL_STALE` |
+| Operator-Checkliste | [`live/mt5/OPERATOR_CHECKLIST.md`](live/mt5/OPERATOR_CHECKLIST.md) | 1-Minuten-Check für Dashboard, Sync und Trader |
+| Dashboard-Doku | [`live/mt5/README_MT5_Dashboard.md`](live/mt5/README_MT5_Dashboard.md) | Installation, Nutzung und Troubleshooting |
+| Projektwurzel | [`./`](./) | Schnell zurück zur Repo-Übersicht |
+| MT5-Dashboard-Skripte | [`live/mt5/`](live/mt5/) | EA, Sync-Skripte und MT5-Hilfsdateien |
+| Test128-Logs | [`logs/paper_test128/`](logs/paper_test128/) | Aktive Signal-/Close-Logs für Paper-Betrieb |
+
 ---
 
 ## 🪟 Windows Laptop – Befehle
+
+> Schnellzugriff für Dashboard-/Sync-Störungen:
+> `BEFEHLE_STALE_NOTFALL.md`
+>
+> Direkt öffnen:
+> [Projektwurzel](./) · [MT5-Dashboard-Skripte](live/mt5/) · [Test128-Logs](logs/paper_test128/)
 
 ### Virtuelle Umgebung aktivieren
 

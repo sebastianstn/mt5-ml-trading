@@ -23,7 +23,9 @@ Verwendung:
 # pylint: disable=duplicate-code
 
 # Standard-Bibliotheken
+from contextlib import contextmanager
 import logging
+import warnings
 from pathlib import Path
 
 # Datenverarbeitung
@@ -44,6 +46,24 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _mute_hmmlearn_convergence_logs() -> None:
+    """Unterdrückt lokale hmmlearn-Konvergenzmeldungen nur während des Fits."""
+    hmm_logger = logging.getLogger("hmmlearn.base")
+    previous_level = hmm_logger.level
+    try:
+        hmm_logger.setLevel(logging.ERROR)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Model is not converging.*",
+            )
+            yield
+    finally:
+        hmm_logger.setLevel(previous_level)
+
 
 # Pfade
 BASE_DIR = Path(__file__).parent.parent
@@ -974,7 +994,8 @@ def hmm_regime_feature(
                     n_iter=150,
                     random_state=42,
                 )
-                hmm_model.fit(x[start_idx:i])
+                with _mute_hmmlearn_convergence_logs():
+                    hmm_model.fit(x[start_idx:i])
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.warning("HMM-Fit fehlgeschlagen bei i=%s: %s", i, e)
                 hmm_model = None

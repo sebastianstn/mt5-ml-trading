@@ -14,6 +14,10 @@ param(
     # Intervall für Dauerlauf in Sekunden
     [int]$IntervalSec = 5,
 
+    # true = auch Unterordner nach den neuesten Symbol-CSVs durchsuchen
+    # Wichtig für Setups wie logs\paper_test128\USDCAD_signals.csv
+    [bool]$SearchSubdirectories = $true,
+
     # Testmodus: zeigt nur an, was kopiert würde
     [switch]$DryRun
 )
@@ -35,6 +39,36 @@ function Ensure-Directory([string]$PathValue) {
     if (-not (Test-Path $PathValue)) {
         New-Item -ItemType Directory -Path $PathValue -Force | Out-Null
     }
+}
+
+function Get-LatestSymbolSourceFile {
+    param(
+        [string]$SrcDir,
+        [string]$Symbol,
+        [bool]$IncludeSubdirs
+    )
+
+    $fileName = "{0}_signals.csv" -f $Symbol
+    $searchArgs = @{
+        Path = $SrcDir
+        Filter = $fileName
+        File = $true
+    }
+
+    if ($IncludeSubdirs) {
+        $searchArgs["Recurse"] = $true
+    }
+
+    $candidates = @(Get-ChildItem @searchArgs -ErrorAction SilentlyContinue)
+    if ($candidates.Count -eq 0) {
+        return $null
+    }
+
+    $latest = $candidates |
+        Sort-Object -Property LastWriteTimeUtc, FullName -Descending |
+        Select-Object -First 1
+
+    return $latest.FullName
 }
 
 function Copy-IfNeeded(
@@ -76,10 +110,11 @@ function Sync-Once(
     [string]$SrcDir,
     [string]$DstDir,
     [string[]]$Pairs,
+    [bool]$IncludeSubdirs,
     [switch]$IsDryRun
 ) {
     foreach ($sym in $Pairs) {
-        $src = Join-Path $SrcDir ("{0}_signals.csv" -f $sym)
+        $src = Get-LatestSymbolSourceFile -SrcDir $SrcDir -Symbol $sym -IncludeSubdirs:$IncludeSubdirs
         $dst = Join-Path $DstDir ("{0}_signals.csv" -f $sym)
         Copy-IfNeeded -Src $src -Dst $dst -IsDryRun:$IsDryRun
     }
@@ -104,6 +139,7 @@ try {
     Write-Host "[SYNC] Quelle: $SourceDir"
     Write-Host "[SYNC] Ziel:   $TargetDir"
     Write-Host ("[SYNC] Symbole: {0}" -f ($Symbols -join ", "))
+    Write-Host ("[SYNC] Unterordner-Suche: {0}" -f $(if ($SearchSubdirectories) { "aktiv" } else { "aus" }))
     if ($DryRun) {
         Write-Host "[SYNC] Modus: DRY-RUN (keine Dateien werden kopiert)" -ForegroundColor Cyan
     }
@@ -111,12 +147,12 @@ try {
     if ($Continuous) {
         Write-Host ("[SYNC] Dauerlauf aktiv (Intervall: {0}s). Stoppen mit Ctrl+C." -f $IntervalSec) -ForegroundColor Magenta
         while ($true) {
-            Sync-Once -SrcDir $SourceDir -DstDir $TargetDir -Pairs $Symbols -IsDryRun:$DryRun
+            Sync-Once -SrcDir $SourceDir -DstDir $TargetDir -Pairs $Symbols -IncludeSubdirs:$SearchSubdirectories -IsDryRun:$DryRun
             Start-Sleep -Seconds $IntervalSec
         }
     }
     else {
-        Sync-Once -SrcDir $SourceDir -DstDir $TargetDir -Pairs $Symbols -IsDryRun:$DryRun
+        Sync-Once -SrcDir $SourceDir -DstDir $TargetDir -Pairs $Symbols -IncludeSubdirs:$SearchSubdirectories -IsDryRun:$DryRun
         Write-Host "[SYNC] Fertig." -ForegroundColor Green
     }
 }

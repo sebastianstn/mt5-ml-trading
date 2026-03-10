@@ -63,6 +63,7 @@ KERN_SYMBOLE = ["USDCAD", "USDJPY"]
 
 # Aktuelle Live-Log-Suffixe aus live_trader.py
 LIVE_SIGNAL_SUFFIX = "_signals.csv"
+LIVE_CLOSE_SUFFIX = "_closes.csv"
 
 # Persistente Historie für Wochen-Gates
 KPI_HISTORY_PATH = REPORTS_DIR / "weekly_kpi_history.csv"
@@ -73,6 +74,8 @@ ZIEL_SHARPE = 0.80
 ZIEL_MAX_DD = -10.0  # in Prozent (negativ)
 ZIEL_WIN_RATE = 45.0  # in Prozent
 ZIEL_SIGNALE_WOCHE = 5  # Mindestaktivität
+ZIEL_CLOSES_WOCHE = 5  # Mindestanzahl Closings für belastbare Live-PnL-KPIs
+START_EQUITY_LIVE = 10000.0  # Referenzwert für Live-/Paper-DD aus *_closes.csv
 
 # Stale-Logik für "frische Live-Daten erzwingen"
 STALE_FACTOR = 1.5
@@ -109,6 +112,13 @@ class SymbolKPI:
     live_last_event_utc: str
     live_minutes_since_last: Optional[float]
     live_fresh: bool
+    live_closes: int
+    live_profit_factor: Optional[float]
+    live_win_rate_pct: Optional[float]
+    live_max_drawdown_pct: Optional[float]
+    live_net_pnl: Optional[float]
+    live_avg_dauer_min: Optional[float]
+    metric_source: str
     profit_factor: float
     sharpe_ratio: float
     max_drawdown_pct: float
@@ -139,6 +149,24 @@ def lade_live_log(symbol: str, tage: int) -> Optional[pd.DataFrame]:
         return None
 
     # Zeitstempel robust parsen (UTC-naiv für lokale Vergleiche)
+    df["time"] = pd.to_datetime(df["time"], errors="coerce")
+    df = df.dropna(subset=["time"]).copy()
+    cutoff = pd.Timestamp.now() - pd.Timedelta(days=tage)
+    return df[df["time"] >= cutoff].copy()
+
+
+def lade_close_log(symbol: str, tage: int) -> Optional[pd.DataFrame]:
+    """Lädt das Close-Log eines Symbols für die letzten N Tage."""
+    close_path = LOG_DIR / f"{symbol}{LIVE_CLOSE_SUFFIX}"
+    if not close_path.exists():
+        logger.info("[%s] Kein Close-Log gefunden: %s", symbol, close_path)
+        return None
+
+    df = pd.read_csv(close_path)
+    if df.empty or "time" not in df.columns:
+        logger.warning("[%s] Close-Log leer oder ohne 'time'-Spalte.", symbol)
+        return None
+
     df["time"] = pd.to_datetime(df["time"], errors="coerce")
     df = df.dropna(subset=["time"]).copy()
     cutoff = pd.Timestamp.now() - pd.Timedelta(days=tage)
@@ -288,6 +316,74 @@ def backtest_kpis_berechnen(symbol: str, timeframe: str = "H1") -> dict:
     }
 
 
+def profit_factor_from_money(pnl_series: pd.Series) -> Optional[float]:
+    """Berechnet Gewinnfaktor aus einer Geld-PnL-Serie."""
+    clean = pd.to_numeric(pnl_series, errors="coerce").dropna()
+    if clean.empty:
+        return None
+    wins = float(clean[clean > 0].sum())
+    losses_abs = abs(float(clean[clean < 0].sum()))
+    if losses_abs <= 0.0:
+        return float("inf") if wins > 0 else None
+    return wins / losses_abs
+
+
+def max_drawdown_pct_from_money(
+    pnl_series: pd.Series,
+    start_equity: float = START_EQUITY_LIVE,
+) -> Optional[float]:
+    """Berechnet maximalen Drawdown in Prozent aus kumulierter Geld-PnL."""
+    clean = pd.to_numeric(pnl_series, errors="coerce").dropna()
+    if clean.empty or start_equity <= 0.0:
+        return None
+    equity = start_equity + clean.cumsum()
+    drawdown_money = equity - equity.cummax()
+    dd_pct = (drawdown_money / start_equity) * 100.0
+    return float(dd_pct.min())
+
+
+def live_close_kpis_berechnen(symbol: str, tage: int) -> dict:
+    """Berechnet realisierte Live-/Paper-KPIs aus *_closes.csv."""
+    df = lade_close_log(symbol, tage)
+    if df is None or df.empty:
+        return {
+            "live_closes": 0,
+            "live_profit_factor": None,
+            "live_win_rate_pct": None,
+            "live_max_drawdown_pct": None,
+            "live_net_pnl": None,
+            "live_avg_dauer_min": None,
+        }
+
+    pnl_money = (
+        pd.to_numeric(df.get("pnl_money", pd.Series(dtype=float)), errors="coerce")
+        .dropna()
+        .astype(float)
+    )
+    dauer_series = (
+        pd.to_numeric(df.get("dauer_min", pd.Series(dtype=float)), errors="coerce")
+        .dropna()
+        .astype(float)
+    )
+
+    live_pf = profit_factor_from_money(pnl_money)
+    live_win_rate = (
+        float((pnl_money > 0).mean() * 100.0) if not pnl_money.empty else None
+    )
+    live_dd = max_drawdown_pct_from_money(pnl_money) if not pnl_money.empty else None
+    live_net_pnl = float(pnl_money.sum()) if not pnl_money.empty else None
+    live_avg_dauer = float(dauer_series.mean()) if not dauer_series.empty else None
+
+    return {
+        "live_closes": int(len(df)),
+        "live_profit_factor": live_pf,
+        "live_win_rate_pct": live_win_rate,
+        "live_max_drawdown_pct": live_dd,
+        "live_net_pnl": live_net_pnl,
+        "live_avg_dauer_min": live_avg_dauer,
+    }
+
+
 def status_bewerten(kpi: dict) -> tuple[str, str]:
     """Bewertet KPI-Werte als GO/NO-GO/UNKLAR.
 
@@ -304,6 +400,28 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
     if int(kpi["live_signale"]) < ZIEL_SIGNALE_WOCHE:
         return "UNKLAR", "Zu wenige Live-Signale im Zeitraum"
 
+    if int(kpi.get("live_closes", 0)) >= ZIEL_CLOSES_WOCHE:
+        checks = {
+            "PF": (kpi.get("live_profit_factor") is not None)
+            and float(kpi["live_profit_factor"]) >= ZIEL_PROFIT_FACTOR,
+            "DD": (kpi.get("live_max_drawdown_pct") is not None)
+            and float(kpi["live_max_drawdown_pct"]) >= ZIEL_MAX_DD,
+            "WinRate": (kpi.get("live_win_rate_pct") is not None)
+            and float(kpi["live_win_rate_pct"]) >= ZIEL_WIN_RATE,
+        }
+
+        if all(checks.values()):
+            return "GO", "Live-Close-KPIs erfüllen alle Gates"
+
+        failed = [name for name, ok in checks.items() if not ok]
+        return "NO-GO", f"Live-Close-KPI unter Ziel: {', '.join(failed)}"
+
+    if int(kpi.get("live_closes", 0)) > 0:
+        return (
+            "UNKLAR",
+            "Live-Closes vorhanden, aber noch zu wenige für belastbare PnL-Gates",
+        )
+
     checks = {
         "PF": float(kpi["profit_factor"]) >= ZIEL_PROFIT_FACTOR,
         "Sharpe": float(kpi["sharpe_ratio"]) >= ZIEL_SHARPE,
@@ -312,10 +430,10 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
     }
 
     if all(checks.values()):
-        return "GO", "Alle Ziel-KPIs erfüllt"
+        return "GO", "Backtest-KPIs erfüllt, Live-Close-Daten noch nicht belastbar"
 
     failed = [name for name, ok in checks.items() if not ok]
-    return "NO-GO", f"KPI unter Ziel: {', '.join(failed)}"
+    return "NO-GO", f"Backtest-KPI unter Ziel: {', '.join(failed)}"
 
 
 def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> SymbolKPI:
@@ -329,6 +447,7 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
         Vollständiges SymbolKPI-Objekt.
     """
     live = live_kpis_berechnen(symbol, tage, timeframe=timeframe)
+    live_closes = live_close_kpis_berechnen(symbol, tage)
     try:
         bt = backtest_kpis_berechnen(symbol, timeframe=timeframe)
     except (FileNotFoundError, ValueError) as exc:
@@ -341,8 +460,14 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
             "return_pct": 0.0,
         }
 
-    kombiniert = {**live, **bt}
+    kombiniert = {**live, **live_closes, **bt}
     status, hinweis = status_bewerten(kombiniert)
+
+    metric_source = (
+        "LIVE_CLOSES"
+        if int(kombiniert.get("live_closes", 0)) >= ZIEL_CLOSES_WOCHE
+        else "BACKTEST_FALLBACK"
+    )
 
     return SymbolKPI(
         symbol=symbol,
@@ -358,6 +483,33 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
             else None
         ),
         live_fresh=bool(kombiniert.get("live_fresh", False)),
+        live_closes=int(kombiniert.get("live_closes", 0)),
+        live_profit_factor=(
+            float(kombiniert["live_profit_factor"])
+            if kombiniert.get("live_profit_factor") is not None
+            else None
+        ),
+        live_win_rate_pct=(
+            float(kombiniert["live_win_rate_pct"])
+            if kombiniert.get("live_win_rate_pct") is not None
+            else None
+        ),
+        live_max_drawdown_pct=(
+            float(kombiniert["live_max_drawdown_pct"])
+            if kombiniert.get("live_max_drawdown_pct") is not None
+            else None
+        ),
+        live_net_pnl=(
+            float(kombiniert["live_net_pnl"])
+            if kombiniert.get("live_net_pnl") is not None
+            else None
+        ),
+        live_avg_dauer_min=(
+            float(kombiniert["live_avg_dauer_min"])
+            if kombiniert.get("live_avg_dauer_min") is not None
+            else None
+        ),
+        metric_source=metric_source,
         profit_factor=float(kombiniert["profit_factor"]),
         sharpe_ratio=float(kombiniert["sharpe_ratio"]),
         max_drawdown_pct=float(kombiniert["max_drawdown_pct"]),
@@ -418,21 +570,22 @@ def markdown_bericht_schreiben(
         f"- Max Drawdown > {ZIEL_MAX_DD:.1f}%",
         f"- Win-Rate > {ZIEL_WIN_RATE:.1f}%",
         f"- Mindest-Live-Signale/Woche: {ZIEL_SIGNALE_WOCHE}",
+        f"- Mindest-Live-Closes/Woche: {ZIEL_CLOSES_WOCHE}",
         "",
         "## Ergebnis je Symbol",
         "",
-        "| Symbol | Status | Live Fresh | Letztes Event (UTC) | Min seit Event | "
-        "Events | Live-Signale | Long% | Short% | Ø Prob | Return% (BT) | PF (BT) | "
-        "Sharpe (BT) | MaxDD% (BT) | WinRate% (BT) | Hinweis |",
-        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Symbol | Status | Quelle | Live Fresh | Letztes Event (UTC) | Min seit Event | "
+        "Events | Signale | Closes | Ø Prob | Live PnL | Live PF | Live DD% | Live WR% | Ø Dauer Min | PF (BT) | Sharpe (BT) | Hinweis |",
+        "|---|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
 
     for k in kpis:
         lines.append(
-            "| {symbol} | {status} | {fresh} | {last} | {mins} | {events} | {live_signale} | {long:.1f} | {short:.1f} | "
-            "{prob:.3f} | {ret:+.2f} | {pf:.3f} | {sh:.3f} | {dd:.2f} | {wr:.1f} | {hint} |".format(
+            "| {symbol} | {status} | {source} | {fresh} | {last} | {mins} | {events} | {live_signale} | {closes} | "
+            "{prob:.3f} | {live_pnl} | {live_pf} | {live_dd} | {live_wr} | {live_dauer} | {pf:.3f} | {sh:.3f} | {hint} |".format(
                 symbol=k.symbol,
                 status=k.status,
+                source=k.metric_source,
                 fresh="OK" if k.live_fresh else "STALE",
                 last=k.live_last_event_utc if k.live_last_event_utc else "-",
                 mins=(
@@ -442,14 +595,33 @@ def markdown_bericht_schreiben(
                 ),
                 events=k.live_events,
                 live_signale=k.live_signale,
-                long=k.live_long_pct,
-                short=k.live_short_pct,
+                closes=k.live_closes,
                 prob=k.live_avg_prob,
-                ret=k.return_pct,
+                live_pnl=(
+                    f"{k.live_net_pnl:+.2f}" if k.live_net_pnl is not None else "-"
+                ),
+                live_pf=(
+                    f"{k.live_profit_factor:.3f}"
+                    if k.live_profit_factor is not None
+                    else "-"
+                ),
+                live_dd=(
+                    f"{k.live_max_drawdown_pct:.2f}"
+                    if k.live_max_drawdown_pct is not None
+                    else "-"
+                ),
+                live_wr=(
+                    f"{k.live_win_rate_pct:.1f}"
+                    if k.live_win_rate_pct is not None
+                    else "-"
+                ),
+                live_dauer=(
+                    f"{k.live_avg_dauer_min:.1f}"
+                    if k.live_avg_dauer_min is not None
+                    else "-"
+                ),
                 pf=k.profit_factor,
                 sh=k.sharpe_ratio,
-                dd=k.max_drawdown_pct,
-                wr=k.win_rate_pct,
                 hint=k.hinweis,
             )
         )
@@ -466,27 +638,27 @@ def markdown_bericht_schreiben(
         "## Interpretation",
         "",
         "- **Live-Freshness** ist ein hartes Gate: ohne frische Events wird der Status auf NO-GO gesetzt.",
-        "- **Live-Signale** zeigen operative Aktivität; bei zu wenigen Signalen ist die Bewertung statistisch schwach.",
+        "- **Live-Signale** messen operative Aktivität und Freshness.",
+        "- **Live-Closes** liefern realisierte Paper-/Live-PnL-KPIs und werden bevorzugt, sobald genug Daten vorliegen.",
         (
-            "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
+            "- **Backtest-KPIs** bleiben Fallback, solange noch nicht genug Live-Closes vorhanden sind "
             "(`backtest/SYMBOL_trades.csv`)."
             if timeframe == "H1"
             else (
-                "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
+                "- **Backtest-KPIs** bleiben Fallback, solange noch nicht genug Live-Closes vorhanden sind "
                 "(`backtest/SYMBOL_M5_two_stage_trades.csv`)."
                 if timeframe == "M5_TWO_STAGE"
                 else (
-                    "- **Profitabilitäts-KPIs** stammen aus den letzten Backtest-Trades "
+                    "- **Backtest-KPIs** bleiben Fallback, solange noch nicht genug Live-Closes vorhanden sind "
                     f"(`backtest/SYMBOL_{timeframe}_trades.csv`)."
                 )
             )
         ),
-        "- Sobald ein echter Live-PnL-Export verfügbar ist, sollte die Profitabilitätssektion auf Live-Daten umgestellt werden.",
         "",
         "## Nächste Schritte",
         "",
-        "1. Bei **NO-GO**: Regime-Filter/Schwelle prüfen und nur im Paper-Modus weiterlaufen lassen.",
-        "2. Bei **UNKLAR**: Zeitraum verlängern (z.B. 14/30 Tage) oder Signalzahl erhöhen.",
+        "1. Bei **NO-GO**: Schwellen, Regime oder Overtrading prüfen und nur im Paper-Modus weiterlaufen lassen.",
+        "2. Bei **UNKLAR**: mehr Live-Closes sammeln (Trader weiterlaufen lassen) oder Zeitraum verlängern.",
         f"3. Eskalation Richtung Live nur bei **{PAPER_GATE_WOCHEN} konsekutiven GO-Wochen**.",
         "",
     ]
@@ -649,9 +821,10 @@ def main() -> None:
     print(f"Datei: {pfad}")
     for k in kpis:
         print(
-            f"- {k.symbol}: {k.status} | Live={k.live_signale} | "
-            f"PF={k.profit_factor:.3f} | Sharpe={k.sharpe_ratio:.3f} | "
-            f"DD={k.max_drawdown_pct:.2f}% | WR={k.win_rate_pct:.1f}%"
+            f"- {k.symbol}: {k.status} | Quelle={k.metric_source} | "
+            f"Signale={k.live_signale} | Closes={k.live_closes} | "
+            f"LivePnL={k.live_net_pnl if k.live_net_pnl is not None else '-'} | "
+            f"PF(BT)={k.profit_factor:.3f} | Sharpe(BT)={k.sharpe_ratio:.3f}"
         )
     print("=" * 70)
 

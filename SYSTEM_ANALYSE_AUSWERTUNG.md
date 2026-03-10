@@ -1,6 +1,6 @@
 # 📊 System-Analyse-Auswertung – MT5 ML-Trading-System
 
-**Datum:** 8. März 2026  
+**Datum:** 9. März 2026  
 **Scope:** aktueller Code- und Startskript-Stand im Repository  
 **Operativer Modus:** Demo-Live auf Demo-Konto (`--paper_trading 0`)  
 **Operative Symbole:** `USDCAD`, `USDJPY`
@@ -194,6 +194,166 @@ Verbessert wurden genau die zuvor kritischen operativen Punkte:
 
 ---
 
+## 7) Die 5 wichtigsten Fragen ab jetzt
+
+Die technische Basis ist deutlich besser als zuvor. Ab jetzt ist die zentrale Frage nicht mehr primär, **ob das System läuft**, sondern **ob es robust genug ist, um langfristig profitabel und kontrollierbar zu sein**.
+
+### 7.1 Ist die Performance stabil oder nur phasenweise gut?
+
+Einzelne gute Backtests oder einige starke Tage reichen nicht aus. Entscheidend ist, ob das System:
+
+- über mehrere Zeiträume stabil bleibt,
+- in unterschiedlichen Marktphasen tragfähig ist,
+- auf `USDCAD` und `USDJPY` konsistent arbeitet,
+- und nicht nur auf eine historische Sonderphase passt.
+
+**Kernaussage:** Gesucht wird keine schöne Momentaufnahme, sondern belastbare Wiederholbarkeit.
+
+### 7.2 Sind Backtest, Demo-Live und Monitoring wirklich konsistent?
+
+Die letzten Verbesserungen bei Logging, Dashboard, Deploy und Stop-/Start-Skripten waren wichtig, weil Profitabilität nur dann beurteilbar ist, wenn alle Stufen sauber zusammenpassen:
+
+- Signal-Generierung,
+- Order-Ausführung,
+- SL/TP-Verhalten,
+- Spread/Kosten,
+- CSV-/Dashboard-Monitoring,
+- Log-Synchronisation.
+
+**Kernaussage:** Wenn Backtest und Demo-Live operativ unterschiedlich sprechen, sind die Ergebnisse nicht entscheidungsreif.
+
+### 7.3 Bringt die zusätzliche System-Komplexität wirklich messbaren Mehrwert?
+
+Das betrifft besonders den Two-Stage-Ansatz. Mehr Komplexität ist nur sinnvoll, wenn sie in der Praxis klar sichtbar hilft, zum Beispiel durch:
+
+- bessere Filterung schlechter Trades,
+- geringeren Drawdown,
+- stabilere Wochenresultate,
+- robustere Regime-Anpassung.
+
+**Kernaussage:** Komplexität ist nur dann gerechtfertigt, wenn sie nicht nur interessanter aussieht, sondern operativ nachweisbar besser ist.
+
+### 7.4 Ist das Risiko robust genug kontrolliert?
+
+Ein technisch funktionierendes System ist noch kein sicheres System. Kritisch bleiben:
+
+- Stop-Loss-Disziplin,
+- konservative Positionsgröße,
+- realistische Handelskosten,
+- saubere Demo-/Paper-Trennung,
+- definierte Abbruch- und Eskalationsregeln.
+
+**Kernaussage:** Die relevante Frage ist nicht nur „Kann das System gewinnen?“, sondern auch „Kann es schlechte Phasen kontrolliert überleben?“
+
+### 7.5 Gibt es klare GO/NO-GO-Regeln für die nächsten Entscheidungen?
+
+Ein reifes System braucht feste Regeln für:
+
+- Weiterlauf im Demo-/Paper-Modus,
+- Retraining,
+- Threshold-Anpassungen,
+- Strategie-Stopp,
+- eventuelle spätere Echtgeld-Freigabe.
+
+**Kernaussage:** Ohne klare Entscheidungslogik droht operative Bauchsteuerung statt systematischer Weiterentwicklung.
+
+---
+
+## 8) Einordnung der Profitabilität
+
+### 8.1 Aktuelle Bewertung
+
+Die aktuelle Lage spricht dafür, dass das System **ein plausibler Profitabilitäts-Kandidat** ist, aber **noch kein belastbar bewiesenes profitables System**.
+
+Das ist kein Rückschritt, sondern eine saubere professionelle Einordnung:
+
+- Die operative Infrastruktur wurde verbessert.
+- Die Datengrundlage für KPI-Auswertung ist besser.
+- Die Demo-Live-Bewertung ist aussagekräftiger als zuvor.
+- Der Langzeitnachweis fehlt aber noch.
+
+### 8.2 Was hier als echte Profitabilität gelten sollte
+
+Profitabilität bedeutet in diesem Projekt nicht:
+
+- ein paar gute Trades,
+- eine einzelne starke Backtest-Periode,
+- oder eine kurzfristig schöne Equity-Kurve.
+
+Profitabilität sollte erst dann als belastbar gelten, wenn die Phase-7-Ziele über Zeit nachvollziehbar erfüllt werden, insbesondere:
+
+- **Profit Factor > 1.3**
+- **Sharpe Ratio > 0.8**
+- **Max Drawdown < 10%**
+- **Win-Rate stabil > 50%**
+- konsistente Ergebnisse über mehrere Wochen
+- möglichst ähnliche Signalqualität auf `USDCAD` und `USDJPY`
+
+### 8.3 Zusammenfassung Profitabilität
+
+**Kurzurteil:**
+
+> Das System wirkt aktuell wie ein ernstzunehmender Kandidat für Profitabilität, aber der statistisch und operativ belastbare Beweis steht noch aus.
+
+Damit bleibt die richtige Haltung aktuell:
+
+- weiter kontrolliert Demo-/Paper-Betrieb,
+- keine Echtgeld-Freigabe,
+- Entscheidungen nur auf Basis rollierender KPI-Evidenz.
+
+---
+
+## 9) Konkrete nächste Schritte
+
+### 9.1 Sofort / laufend
+
+1. **Demo-/Paper-Betrieb stabil weiterlaufen lassen**
+   - keine hektischen Strategie-Wechsel,
+   - keine parallelen Experiment-Wechsel im operativen Pfad,
+   - Fokus auf saubere Evidenz.
+
+2. **Neue Logs konsequent sammeln und prüfen**
+   - `*_signals.csv`
+   - `*_closes.csv`
+   - Sync-Status zwischen Laptop/MT5/Common Files/Server
+
+3. **Dashboard und Ausführung weiter beobachten**
+   - Signal sichtbar?
+   - HTF/LTF plausibel?
+   - Entries/Closes korrekt?
+   - Stale-/Timing-Probleme?
+
+### 9.2 Diese Woche
+
+1. **Wöchentliche KPI-Auswertung standardisieren**
+   - Winrate
+   - Profit Factor
+   - Drawdown
+   - Erwartungswert pro Trade
+   - Anzahl Trades
+   - Regime-spezifische Performance
+
+2. **Backtest-vs-Demo-Live-Abweichungen prüfen**
+   - gleiche Signale?
+   - ähnliche Entry-Preise?
+   - SL/TP konsistent?
+   - Schließungsgründe nachvollziehbar?
+
+### 9.3 Nächste 1–2 Wochen
+
+1. **Threshold- und Regime-Analyse auf dem aktuellen Setup nachziehen**
+2. **Walk-Forward / OOS-Nachweis weiter schärfen**
+3. **GO/NO-GO-Regeln strikt an KPI-Gates koppeln**
+4. **Erst danach über Retraining oder neue Varianten entscheiden**
+
+### 9.4 Operative Leitlinie
+
+Die beste nächste Entscheidung ist aktuell nicht „mehr Komplexität“, sondern:
+
+> **mehr belastbare Evidenz bei unverändert kontrolliertem Betrieb.**
+
+---
+
 ## Änderungsvermerk
 
-Diese Fassung ersetzt die vorherige, historisch gewachsene Mischversion der Analyse und bildet den aktuellen Repository-Stand zum 08.03.2026 konsistent ab.
+Diese Fassung ersetzt die vorherige, historisch gewachsene Mischversion der Analyse und bildet den aktuellen Repository-Stand zum 09.03.2026 konsistent ab.

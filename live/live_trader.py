@@ -58,7 +58,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Protocol, Tuple, cast
 
 # Datenverarbeitung
 import numpy as np
@@ -77,6 +77,7 @@ try:
     HAS_HMMLEARN = True
 except ImportError:
     HAS_HMMLEARN = False
+    GaussianHMM = None  # type: ignore[assignment]
 
 # MetaTrader5 – NUR auf Windows verfügbar!
 try:
@@ -86,6 +87,9 @@ try:
 except ImportError:
     MT5_VERFUEGBAR = False
     mt5 = None  # type: ignore
+
+# Pylance darf MT5 im Linux-Workspace nicht auf None festnageln.
+mt5 = cast(Any, mt5)
 
 # pandas_ta – für ADX-Berechnung (identisch mit regime_detection.py)
 try:
@@ -106,25 +110,102 @@ try:
 except ImportError:
     TWO_STAGE_VERFUEGBAR = False
 
+    def two_stage_modelle_laden(*args: Any, **kwargs: Any) -> tuple[object, object]:
+        """Fallback-Stummel wenn Two-Stage-Modul lokal nicht importierbar ist."""
+        raise ImportError("two_stage_signal nicht verfügbar")
+
+    def zwei_stufen_signal(*args: Any, **kwargs: Any) -> Any:
+        """Fallback-Stummel wenn Two-Stage-Modul lokal nicht importierbar ist."""
+        raise ImportError("two_stage_signal nicht verfügbar")
+
 # ============================================================
 # Konfiguration und Pfade
 # ============================================================
 
+
+def _resolve_log_dir(
+    base_dir: Path,
+    cli_log_dir: str = "",
+    cli_log_subdir: str = "",
+) -> Path:
+    """
+    Bestimmt den effektiven Log-Ordner optional über Umgebungsvariablen.
+
+    Unterstützte Variablen:
+        MT5_TRADING_LOG_DIR: Absoluter Log-Pfad (hat Priorität)
+        MT5_TRADING_LOG_SUBDIR: Unterordner unter BASE_DIR/logs
+
+    Args:
+        base_dir: Projekt-Basisverzeichnis.
+        cli_log_dir: Optionaler absoluter Log-Pfad aus der CLI.
+        cli_log_subdir: Optionaler Unterordner unter ``base_dir / "logs"`` aus der CLI.
+
+    Returns:
+        Aufgelöster Log-Pfad als Path.
+    """
+    # CLI-Override hat höchste Priorität, weil er pro Prozess explizit gesetzt wird.
+    cli_log_dir = cli_log_dir.strip()
+    if cli_log_dir:
+        return Path(cli_log_dir).expanduser()
+
+    cli_log_subdir = cli_log_subdir.strip()
+    if cli_log_subdir:
+        normalized_cli_subdir = cli_log_subdir.replace("\\", "/").strip("/ ")
+        if normalized_cli_subdir:
+            return base_dir / "logs" / Path(normalized_cli_subdir)
+
+    # Absoluter Override per Umgebung: ideal für dedizierte Testläufe wie Test 128.
+    env_log_dir = os.environ.get("MT5_TRADING_LOG_DIR", "").strip()
+    if env_log_dir:
+        return Path(env_log_dir).expanduser()
+
+    # Relativer Unterordner unterhalb des Standard-Logpfads.
+    env_log_subdir = os.environ.get("MT5_TRADING_LOG_SUBDIR", "").strip()
+    if env_log_subdir:
+        # Backslashes vereinheitlichen und leere Segmente vermeiden.
+        normalized_subdir = env_log_subdir.replace("\\", "/").strip("/ ")
+        if normalized_subdir:
+            return base_dir / "logs" / Path(normalized_subdir)
+
+    # Fallback: bisheriger Standardordner.
+    return base_dir / "logs"
+
+
 # Pfade (relativ zum Skript-Verzeichnis)
 BASE_DIR = Path(__file__).parent.parent  # Ordner mt5_ml_trading/
 MODEL_DIR = BASE_DIR / "models"
-LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = _resolve_log_dir(BASE_DIR)
 
-# Logging: Terminal + Datei (UTF-8 für deutsche Sonderzeichen)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(LOG_DIR / "live_trader.log", encoding="utf-8"),
-    ],
-)
+
+def configure_logging(log_dir: Path) -> Path:
+    """
+    Konfiguriert Logging für Terminal + Datei neu.
+
+    Args:
+        log_dir: Zielordner für `live_trader.log` und CSV-Dateien.
+
+    Returns:
+        Finaler Log-Ordner.
+    """
+    resolved_log_dir = log_dir.expanduser()
+    resolved_log_dir.mkdir(parents=True, exist_ok=True)
+    globals()["LOG_DIR"] = resolved_log_dir
+
+    # force=True stellt sicher, dass ein CLI-Override alte Handler sauber ersetzt.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(resolved_log_dir / "live_trader.log", encoding="utf-8"),
+        ],
+        force=True,
+    )
+    return resolved_log_dir
+
+
+# Logging initialisieren (Fallback: Umgebung oder Standardordner)
+configure_logging(LOG_DIR)
 logger = logging.getLogger(__name__)
 
 # ============================================================
@@ -142,6 +223,15 @@ MAGIC_NUMBER = 20260101  # Eindeutige Kennung für ML-Trades in MT5
 # Backtest-Ergebnis: ATR-SL 1.5× verbessert Sharpe drastisch (+2.1 USDCAD, +1.3 USDJPY)
 ATR_SL_ENABLED = True  # ATR-SL statt festem SL verwenden
 ATR_SL_FAKTOR = 1.5  # SL = ATR_14 × 1.5 (optimaler Faktor aus Backtest)
+
+# Lockerere Live-Defaults für Phase 7 Paper-Feedback:
+# Ziel = mehr echte Trades sehen, ohne H1/M5-Logik komplett auszuschalten.
+STANDARD_SCHWELLE = 0.45  # Vorher 0.55 → deutlich aggressiver für mehr Entries
+STANDARD_TWO_STAGE_COOLDOWN_BARS = 3  # Vorher 12 → auf M5 nur noch 15 Min Pause
+REGIME_ADX_TREND_SCHWELLE = 18.0  # Vorher implizit 25 → weniger "Seitwärts"-Klassifikation
+REGIME_HIGH_VOL_FAKTOR = 1.8  # Vorher 1.5 → weniger Bars als reine Hochvola markieren
+STANDARD_TWO_STAGE_ALLOW_NEUTRAL_HTF = True  # Neutraler H1-Bias darf starke M5-Entries zulassen
+STANDARD_STARTUP_OBSERVATION_BARS = 5  # Erst Markt 5 Kerzen beobachten, dann Trades zulassen
 
 # Kill-Switch – Harter Stopp bei zu hohem Drawdown (Review-Punkt 8)
 KILL_SWITCH_DD_DEFAULT = 0.15  # Harter Stopp bei 15% Drawdown (Standard)
@@ -200,6 +290,12 @@ REGIME_NAMEN = {
     1: "Aufwärtstrend",
     2: "Abwärtstrend",
     3: "Hohe Volatilität",
+}
+
+KLASSEN_NAMEN = {
+    0: "Short",
+    1: "Neutral",
+    2: "Long",
 }
 
 # Spalten, die beim Modell-Input AUSGESCHLOSSEN werden
@@ -294,6 +390,42 @@ FEATURE_SPALTEN = [
     "fear_greed_class",
     "btc_funding_rate",
 ]
+
+
+class WahrscheinlichkeitsModell(Protocol):
+    """Minimales Protokoll für die im Live-Trader genutzten Modellmethoden."""
+
+    feature_name_: list[str]
+
+    def predict_proba(self, x_features: pd.DataFrame) -> Any:
+        """Gibt Klassenwahrscheinlichkeiten für die übergebenen Features zurück."""
+
+
+def _series_sign(values: pd.Series) -> pd.Series:
+    """np.sign als echte Pandas-Serie zurückgeben, damit fillna/rolling typstabil bleiben."""
+    return pd.Series(np.sign(values), index=values.index, dtype=float)
+
+
+def _modell_feature_namen(modell: object) -> list[str]:
+    """Liest die Feature-Namen robust vom Modell oder fällt auf Standard-Features zurück."""
+    modell_any = cast(Any, modell)
+    namen = getattr(modell_any, "feature_name_", None)
+    if namen:
+        return list(namen)
+    return FEATURE_SPALTEN
+
+
+def _modell_predict_proba(modell: object, x_features: pd.DataFrame) -> np.ndarray:
+    """Ruft predict_proba typrobust auf und liefert ein NumPy-Array zurück."""
+    modell_any = cast(Any, modell)
+    return np.asarray(modell_any.predict_proba(x_features), dtype=float)
+
+
+def _mt5_api() -> Any:
+    """Liefert das MT5-Modul typrobust oder wirft einen klaren Fehler."""
+    if mt5 is None:
+        raise RuntimeError("MetaTrader5 ist nicht verfügbar")
+    return cast(Any, mt5)
 
 # ============================================================
 # 1. Indikator-Funktionen (identisch mit feature_engineering.py)
@@ -403,7 +535,8 @@ def ind_bbands(series: pd.Series, length: int = 20, std: float = 2.0) -> pd.Data
 
 def ind_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     """On-Balance Volume."""
-    return (np.sign(close.diff()) * volume).fillna(0).cumsum()
+    signale = _series_sign(close.diff())
+    return (signale * volume).fillna(0).cumsum()
 
 
 def ind_adx(df: pd.DataFrame, length: int = 14) -> pd.Series:
@@ -504,12 +637,16 @@ def features_berechnen(
     result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result[
         "sma_200"
     ]
-    result["sma_20_50_cross"] = np.sign(result["sma_20"] - result["sma_50"]).fillna(0)
-    result["sma_50_200_cross"] = np.sign(result["sma_50"] - result["sma_200"]).fillna(0)
+    result["sma_20_50_cross"] = _series_sign(
+        result["sma_20"] - result["sma_50"]
+    ).fillna(0)
+    result["sma_50_200_cross"] = _series_sign(
+        result["sma_50"] - result["sma_200"]
+    ).fillna(0)
 
     result["ema_12"] = ind_ema(result["close"], 12)
     result["ema_26"] = ind_ema(result["close"], 26)
-    result["ema_cross"] = np.sign(result["ema_12"] - result["ema_26"]).fillna(0)
+    result["ema_cross"] = _series_sign(result["ema_12"] - result["ema_26"]).fillna(0)
 
     macd = ind_macd(result["close"])
     result["macd_line"] = macd["macd_line"]
@@ -523,7 +660,9 @@ def features_berechnen(
     stoch = ind_stoch(result["high"], result["low"], result["close"])
     result["stoch_k"] = stoch["stoch_k"]
     result["stoch_d"] = stoch["stoch_d"]
-    result["stoch_cross"] = np.sign(result["stoch_k"] - result["stoch_d"]).fillna(0)
+    result["stoch_cross"] = _series_sign(
+        result["stoch_k"] - result["stoch_d"]
+    ).fillna(0)
 
     result["williams_r"] = ind_williams_r(
         result["high"], result["low"], result["close"]
@@ -542,7 +681,11 @@ def features_berechnen(
     result["bb_width"] = (result["bb_upper"] - result["bb_lower"]) / result["bb_mid"]
     result["bb_pct"] = (result["close"] - result["bb_lower"]) / band_range
 
-    log_ret = np.log(result["close"] / result["close"].shift(1))
+    log_ret = pd.Series(
+        np.log(result["close"] / result["close"].shift(1)),
+        index=result.index,
+        dtype=float,
+    )
     bars_per_day = 24 * bars_per_hour
     result["hist_vol_20"] = log_ret.rolling(20).std() * np.sqrt(252 * bars_per_day)
 
@@ -569,14 +712,14 @@ def features_berechnen(
     result["candle_body"] = (body_top - body_bot) / atr_safe
     result["upper_wick"] = (result["high"] - body_top) / atr_safe
     result["lower_wick"] = (body_bot - result["low"]) / atr_safe
-    result["candle_dir"] = np.sign(result["close"] - result["open"]).fillna(0)
+    result["candle_dir"] = _series_sign(result["close"] - result["open"]).fillna(0)
     result["hl_range"] = (result["high"] - result["low"]) / result["close"]
 
     # --- Multi-Timeframe-Features (H4 + D1) ---
     # LOOK-AHEAD-BIAS: .shift(1) verhindert zukünftige Information
     close = result["close"]
     close_h4 = close.resample("4h").last().dropna()
-    trend_h4 = np.sign(ind_sma(close_h4, 20) - ind_sma(close_h4, 50)).fillna(0)
+    trend_h4 = _series_sign(ind_sma(close_h4, 20) - ind_sma(close_h4, 50)).fillna(0)
     result["trend_h4"] = trend_h4.shift(1).reindex(result.index, method="ffill")
     result["rsi_h4"] = (
         ind_rsi(close_h4, 14).shift(1).reindex(result.index, method="ffill")
@@ -585,12 +728,13 @@ def features_berechnen(
     close_d1 = (
         close.resample("1D").last().dropna()
     )  # pandas 4.x erwartet Großbuchstabe "D"
-    trend_d1 = np.sign(ind_sma(close_d1, 20) - ind_sma(close_d1, 50)).fillna(0)
+    trend_d1 = _series_sign(ind_sma(close_d1, 20) - ind_sma(close_d1, 50)).fillna(0)
     result["trend_d1"] = trend_d1.shift(1).reindex(result.index, method="ffill")
 
     # --- Zeitbasierte Features ---
-    result["hour"] = result.index.hour
-    result["day_of_week"] = result.index.dayofweek
+    zeit_index = cast(pd.DatetimeIndex, result.index)
+    result["hour"] = zeit_index.hour
+    result["day_of_week"] = zeit_index.dayofweek
     h = result["hour"]
     result["session_london"] = ((h >= 8) & (h < 17)).astype(int)
     result["session_ny"] = ((h >= 13) & (h < 22)).astype(int)
@@ -672,21 +816,33 @@ def features_berechnen(
     adx = result["adx_14"]
 
     regime = pd.Series(0, index=result.index, dtype=int)
-    hoch_vol = atr_pct > (1.5 * median_atr)
-    aufwaerts = (adx > 25.0) & (result["close"] > result["sma_50"]) & ~hoch_vol
-    abwaerts = (adx > 25.0) & (result["close"] < result["sma_50"]) & ~hoch_vol
+    # Gelockerte Live-Regime-Regeln:
+    # - Trend bereits ab ADX > 18 statt > 25
+    # - Hochvola erst bei deutlicherem ATR-Ausreißer
+    # Ergebnis: weniger Kerzen landen pauschal in "Seitwärts".
+    hoch_vol = atr_pct > (REGIME_HIGH_VOL_FAKTOR * median_atr)
+    aufwaerts = (
+        (adx > REGIME_ADX_TREND_SCHWELLE)
+        & (result["close"] > result["sma_50"])
+        & ~hoch_vol
+    )
+    abwaerts = (
+        (adx > REGIME_ADX_TREND_SCHWELLE)
+        & (result["close"] < result["sma_50"])
+        & ~hoch_vol
+    )
     regime[aufwaerts] = 1
     regime[abwaerts] = 2
     regime[hoch_vol] = 3
     result["market_regime"] = regime
 
     # --- HMM-Regime (optional, mit robustem Fallback) ---
-    if HAS_HMMLEARN:
+    if HAS_HMMLEARN and GaussianHMM is not None:
         try:
             hmm_input = np.column_stack(
                 [
-                    log_ret.fillna(0.0).values,
-                    atr_pct.ffill().fillna(0.0).values,
+                    log_ret.fillna(0.0).to_numpy(dtype=float),
+                    atr_pct.ffill().fillna(0.0).to_numpy(dtype=float),
                 ]
             )
 
@@ -940,10 +1096,7 @@ def signal_generieren(
 
     # Features für Modell vorbereiten (NaN-Werte mit Median auffüllen)
     # Nutze modell.feature_name_ wenn verfügbar (exakte Trainings-Features)
-    if hasattr(modell, "feature_name_") and modell.feature_name_:
-        modell_features = list(modell.feature_name_)
-    else:
-        modell_features = FEATURE_SPALTEN
+    modell_features = _modell_feature_namen(modell)
 
     verfuegbare = [f for f in modell_features if f in df.columns]
     fehlende = [f for f in modell_features if f not in df.columns]
@@ -964,7 +1117,7 @@ def signal_generieren(
 
     # Modell-Vorhersage: Wahrscheinlichkeiten für alle 3 Klassen
     # proba[:,0] = Short (0→-1), proba[:,1] = Neutral, proba[:,2] = Long
-    proba = modell.predict_proba(x_features)[0]
+    proba = _modell_predict_proba(modell, x_features)[0]
     raw_pred = int(np.argmax(proba))
     long_prob = float(proba[2])
     short_prob = float(proba[0])
@@ -1131,6 +1284,23 @@ def shadow_signal_generieren(
             schwelle=schwelle,
         )
 
+        # Detaillierte HTF/LTF-Debug-Ausgabe:
+        # Zeigt Rohklassen + Wahrscheinlichkeiten beider Stufen und macht sichtbar,
+        # ob ein LTF-Entry am Schwellenfilter oder an der HTF-Logik scheitert.
+        logger.info(
+            f"[{symbol}] 🔍 TWO-STAGE DEBUG | "
+            f"HTF={KLASSEN_NAMEN.get(ts_signal.htf_bias_klasse, str(ts_signal.htf_bias_klasse))} "
+            f"(S={ts_signal.htf_bias_proba['short']:.1%}, "
+            f"N={ts_signal.htf_bias_proba['neutral']:.1%}, "
+            f"L={ts_signal.htf_bias_proba['long']:.1%}) | "
+            f"LTF-Rohklasse={KLASSEN_NAMEN.get(ts_signal.ltf_klasse, str(ts_signal.ltf_klasse))} "
+            f"/ Signal-vor-Filter={ts_signal.ltf_signal_vor_filter} "
+            f"(S={ts_signal.ltf_proba['short']:.1%}, "
+            f"N={ts_signal.ltf_proba['neutral']:.1%}, "
+            f"L={ts_signal.ltf_proba['long']:.1%}) | "
+            f"LTF-Schwelle={'OK' if ts_signal.ltf_entry_erlaubt else 'BLOCKIERT'}"
+        )
+
         # ---- Kongruenz-Filter: HTF-Bias und LTF-Signal müssen übereinstimmen ----
         # HTF-Bias 0=Short, 1=Neutral, 2=Long | LTF-Signal -1=Short, 0=Neutral, 2=Long
         # Erlaubt: HTF-Short + LTF-Short, HTF-Long + LTF-Long
@@ -1142,12 +1312,24 @@ def shadow_signal_generieren(
         two_stage_config["last_htf_bias"] = htf_bias
         two_stage_config["last_ltf_signal"] = ltf_signal
 
+        allow_neutral_htf_entries = bool(
+            two_stage_config.get(
+                "allow_neutral_htf_entries", STANDARD_TWO_STAGE_ALLOW_NEUTRAL_HTF
+            )
+        )
         kongruent = True  # Standardannahme: neutral-Signale sind immer OK
 
         if ltf_signal != 0:  # Nur aktive Trades prüfen (Short/Long)
             if htf_bias == 1:
-                # HTF sagt Neutral → kein aktiver Trade erlaubt
-                kongruent = False
+                # Gelockerte Logik: neutraler H1-Bias blockiert nicht mehr hart.
+                # So dürfen starke M5-Entries trotzdem als Test-Trade durchgehen.
+                if allow_neutral_htf_entries:
+                    logger.info(
+                        f"[{symbol}] ⚠️ HTF-BIAS NEUTRAL, aber M5-Entry erlaubt | "
+                        f"LTF-Signal={ltf_signal} | LTF-Prob={ts_signal.prob:.1%}"
+                    )
+                else:
+                    kongruent = False
             elif htf_bias == 0 and ltf_signal != -1:
                 # HTF sagt Short, aber LTF will Long → blockieren
                 kongruent = False
@@ -1169,6 +1351,20 @@ def shadow_signal_generieren(
                 f"[{symbol}] ⚠️ KONGRUENZ-FILTER DEAKTIVIERT | "
                 f"LTF-Signal={ltf_signal} wird trotz HTF-Bias={htf_bias} durchgelassen"
             )
+
+        # Zusatzhinweis wenn Signal=0 nicht durch HTF-Filter, sondern bereits im LTF-Modell entsteht.
+        if ts_signal.signal == 0:
+            if ts_signal.ltf_signal_vor_filter == 0:
+                logger.info(
+                    f"[{symbol}] ℹ️ LTF bleibt neutral – kein Entry vor HTF-Gates. "
+                    f"Rohklasse={KLASSEN_NAMEN.get(ts_signal.ltf_klasse, str(ts_signal.ltf_klasse))}"
+                )
+            elif not ts_signal.ltf_entry_erlaubt:
+                logger.info(
+                    f"[{symbol}] ℹ️ LTF-Entry an Schwelle gescheitert | "
+                    f"Rohsignal={ts_signal.ltf_signal_vor_filter} | Prob={ts_signal.prob:.1%} | "
+                    f"Schwelle={schwelle:.1%}"
+                )
 
         # Logging: Shadow vs. Baseline Vergleich
         if ts_signal.signal != baseline_signal:
@@ -1232,14 +1428,18 @@ def mt5_verbinden(server: str, login: int, password: str, pfad: str = "") -> boo
         )
         return False
 
+    mt5_api = _mt5_api()
+
     # MT5 initialisieren und verbinden
     if pfad:
-        ok = mt5.initialize(path=pfad, server=server, login=login, password=password)
+        ok = mt5_api.initialize(
+            path=pfad, server=server, login=login, password=password
+        )
     else:
-        ok = mt5.initialize(server=server, login=login, password=password)
+        ok = mt5_api.initialize(server=server, login=login, password=password)
 
     if not ok:
-        logger.error(f"MT5 Verbindung fehlgeschlagen: {mt5.last_error()}")
+        logger.error(f"MT5 Verbindung fehlgeschlagen: {mt5_api.last_error()}")
         return False
 
     # Zugangsdaten für Auto-Reconnect speichern
@@ -1252,7 +1452,7 @@ def mt5_verbinden(server: str, login: int, password: str, pfad: str = "") -> boo
     _MT5_RUNTIME_STATE["ipc_fail_count"] = 0
 
     # Konto-Info ausgeben
-    konto = mt5.account_info()
+    konto = mt5_api.account_info()
     logger.info(
         f"MT5 verbunden | Server: {server} | "
         f"Konto: {konto.login} | Saldo: {konto.balance:.2f} {konto.currency}"
@@ -1274,11 +1474,13 @@ def mt5_reconnect() -> bool:
         logger.error("MT5-Reconnect nicht möglich – keine Zugangsdaten gespeichert")
         return False
 
+    mt5_api = _mt5_api()
+
     logger.warning("🔄 MT5 Auto-Reconnect: Verbindung wird wiederhergestellt ...")
 
     # Alte Verbindung sauber beenden
     try:
-        mt5.shutdown()
+        mt5_api.shutdown()
     except (RuntimeError, OSError):
         pass  # Shutdown kann fehlschlagen wenn IPC bereits tot ist
 
@@ -1287,14 +1489,14 @@ def mt5_reconnect() -> bool:
     # Neu verbinden mit gespeicherten Zugangsdaten
     creds = _MT5_RUNTIME_STATE["credentials"]
     if creds["pfad"]:
-        ok = mt5.initialize(
+        ok = mt5_api.initialize(
             path=creds["pfad"],
             server=creds["server"],
             login=creds["login"],
             password=creds["password"],
         )
     else:
-        ok = mt5.initialize(
+        ok = mt5_api.initialize(
             server=creds["server"],
             login=creds["login"],
             password=creds["password"],
@@ -1302,7 +1504,7 @@ def mt5_reconnect() -> bool:
 
     if ok:
         _MT5_RUNTIME_STATE["ipc_fail_count"] = 0
-        konto = mt5.account_info()
+        konto = mt5_api.account_info()
         if konto:
             logger.info(
                 f"✅ MT5 Reconnect erfolgreich | Server: {creds['server']} | "
@@ -1312,7 +1514,7 @@ def mt5_reconnect() -> bool:
             logger.info("✅ MT5 Reconnect erfolgreich (Kontodaten nicht lesbar)")
         return True
     else:
-        logger.error(f"❌ MT5 Reconnect fehlgeschlagen: {mt5.last_error()}")
+        logger.error(f"❌ MT5 Reconnect fehlgeschlagen: {mt5_api.last_error()}")
         return False
 
 
@@ -1329,12 +1531,14 @@ def mt5_timeframe_konstante(timeframe: str) -> Optional[int]:
     if not MT5_VERFUEGBAR:
         return None
 
+    mt5_api = _mt5_api()
+
     cfg = TIMEFRAME_CONFIG.get(timeframe)
     if cfg is None:
         return None
 
     konst_name = cfg["mt5_name"]
-    return getattr(mt5, konst_name, None)
+    return getattr(mt5_api, konst_name, None)
 
 
 def n_barren_fuer_timeframe(timeframe: str) -> int:
@@ -1375,6 +1579,8 @@ def mt5_daten_holen(
         logger.error("MT5 nicht verfügbar – keine Live-Daten!")
         return None
 
+    mt5_api = _mt5_api()
+
     # Barren von Position 0 (aktuelle Kerze) bis n-1
     tf_const = mt5_timeframe_konstante(timeframe)
     if tf_const is None:
@@ -1385,9 +1591,9 @@ def mt5_daten_holen(
         n_barren if n_barren is not None else n_barren_fuer_timeframe(timeframe)
     )
 
-    rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
+    rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
     if rates is None:
-        fehler = mt5.last_error()
+        fehler = mt5_api.last_error()
         _MT5_RUNTIME_STATE["ipc_fail_count"] += 1
         logger.warning(
             f"[{symbol}] Keine Daten von MT5: {fehler} "
@@ -1397,14 +1603,14 @@ def mt5_daten_holen(
         if _MT5_RUNTIME_STATE["ipc_fail_count"] >= _MT5_RECONNECT_AFTER:
             if mt5_reconnect():
                 # Retry nach erfolgreichem Reconnect
-                rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
+                rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
                 if rates is not None:
                     logger.info(
                         f"[{symbol}] Daten nach Reconnect erfolgreich geladen ✓"
                     )
                 else:
                     logger.error(
-                        f"[{symbol}] Auch nach Reconnect keine Daten: {mt5.last_error()}"
+                        f"[{symbol}] Auch nach Reconnect keine Daten: {mt5_api.last_error()}"
                     )
                     return None
             else:
@@ -1437,12 +1643,13 @@ def mt5_letzte_kerze_uhrzeit(symbol: str, timeframe: str = "H1") -> Optional[dat
     """
     if not MT5_VERFUEGBAR:
         return None
+    mt5_api = _mt5_api()
     tf_const = mt5_timeframe_konstante(timeframe)
     if tf_const is None:
         return None
-    rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, 2)
+    rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, 2)
     if rates is None or len(rates) < 2:
-        fehler = mt5.last_error()
+        fehler = mt5_api.last_error()
         _MT5_RUNTIME_STATE["ipc_fail_count"] += 1
         logger.warning(
             f"[{symbol}] MT5 liefert keine Kerzen-Daten: {fehler} "
@@ -1452,7 +1659,7 @@ def mt5_letzte_kerze_uhrzeit(symbol: str, timeframe: str = "H1") -> Optional[dat
         if _MT5_RUNTIME_STATE["ipc_fail_count"] >= _MT5_RECONNECT_AFTER:
             if mt5_reconnect():
                 # Retry nach erfolgreichem Reconnect
-                rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, 2)
+                rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, 2)
                 if rates is not None and len(rates) >= 2:
                     _MT5_RUNTIME_STATE["ipc_fail_count"] = 0
                     logger.info(f"[{symbol}] Kerzen-Daten nach Reconnect geladen ✓")
@@ -1478,7 +1685,8 @@ def mt5_offene_position(symbol: str) -> bool:
     """
     if not MT5_VERFUEGBAR:
         return False
-    positionen = mt5.positions_get(symbol=symbol)
+    mt5_api = _mt5_api()
+    positionen = mt5_api.positions_get(symbol=symbol)
     if positionen is None:
         return False
     # Nur eigene ML-Positionen (erkennbar an der MAGIC_NUMBER)
@@ -1531,32 +1739,34 @@ def order_senden(  # pylint: disable=too-many-arguments,too-many-positional-argu
         logger.error("MT5 nicht verfügbar – Order nicht gesendet!")
         return None
 
+    mt5_api = _mt5_api()
+
     # Symbol aktivieren (falls nicht im Market Watch)
-    if not mt5.symbol_select(symbol, True):
+    if not mt5_api.symbol_select(symbol, True):
         logger.error(f"Symbol {symbol} nicht verfügbar!")
         return None
 
-    symbol_info = mt5.symbol_info(symbol)
-    tick = mt5.symbol_info_tick(symbol)
+    symbol_info = mt5_api.symbol_info(symbol)
+    tick = mt5_api.symbol_info_tick(symbol)
     if symbol_info is None or tick is None:
         logger.error(f"Symbol-Info für {symbol} nicht abrufbar!")
         return None
 
     # Preis und TP/SL berechnen
     if richtung == 2:  # Long: Buy
-        order_type = mt5.ORDER_TYPE_BUY
+        order_type = mt5_api.ORDER_TYPE_BUY
         preis = tick.ask
         sl_preis = round(preis * (1.0 - sl_pct), symbol_info.digits)
         tp_preis = round(preis * (1.0 + tp_pct), symbol_info.digits)
     else:  # Short: Sell
-        order_type = mt5.ORDER_TYPE_SELL
+        order_type = mt5_api.ORDER_TYPE_SELL
         preis = tick.bid
         sl_preis = round(preis * (1.0 + sl_pct), symbol_info.digits)
         tp_preis = round(preis * (1.0 - tp_pct), symbol_info.digits)
 
     # Order-Request (PFLICHT: Stop-Loss!)
     request = {
-        "action": mt5.TRADE_ACTION_DEAL,
+        "action": mt5_api.TRADE_ACTION_DEAL,
         "symbol": symbol,
         "volume": lot,
         "type": order_type,
@@ -1566,12 +1776,12 @@ def order_senden(  # pylint: disable=too-many-arguments,too-many-positional-argu
         "deviation": 20,  # Max. Slippage in Punkte
         "magic": MAGIC_NUMBER,  # Eindeutige ID für diesen Bot
         "comment": "ML-Phase6",
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_time": mt5_api.ORDER_TIME_GTC,
+        "type_filling": mt5_api.ORDER_FILLING_IOC,
     }
 
-    result = mt5.order_send(request)
-    if result.retcode != mt5.TRADE_RETCODE_DONE:
+    result = mt5_api.order_send(request)
+    if result.retcode != mt5_api.TRADE_RETCODE_DONE:
         logger.error(f"Order fehlgeschlagen: Code={result.retcode} | {result.comment}")
         return None
 
@@ -2033,27 +2243,29 @@ def alle_positionen_schliessen(symbol: str) -> None:
     if not MT5_VERFUEGBAR:
         return
 
-    positionen = mt5.positions_get(symbol=symbol)  # type: ignore[union-attr]
+    mt5_api = _mt5_api()
+
+    positionen = mt5_api.positions_get(symbol=symbol)
     if not positionen:
         return
 
     logger.info(f"[{symbol}] Schließe {len(positionen)} offene Position(en) ...")
     for pos in positionen:
         # Gegenläufige Order zum Schließen der Position
-        tick = mt5.symbol_info_tick(symbol)  # type: ignore[union-attr]
+        tick = mt5_api.symbol_info_tick(symbol)
         if tick is None:
             continue
 
         # Long-Position → mit Sell schließen; Short-Position → mit Buy schließen
-        if pos.type == mt5.ORDER_TYPE_BUY:  # type: ignore[union-attr]
-            close_type = mt5.ORDER_TYPE_SELL  # type: ignore[union-attr]
+        if pos.type == mt5_api.ORDER_TYPE_BUY:
+            close_type = mt5_api.ORDER_TYPE_SELL
             preis = tick.bid
         else:
-            close_type = mt5.ORDER_TYPE_BUY  # type: ignore[union-attr]
+            close_type = mt5_api.ORDER_TYPE_BUY
             preis = tick.ask
 
         request = {
-            "action": mt5.TRADE_ACTION_DEAL,  # type: ignore[union-attr]
+            "action": mt5_api.TRADE_ACTION_DEAL,
             "symbol": symbol,
             "volume": pos.volume,
             "type": close_type,
@@ -2062,11 +2274,11 @@ def alle_positionen_schliessen(symbol: str) -> None:
             "deviation": 20,
             "magic": MAGIC_NUMBER,
             "comment": "Kill-Switch",
-            "type_time": mt5.ORDER_TIME_GTC,  # type: ignore[union-attr]
-            "type_filling": mt5.ORDER_FILLING_IOC,  # type: ignore[union-attr]
+            "type_time": mt5_api.ORDER_TIME_GTC,
+            "type_filling": mt5_api.ORDER_FILLING_IOC,
         }
-        result = mt5.order_send(request)  # type: ignore[union-attr]
-        if result.retcode == mt5.TRADE_RETCODE_DONE:  # type: ignore[union-attr]
+        result = mt5_api.order_send(request)
+        if result.retcode == mt5_api.TRADE_RETCODE_DONE:
             logger.info(f"[{symbol}] Position {pos.ticket} geschlossen ✓")
         else:
             logger.error(
@@ -2130,6 +2342,10 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     atr_sl_aktiv: bool = True,
     atr_sl_faktor: float = 1.5,
     two_stage_config: Optional[dict] = None,
+    tp_pct: float = 0.006,
+    sl_pct: float = 0.003,
+    cooldown_bars: int = 12,
+    startup_observation_bars: int = STANDARD_STARTUP_OBSERVATION_BARS,
 ) -> None:
     """
     Haupt-Schleife: Läuft dauerhaft und wartet auf neue Kerzen im gewählten Zeitrahmen.
@@ -2158,6 +2374,10 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         atr_sl_aktiv:    True = ATR-basiertes SL (dynamisch), False = festes SL
         atr_sl_faktor:   ATR-Multiplikator für SL (Standard: 1.5)
         two_stage_config: Two-Stage-Konfiguration für Shadow-Mode (optional)
+        tp_pct:          Take-Profit in Dezimal (Standard: 0.006 = 0.6%)
+        sl_pct:          Stop-Loss Fallback in Dezimal (Standard: 0.003 = 0.3%)
+        cooldown_bars:   Mindest-Bars zwischen Trades (Standard: 12, bei M5 = 1h)
+        startup_observation_bars: Anzahl neuer Kerzen, die erst nur beobachtet werden.
     """
     modus_str = "PAPER-TRADING" if paper_trading else "⚠️  LIVE-TRADING MIT ECHTEM GELD!"
     regime_str = (
@@ -2168,6 +2388,10 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
     # Two-Stage M5-Takt: Flag vorab setzen (wird für Logging + Loop gebraucht)
     ts_aktiv = two_stage_config is not None and two_stage_config.get("enable", False)
+    ts_cfg: dict[str, Any] = cast(dict[str, Any], two_stage_config) if ts_aktiv else {}
+
+    # RRR (Risk-Reward-Ratio) aus tp_pct/sl_pct berechnen
+    rrr = tp_pct / sl_pct if sl_pct > 0 else 1.0
 
     logger.info("=" * 65)
     logger.info(f"LIVE-TRADER GESTARTET – {symbol}")
@@ -2187,10 +2411,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         logger.info(
             f"Stop-Loss:      ATR-SL aktiv ({atr_sl_faktor}× ATR_14, dynamisch)"
         )
+        logger.info(f"TP/SL-RRR:      {rrr:.1f}:1 (TP = SL × {rrr:.1f})")
     else:
-        logger.info(
-            f"TP/SL:          {TP_PCT:.1%} / {SL_PCT:.1%} (RRR={TP_PCT/SL_PCT:.1f}:1)"
-        )
+        logger.info(f"TP/SL:          {tp_pct:.1%} / {sl_pct:.1%} (RRR={rrr:.1f}:1)")
+    logger.info(f"Cooldown:       {cooldown_bars} Bars zwischen Trades")
+    logger.info(f"Beobachtung:    {startup_observation_bars} neue Kerzen nur beobachten")
     logger.info(f"Lot-Größe:      {lot}")
     logger.info(
         f"Kill-Switch:    Drawdown > {kill_switch_dd:.0%} → automatischer Stopp"
@@ -2204,11 +2429,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     logger.info(f"Zeitrahmen:     {timeframe}")
     if ts_aktiv:
         logger.info(
-            f"M5-Takt:        AKTIV → Loop auf {two_stage_config.get('ltf_timeframe', 'M5')}, "
+            f"M5-Takt:        AKTIV → Loop auf {ts_cfg.get('ltf_timeframe', 'M5')}, "
             f"HTF-Bias auf H1 (gecached)"
         )
         logger.info(
-            f"Warte auf neue {two_stage_config.get('ltf_timeframe', 'M5')}-Kerze ..."
+            f"Warte auf neue {ts_cfg.get('ltf_timeframe', 'M5')}-Kerze ..."
         )
     else:
         logger.info(f"Warte auf neue {timeframe}-Kerze ...")
@@ -2217,16 +2442,18 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     letzte_kerzen_zeit: Optional[datetime] = None
     n_signale = 0  # Gesamt-Signale
     n_trades = 0  # Ausgeführte Trades
+    bars_seit_letztem_trade = cooldown_bars  # Cooldown-Zähler (startet "bereit")
 
     # Letzter eröffneter Trade (für Schließungs-Erkennung und PnL-Logging)
     # Dict-Keys: ticket, richtung, entry_price, open_zeit, htf_bias, ltf_signal
     letzter_trade: Optional[dict] = None
+    verarbeitete_kerzen = 0  # Anzahl seit Start verarbeiteter neuer Kerzen
 
     # ---- Kill-Switch: Startkapital ermitteln ----
     # Im Live-Modus: echtes Kontostand von MT5 lesen
     # Im Paper-Modus: übergebenes Startkapital verwenden
     if not paper_trading and MT5_VERFUEGBAR:
-        account = mt5.account_info()  # type: ignore[union-attr]
+        account = _mt5_api().account_info()
         if account:
             # Echtes Startkapital aus MT5-Konto
             start_equity = account.equity
@@ -2250,7 +2477,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     # Wenn Two-Stage aktiv: Loop läuft auf LTF (M5) statt H1
     # HTF-Bias (H1) wird gecached und nur bei neuer H1-Kerze aktualisiert
     if ts_aktiv:
-        effektiver_tf = two_stage_config.get("ltf_timeframe", "M5")
+        effektiver_tf = ts_cfg.get("ltf_timeframe", "M5")
         logger.info(
             f"[{symbol}] ⚡ M5-TAKT AKTIV: Loop-Intervall = {effektiver_tf} "
             f"(alle {TIMEFRAME_CONFIG[effektiver_tf]['minutes_per_bar']} Min) | "
@@ -2279,15 +2506,25 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 continue
 
             # Neue Kerze erkannt!
-            jetzt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            logger.info(f"\n[{symbol}] Neue {effektiver_tf}-Kerze | {jetzt} UTC")
+            aktuelle_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+            if aktuelle_kerzen_zeit is not None:
+                kerzen_ts = aktuelle_kerzen_zeit.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # Fallback nur fürs Logging, falls MT5-Zeitpunkt kurzzeitig nicht lesbar ist.
+                kerzen_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"\n[{symbol}] Neue {effektiver_tf}-Kerze | {kerzen_ts} UTC")
+            verarbeitete_kerzen += 1
+
+            # Cooldown-Zähler bei jeder neuen Kerze erhöhen
+            bars_seit_letztem_trade += 1
+
             externe_features = externe_features_holen(cache=externe_feature_cache)
 
             # ---- Kill-Switch prüfen ----
             # Im Live-Modus: aktuellen MT5-Kontostand lesen
             # Im Paper-Modus: simuliertes Kapital prüfen
             if not paper_trading and MT5_VERFUEGBAR:
-                account = mt5.account_info()  # type: ignore[union-attr]
+                account = _mt5_api().account_info()
                 if account:
                     aktuell_equity = account.equity
                 else:
@@ -2322,7 +2559,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                             htf_df, external_features=externe_features
                         )
                         cached_h1_df_clean = htf_df.dropna(subset=FEATURE_SPALTEN)
-                        two_stage_config["htf_df"] = cached_h1_df_clean
+                        ts_cfg["htf_df"] = cached_h1_df_clean
                         letzte_htf_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, "H1")
                         logger.info(
                             f"[{symbol}] 📊 HTF-Bias aktualisiert (neue H1-Kerze) | "
@@ -2341,7 +2578,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                             continue
 
                 # B) LTF-Daten (M5) frisch laden bei jeder M5-Kerze
-                ltf_tf = two_stage_config["ltf_timeframe"]
+                ltf_tf = ts_cfg["ltf_timeframe"]
                 ltf_df_raw = mt5_daten_holen(symbol, timeframe=ltf_tf)
                 ltf_min_bars = (
                     250
@@ -2363,7 +2600,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     ltf_df, external_features=externe_features
                 )
                 ltf_df_clean = ltf_df.dropna(subset=FEATURE_SPALTEN)
-                two_stage_config["ltf_df"] = ltf_df_clean
+                ts_cfg["ltf_df"] = ltf_df_clean
 
                 if len(ltf_df_clean) < 10:
                     logger.warning(
@@ -2397,12 +2634,8 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 df = externe_features_einfuegen(df, external_features=externe_features)
 
                 # NaN-Zeilen am Anfang (Warm-Up) entfernen
-                if hasattr(modell, "feature_name_") and modell.feature_name_:
-                    dropna_features = [
-                        f for f in modell.feature_name_ if f in df.columns
-                    ]
-                else:
-                    dropna_features = [f for f in FEATURE_SPALTEN if f in df.columns]
+                modell_feature_namen = _modell_feature_namen(modell)
+                dropna_features = [f for f in modell_feature_namen if f in df.columns]
                 df_clean = df.dropna(subset=dropna_features)
                 if len(df_clean) < 10:
                     logger.warning(
@@ -2429,12 +2662,14 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             # ATR-basiertes Stop-Loss berechnen (dynamisch!)
             if atr_sl_aktiv and atr_pct > 0:
                 sl_aktuell = atr_pct * atr_sl_faktor  # z.B. 0.0021 × 1.5 = 0.0032
-                tp_aktuell = sl_aktuell  # symmetrisches TP/SL (RRR 1:1)
-                sl_info = f"ATR-SL={sl_aktuell:.2%} ({ATR_SL_FAKTOR}×ATR)"
+                tp_aktuell = sl_aktuell * rrr  # asymmetrisches TP/SL (z.B. RRR 2:1)
+                sl_info = (
+                    f"ATR-SL={sl_aktuell:.2%} | TP={tp_aktuell:.2%} (RRR {rrr:.1f}:1)"
+                )
             else:
-                sl_aktuell = SL_PCT  # Fallback: festes SL
-                tp_aktuell = TP_PCT
-                sl_info = f"Fix-SL={sl_aktuell:.1%}"
+                sl_aktuell = sl_pct  # Fallback: festes SL aus CLI
+                tp_aktuell = tp_pct  # Festes TP aus CLI
+                sl_info = f"Fix-SL={sl_aktuell:.1%} | Fix-TP={tp_aktuell:.1%}"
 
             logger.info(
                 f"[{symbol}] Signal={signal} | Prob={prob:.1%} | "
@@ -2484,8 +2719,19 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
             # ---- Schritt 5: Trade ausführen ----
             if signal != 0:
+                if verarbeitete_kerzen <= startup_observation_bars:
+                    logger.info(
+                        f"[{symbol}] 👀 Beobachtungsphase aktiv – Kerze {verarbeitete_kerzen}/{startup_observation_bars}. "
+                        f"Signal wird nur beobachtet, noch kein Trade."
+                    )
+                # Cooldown prüfen (verhindert Overtrading bei dauerhaftem Signal)
+                elif bars_seit_letztem_trade < cooldown_bars:
+                    logger.info(
+                        f"[{symbol}] Cooldown aktiv – noch {cooldown_bars - bars_seit_letztem_trade} "
+                        f"Bars warten (von {cooldown_bars})"
+                    )
                 # Offene Position prüfen (nur 1 Trade gleichzeitig!)
-                if mt5_offene_position(symbol):
+                elif mt5_offene_position(symbol):
                     logger.info(
                         f"[{symbol}] Bereits offene Position – kein neuer Trade"
                     )
@@ -2495,6 +2741,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     )
                     if order_info is not None:
                         n_trades += 1
+                        bars_seit_letztem_trade = 0  # Cooldown-Zähler zurücksetzen
                         richtung_str = "Long" if signal == 2 else "Short"
                         logger.info(
                             f"[{symbol}] Trade #{n_trades}: {richtung_str} | "
@@ -2547,7 +2794,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 logger.info(f"[{symbol}] Kein Trade-Signal (Details siehe oben)")
 
             # Zeitstempel der verarbeiteten Kerze speichern (effektiver Zeitrahmen)
-            letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+            letzte_kerzen_zeit = aktuelle_kerzen_zeit
 
             # Statistik alle 100 Kerzen (bei M5 ≈ alle 8 Stunden, bei H1 ≈ alle 4 Tage)
             stat_intervall = 100 if ts_aktiv else 24
@@ -2585,8 +2832,8 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "MT5 ML-Trading – Live-Trader (Phase 7)\n"
             "Läuft auf: Windows 11 Laptop mit MT5-Terminal\n\n"
             "Aktuelle Konfiguration (Option 1 Test-Phase):\n"
-            "  USDCAD: --symbol USDCAD --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1\n"
-            "  USDJPY: --symbol USDJPY --schwelle 0.52 --regime_filter 0,1,2 --atr_sl 1"
+            "  USDCAD: --symbol USDCAD --schwelle 0.48 --regime_filter 0,1,2,3 --atr_sl 1\n"
+            "  USDJPY: --symbol USDJPY --schwelle 0.45 --regime_filter 0,1,2,3 --atr_sl 1"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -2602,10 +2849,10 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     parser.add_argument(
         "--schwelle",
         type=float,
-        default=0.55,
+        default=STANDARD_SCHWELLE,
         help=(
-            "Long-Schwelle für Trade-Ausführung (Standard: 0.55). "
-            "Kongruenz-Filter (HTF+LTF müssen übereinstimmen) bietet zusätzliche Absicherung."
+            "Long-Schwelle für Trade-Ausführung (Standard: 0.45). "
+            "Bewusst etwas lockerer, damit im Paper-Betrieb mehr M5-Entries sichtbar werden."
         ),
     )
     parser.add_argument(
@@ -2643,20 +2890,30 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         "--two_stage_kongruenz",
         type=int,
         choices=[0, 1],
-        default=1,
+        default=0,
         help=(
             "1 = HTF/LTF Kongruenzfilter aktiv (sicherer, weniger Trades), "
-            "0 = Kongruenzfilter aus (aggressiver, mehr Trades)."
+            "0 = Kongruenzfilter aus (aggressiver, mehr Trades, Standard)."
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_allow_neutral_htf",
+        type=int,
+        choices=[0, 1],
+        default=1,
+        help=(
+            "1 = neutraler H1-Bias darf starke M5-Entries trotzdem zulassen (Standard), "
+            "0 = neutraler H1-Bias blockiert aktive M5-Signale."
         ),
     )
     parser.add_argument(
         "--regime_filter",
         type=str,
-        default="0,1,2",
+        default="0,1,2,3",
         help=(
-            "Komma-getrennte Regime-Nummern (Standard: '0,1,2'). "
+            "Komma-getrennte Regime-Nummern (Standard: '0,1,2,3'). "
             "0=Seitwärts, 1=Aufwärtstrend, 2=Abwärtstrend, 3=Hohe Vola. "
-            "Option 1 (Test-Phase): Alle Regime erlaubt für mehr Feedback"
+            "Paper-Test-Phase: Standardmäßig alle Regime erlaubt für mehr Feedback."
         ),
     )
     parser.add_argument(
@@ -2690,6 +2947,22 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         "--mt5_password",
         default="",
         help="MT5 Passwort",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default="",
+        help=(
+            "Optionaler absoluter Log-Ordner. Überschreibt MT5_TRADING_LOG_DIR und "
+            "den Standardpfad. Ideal für dedizierte Testläufe wie Test 128."
+        ),
+    )
+    parser.add_argument(
+        "--log_subdir",
+        default="",
+        help=(
+            "Optionaler Unterordner unter BASE_DIR/logs. Beispiel: paper_test128. "
+            "Wird nur genutzt wenn --log_dir leer ist."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -2794,7 +3067,55 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "lgbm_ltf_entry_SYMBOL_LTF-TF_VERSION.pkl"
         ),
     )
+    parser.add_argument(
+        "--tp_pct",
+        type=float,
+        default=0.006,
+        help=(
+            "Take-Profit in Dezimal (Standard: 0.006 = 0.6%%). "
+            "Wird als RRR-Faktor relativ zum SL verwendet wenn ATR-SL aktiv. "
+            "Backtest-Optimum: 0.006 (RRR 2:1 mit SL=0.3%%)."
+        ),
+    )
+    parser.add_argument(
+        "--sl_pct",
+        type=float,
+        default=0.003,
+        help=(
+            "Stop-Loss in Dezimal (Standard: 0.003 = 0.3%%). "
+            "Fallback wenn ATR-SL deaktiviert ist. "
+            "Bei ATR-SL: RRR wird aus tp_pct/sl_pct berechnet (z.B. 0.006/0.003 = 2:1)."
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_cooldown_bars",
+        type=int,
+        default=STANDARD_TWO_STAGE_COOLDOWN_BARS,
+        help=(
+            "Cooldown in Bars nach einem Trade (Standard: 3). "
+            "Verhindert Overtrading bei dauerhaftem Signal. "
+            "Bei M5: 3 Bars = 15 Minuten Pause zwischen Trades."
+        ),
+    )
+    parser.add_argument(
+        "--startup_observation_bars",
+        type=int,
+        default=STANDARD_STARTUP_OBSERVATION_BARS,
+        help=(
+            "Anzahl neuer Kerzen direkt nach Start, die erst nur beobachtet werden (Standard: 5). "
+            "Signale werden geloggt, aber noch nicht gehandelt."
+        ),
+    )
     args = parser.parse_args()
+
+    # ---- Logging-Ziel möglichst früh fixieren ----
+    configure_logging(
+        _resolve_log_dir(
+            BASE_DIR,
+            cli_log_dir=args.log_dir,
+            cli_log_subdir=args.log_subdir,
+        )
+    )
 
     # ---- ATR-SL Konfiguration aus CLI ----
     atr_sl_aktiv = bool(args.atr_sl)
@@ -2949,6 +3270,7 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
                 "enable": True,
                 "ltf_timeframe": args.two_stage_ltf_timeframe,
                 "version": args.two_stage_version,
+                "allow_neutral_htf_entries": bool(args.two_stage_allow_neutral_htf),
                 "htf_features": htf_feats,
                 "ltf_features": ltf_feats,
                 # HTF/LTF DataFrames werden in der trading_loop dynamisch geladen
@@ -2975,11 +3297,15 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         atr_sl_aktiv=atr_sl_aktiv,
         atr_sl_faktor=atr_sl_faktor,
         two_stage_config=two_stage_config,
+        tp_pct=args.tp_pct,
+        sl_pct=args.sl_pct,
+        cooldown_bars=args.two_stage_cooldown_bars,
+        startup_observation_bars=args.startup_observation_bars,
     )
 
     # MT5 Verbindung beenden
-    if MT5_VERFUEGBAR and mt5.terminal_info() is not None:
-        mt5.shutdown()
+    if MT5_VERFUEGBAR and _mt5_api().terminal_info() is not None:
+        _mt5_api().shutdown()
         logger.info("MT5-Verbindung getrennt.")
 
 

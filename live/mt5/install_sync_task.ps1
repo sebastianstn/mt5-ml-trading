@@ -2,7 +2,7 @@ param(
     [string]$TaskName = "MT5_Sync_Live_Logs",
     [string]$SourceDir = "C:\Users\Sebastian Setnescu\mt5_trading\logs",
     [int]$IntervalSec = 5,
-    [bool]$RunHidden = $true,
+    [switch]$RunHidden,
     [switch]$Force
 )
 
@@ -35,14 +35,30 @@ try {
         $IntervalSec = 1
     }
 
-    $windowArg = ""
+    # PowerShell-Argumente zusammenbauen
+    $psArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$syncScript`" -SourceDir `"$SourceDir`" -Continuous -IntervalSec $IntervalSec"
+
     if ($RunHidden) {
-        $windowArg = "-WindowStyle Hidden "
+        # VBS-Wrapper generieren: startet PowerShell komplett unsichtbar (kein Fenster)
+        $vbsDir = Split-Path $syncScript
+        $vbsPath = Join-Path $vbsDir "mt5_sync_launcher.vbs"
+        $escapedArgs = $psArgs.Replace('"', '""')
+        $vbsContent = @"
+' Auto-generiert von install_sync_task.ps1 – nicht manuell bearbeiten
+' Startet PowerShell komplett unsichtbar (Run ..., 0 = SW_HIDE)
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "powershell.exe $escapedArgs", 0, False
+"@
+        Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
+        Write-Host "[TASK] VBS-Launcher erstellt: $vbsPath" -ForegroundColor DarkGray
+
+        # Task-Action: wscript.exe fuehrt VBS aus (kein sichtbares Fenster)
+        $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
     }
-
-    $args = "-NoProfile {0}-ExecutionPolicy Bypass -File `"{1}`" -SourceDir `"{2}`" -Continuous -IntervalSec {3}" -f $windowArg, $syncScript, $SourceDir, $IntervalSec
-
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $args
+    else {
+        # Ohne Hidden: PowerShell direkt starten (Fenster sichtbar)
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
+    }
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
@@ -63,7 +79,7 @@ try {
         -Trigger $trigger `
         -Settings $settings `
         -Principal $principal `
-        -Force | Out-Null
+        -Force -ErrorAction Stop | Out-Null
 
     Write-Host "[TASK] Aufgabe registriert: $TaskName" -ForegroundColor Green
     Write-Host "[TASK] Quelle: $SourceDir"

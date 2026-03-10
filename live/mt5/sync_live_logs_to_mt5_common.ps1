@@ -79,8 +79,8 @@ function Sync-Once(
     [switch]$IsDryRun
 ) {
     foreach ($sym in $Pairs) {
-        $src = Join-Path $SrcDir ("{0}_live_trades.csv" -f $sym)
-        $dst = Join-Path $DstDir ("{0}_live_trades.csv" -f $sym)
+        $src = Join-Path $SrcDir ("{0}_signals.csv" -f $sym)
+        $dst = Join-Path $DstDir ("{0}_signals.csv" -f $sym)
         Copy-IfNeeded -Src $src -Dst $dst -IsDryRun:$IsDryRun
     }
 }

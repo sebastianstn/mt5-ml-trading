@@ -1,7 +1,8 @@
 param(
     [string]$ProjectDir = "C:\Users\Sebastian Setnescu\mt5_trading",
-    [string]$LinuxUser = "stnsebi",
-    [string]$LinuxHost = "192.168.1.4",
+    [string]$LocalLogsDir = "",
+    [string]$LinuxUser = "sebastian",
+    [string]$LinuxHost = "192.168.1.35",
     [string]$LinuxLogsDir = "/mnt/1Tb-Data/XGBoost-LightGBM/logs",
     [string]$Symbols = "USDCAD,USDJPY",
     [switch]$SyncCloses
@@ -18,8 +19,9 @@ param(
 #   Windows 11 Laptop (per geplanter Aufgabe, z. B. alle 5 Minuten)
 #
 # Uploads:
-#   logs/SYMBOL_signals.csv  -> Linux logs/
-#   optional logs/SYMBOL_closes.csv -> Linux logs/ (mit -SyncCloses)
+#   <LocalLogsDir>/SYMBOL_signals.csv  -> LinuxLogsDir/
+#   optional <LocalLogsDir>/SYMBOL_closes.csv -> LinuxLogsDir/ (mit -SyncCloses)
+#   <LocalLogsDir>/live_trader.log -> LinuxLogsDir/
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -27,7 +29,13 @@ Set-StrictMode -Version Latest
 
 $signalsSuffix = "_signals.csv"
 $closesSuffix = "_closes.csv"
-$localLogsDir = Join-Path $ProjectDir "logs"
+$runtimeLogName = "live_trader.log"
+if ([string]::IsNullOrWhiteSpace($LocalLogsDir)) {
+    $localLogsDir = Join-Path $ProjectDir "logs"
+}
+else {
+    $localLogsDir = $LocalLogsDir
+}
 
 if (-not (Test-Path $localLogsDir)) {
     throw "Lokaler Log-Ordner nicht gefunden: $localLogsDir"
@@ -38,9 +46,19 @@ if ($symbolList.Count -eq 0) {
     throw "Keine Symbole angegeben. Beispiel: -Symbols 'USDCAD,USDJPY'"
 }
 
+# SSH/SCP Optionen fuer robusten, nicht-interaktiven Task-Betrieb
+$sshOpts = @(
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=10",
+    "-o", "StrictHostKeyChecking=accept-new"
+)
+
 # Zielpfad vorbereiten (einmalig auf Linux)
 $target = "{0}@{1}" -f $LinuxUser, $LinuxHost
-ssh $target "mkdir -p '$LinuxLogsDir'"
+& ssh @sshOpts $target "mkdir -p '$LinuxLogsDir'"
+if ($LASTEXITCODE -ne 0) {
+    throw "SSH-Verbindung fehlgeschlagen (User/Host/Key prüfen): $target"
+}
 
 # Zu transferierende Dateien sammeln
 $filesToSync = @()
@@ -59,13 +77,29 @@ foreach ($sym in $symbolList) {
 }
 
 if ($filesToSync.Count -eq 0) {
-    Write-Warning "Keine synchronisierbaren Log-Dateien gefunden (signals/closes)."
+    $runtimeLogPath = Join-Path $localLogsDir $runtimeLogName
+    if (Test-Path $runtimeLogPath) {
+        $filesToSync += $runtimeLogPath
+    }
+}
+
+if ($filesToSync.Count -eq 0) {
+    Write-Warning "Keine synchronisierbaren Log-Dateien gefunden (signals/closes/live_trader.log)."
     exit 0
+}
+
+# Laufzeit-Log immer zusätzlich mitnehmen, wenn vorhanden.
+$runtimeLogPath = Join-Path $localLogsDir $runtimeLogName
+if ((Test-Path $runtimeLogPath) -and (-not ($filesToSync -contains $runtimeLogPath))) {
+    $filesToSync += $runtimeLogPath
 }
 
 # Upload ausführen
 $destination = "{0}@{1}:{2}" -f $LinuxUser, $LinuxHost, $LinuxLogsDir
-scp @filesToSync $destination
+& scp @sshOpts @filesToSync $destination
+if ($LASTEXITCODE -ne 0) {
+    throw "SCP-Upload fehlgeschlagen nach: $destination"
+}
 
 $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[$ts] Live-Logs synchronisiert: $($filesToSync.Count) Datei(en) -> $destination" -ForegroundColor Green

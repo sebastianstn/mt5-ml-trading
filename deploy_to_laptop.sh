@@ -202,6 +202,20 @@ if [ -f "${TOPCONFIG_START_SKRIPT}" ]; then
     echo "        ✅ start_testphase_topconfig.bat (Top-Konfiguration, Paper)"
 fi
 
+# Batch-Skript für Test 128 (Paper, best-balanced aus 50er-Feintuning)
+TEST128_START_SKRIPT="${SERVER_BASIS}/start_paper_trading_test128.bat"
+if [ -f "${TEST128_START_SKRIPT}" ]; then
+    sftp_put "${TEST128_START_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/start_paper_trading_test128.bat"
+    echo "        ✅ start_paper_trading_test128.bat (Test 128, Paper)"
+fi
+
+# Batch-Skript für Test-128-Log-Sync (Laptop -> Linux-Server)
+TEST128_SYNC_SKRIPT="${SERVER_BASIS}/register_test128_log_sync_to_server.bat"
+if [ -f "${TEST128_SYNC_SKRIPT}" ]; then
+    sftp_put "${TEST128_SYNC_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/register_test128_log_sync_to_server.bat"
+    echo "        ✅ register_test128_log_sync_to_server.bat (Test 128 Logs -> Server)"
+fi
+
 # Batch-Skript zum sauberen Stoppen aller Trader
 STOP_ALL_SKRIPT="${SERVER_BASIS}/stop_all_traders.bat"
 if [ -f "${STOP_ALL_SKRIPT}" ]; then
@@ -262,7 +276,13 @@ echo ""
 echo "       Option C) Neue Top-Testphase (Paper) starten:"
 echo "                 Doppelklick auf: start_testphase_topconfig.bat"
 echo ""
-echo "       Option D) Manuell in zwei separaten PowerShell-Fenstern:"
+echo "       Option D) Test 128 (Paper, empfohlen aus 50er-Feintuning) starten:"
+echo "                 Doppelklick auf: start_paper_trading_test128.bat"
+echo ""
+echo "       Option E) Test-128-Logs automatisch zum Linux-Server syncen:"
+echo "                 Doppelklick auf: register_test128_log_sync_to_server.bat"
+echo ""
+echo "       Option F) Manuell in zwei separaten PowerShell-Fenstern:"
 cat <<'EOF'
                                  Fenster 1 (USDCAD v4):
                                      python live\live_trader.py `

@@ -1,37 +1,37 @@
 // ╔══════════════════════════════════════════════════════════════╗
-// ║   LiveSignalDashboard.mq5 – MT5 Indikator v2.22            ║
+// ║   LiveSignalDashboard.mq5 – MT5 Indikator v2.22              ║
 // ║                                                              ║
 // ║   ZWECK:                                                     ║
 // ║   Dieses Programm ist ein MT5-Chart-Indikator, der die       ║
 // ║   Trading-Signale unseres Python-Systems (live_trader.py)    ║
 // ║   visuell im Chart darstellt.                                ║
 // ║                                                              ║
-// ║   WIE ES FUNKTIONIERT (Gesamtbild):                         ║
+// ║   WIE ES FUNKTIONIERT (Gesamtbild):                          ║
 // ║   1. Python (live_trader.py) laeuft auf dem Windows-Laptop   ║
 // ║      und schreibt alle 5 Min eine CSV-Datei ins MT5-         ║
-// ║      Common/Files-Verzeichnis (z.B. USDJPY_signals.csv)     ║
-// ║   2. Dieser Indikator liest diese CSV-Datei alle 5 Sekunden ║
+// ║      Common/Files-Verzeichnis (z.B. USDJPY_signals.csv)      ║
+// ║   2. Dieser Indikator liest diese CSV-Datei alle 5 Sekunden  ║
 // ║   3. Er zeigt die Daten als:                                 ║
 // ║      - Dashboard-Textbox (oben links)                        ║
-// ║      - Ampel-System (unten links: Gruen/Gelb/Rot)           ║
-// ║      - Trade-Pfeile + SL/TP-Zonen im Chart                 ║
-// ║      - EMA-Hilfslinien (blau/rot/gruen)                     ║
-// ║      - EMA-Struktur-Label (oben rechts)                     ║
+// ║      - Ampel-System (unten links: Gruen/Gelb/Rot)            ║
+// ║      - Trade-Pfeile + SL/TP-Zonen im Chart                   ║
+// ║      - EMA-Hilfslinien (blau/rot/gruen)                      ║
+// ║      - EMA-Struktur-Label (oben rechts)                      ║
 // ║                                                              ║
 // ║   DATEIPFAD DER CSV:                                         ║
 // ║   C:\Users\...\AppData\Roaming\MetaQuotes\Terminal\          ║
-// ║   Common\Files\USDJPY_signals.csv                           ║
+// ║   Common\Files\USDJPY_signals.csv                            ║
 // ║                                                              ║
 // ║   WICHTIG:                                                   ║
-// ║   - Indikator laeuft NUR im Chart-Fenster (kein eigenes)    ║
-// ║   - Timer-basiert: alle 5 Sek. wird alles neu gelesen       ║
-// ║   - Braucht KEINE Ticks – funktioniert auch am Wochenende   ║
+// ║   - Indikator laeuft NUR im Chart-Fenster (kein eigenes)     ║
+// ║   - Timer-basiert: alle 5 Sek. wird alles neu gelesen        ║
+// ║   - Braucht KEINE Ticks – funktioniert auch am Wochenende    ║
 // ╚══════════════════════════════════════════════════════════════╝
 #property strict                    // Strenger Compiler-Modus (faengt mehr Fehler ab)
-#property version "2.24"            // Versionsnummer – erhoehe bei jeder Aenderung
+#property version "2.25"            // Versionsnummer – erhoehe bei jeder Aenderung
 #property description "MT5 Dashboard fuer Python Live-Signale (USDCAD/USDJPY)"
 #property description "Liest CSV aus Common/Files und zeigt Status, Alerts + Chart-Zeichnungen."
-#property description "v2.21: +Countdown, Spread, ATR/Vola, Session, Regime, Modus"
+#property description "v2.25: +MACD +Ichimoku Cloud (Senkou Span A/B)"
 #property indicator_chart_window    // Zeigt den Indikator IM Chart (nicht in eigenem Subfenster)
 
 
@@ -81,11 +81,15 @@ input bool InpDrawTechnicalOverlay = true;  // EMA20/EMA50/EMA200 Linien + RSI14
 input bool InpDebugHistoryInfo = true;      // Zeigt "Hist: USDCAD=0 | USDJPY=0" im Dashboard
 input bool InpUseLargeDashboardText = true; // true = grosses Label (gut lesbar), false = kleiner Comment-Text
 input int InpDashboardFontSize = 10;        // Schriftgroesse des Dashboards (Standard: 10, groesser = besser lesbar)
-input color InpDashboardTextColor = clrWhite; // Textfarbe des Dashboards
+input color InpDashboardTextColor = clrGainsboro; // Basis-Textfarbe des Dashboards (weicher als reines Weiss)
 input bool InpDashboardTextBackground = true; // Schwarzer Hintergrund hinter dem Dashboard?
-input color InpDashboardBgColor = clrBlack;   // Hintergrundfarbe der Dashboard-Box
-input int InpDashboardBgAlpha = 140;          // Transparenz: 0=durchsichtig, 255=vollstaendig deckend
+input color InpDashboardBgColor = C'12,18,28'; // Dunkles Blau-Grau fuer bessere Abstimmung mit hellen Texten
+input int InpDashboardBgAlpha = 168;          // Transparenz: 0=durchsichtig, 255=vollstaendig deckend
+input color InpDashboardAccentColor = clrDeepSkyBlue; // Akzentfarbe fuer Titel und Two-Stage-Hinweise
+input color InpDashboardMutedTextColor = clrSilver; // Ruhigere Farbe fuer Sekundaerinfos
+input color InpDashboardBorderColor = clrSlateGray; // Rahmenfarbe fuer harmonische Abgrenzung
 input bool InpDashboardCompactMode = true;    // true = kurze Zeilen (empfohlen), false = ausfuehrlich
+input double InpSignalThresholdDisplay = 0.45; // Sichtbarer Schwellenwert aus live_trader.py fuer schnelle Kontrolle im Dashboard
 
 // --- Farben fuer Trade-Zeichnungen ---
 input color InpColorLong = clrDodgerBlue;   // Farbe fuer Long-Trades (Kauf) = Blau
@@ -100,6 +104,13 @@ input color InpEma50GuideColor = clrRed;         // EMA50-Linie: Rot (mittel)
 input color InpEma200GuideColor = clrLimeGreen;  // EMA200-Linie: Gruen (langsam, langfristig)
 input int InpEmaGuideWidth = 2;                  // Dicke der EMA-Hilfslinien (1=duenn, 3=dick)
 input bool InpShowEmaStructureLabel = true;      // Text oben rechts: "BULL: EMA20>EMA50>EMA200"
+
+// --- MACD + Ichimoku ---
+input bool InpDrawMacd = true;                   // MACD im zusaetzlichen Unterfenster anzeigen?
+input bool InpDrawIchimokuCloud = true;          // Senkou Span A/B als Hilfslinien im Chart anzeigen?
+input color InpIchimokuSpanAColor = clrMediumSeaGreen; // Senkou Span A = schnellere Wolkenkante
+input color InpIchimokuSpanBColor = clrMediumPurple;   // Senkou Span B = langsamere Wolkenkante
+input int InpIchimokuGuideWidth = 2;             // Dicke der Ichimoku-Linien
 
 // --- Ampel-System ---
 input bool InpShowAmpel = true;                  // Ampel-Box unten links anzeigen?
@@ -130,6 +141,8 @@ struct SignalSnapshot
     double entry_price;    // Einstiegspreis (nur bei aktivem Signal, sonst 0)
     double sl_price;       // Stop-Loss Preis (nur bei aktivem Signal, sonst 0)
     double tp_price;       // Take-Profit Preis (nur bei aktivem Signal, sonst 0)
+    int htf_bias;          // HTF-Bias aus Two-Stage: 0=Short, 1=Neutral, 2=Long
+    int ltf_signal;        // LTF-Signal aus Two-Stage: -1=Short, 0=Neutral, 2=Long
 };
 
 // EntryPoint = Ein einzelner historischer Trade-Eintrag.
@@ -169,6 +182,8 @@ int g_h_ema50 = INVALID_HANDLE;   // Handle fuer EMA mit Periode 50 (mittel)
 int g_h_ema200 = INVALID_HANDLE;  // Handle fuer EMA mit Periode 200 (langsam, zeigt langfristigen Trend)
 int g_h_rsi14 = INVALID_HANDLE;   // Handle fuer RSI mit Periode 14 (Momentum-Indikator, 0-100)
 int g_h_atr14 = INVALID_HANDLE;   // Handle fuer ATR mit Periode 14 auf H1 (misst Volatilitaet in Pips)
+int g_h_macd = INVALID_HANDLE;    // Handle fuer MACD (Momentum + Trendwechsel)
+int g_h_ichimoku = INVALID_HANDLE; // Handle fuer Ichimoku (nur Senkou Span A/B werden genutzt)
 int g_hist_count_1 = 0;           // Anzahl historischer Trade-Signale fuer Symbol 1
 int g_hist_count_2 = 0;           // Anzahl historischer Trade-Signale fuer Symbol 2
 
@@ -226,7 +241,7 @@ int EffectiveStaleMinutes()
 // 5. TECHNISCHES OVERLAY (EMA + RSI + ATR auf den Chart legen)
 // ============================================================
 // Diese Funktion erstellt die technischen Indikatoren (EMA20/50/200,
-// RSI14, ATR14) und fuegt sie dem Chart hinzu.
+// RSI14, ATR14, MACD, Ichimoku) und fuegt sie dem Chart hinzu.
 // iMA() = Moving Average erstellen, iRSI() = RSI erstellen, iATR() = ATR erstellen
 // ChartIndicatorAdd() = den Indikator sichtbar auf den Chart legen
 // Subfenster 0 = Hauptchart, Subfenster 1 = erstes Unterfenster (fuer RSI)
@@ -252,6 +267,15 @@ void SetupTechnicalOverlay()
     // Immer auf H1 berechnet, unabhaengig vom Chart-Zeitrahmen
     g_h_atr14 = iATR(Symbol(), PERIOD_H1, 14);
 
+    // MACD = Moving Average Convergence Divergence (Trend + Momentum)
+    // Standard-Parameter 12/26/9 wie in vielen Trading-Setups ueblich
+    if (InpDrawMacd)
+        g_h_macd = iMACD(Symbol(), PERIOD_CURRENT, 12, 26, 9, PRICE_CLOSE);
+
+    // Ichimoku = Trend-/Struktur-Indikator; wir lesen spaeter nur Senkou Span A/B aus
+    if (InpDrawIchimokuCloud)
+        g_h_ichimoku = iIchimoku(Symbol(), PERIOD_CURRENT, 9, 26, 52);
+
     // Indikatoren auf den Chart legen (Subfenster 0 = Hauptchart, 1 = erstes Unterfenster)
     if (g_h_ema20 != INVALID_HANDLE)
         ChartIndicatorAdd(0, 0, g_h_ema20);   // EMA20 ins Hauptchart
@@ -272,6 +296,17 @@ void SetupTechnicalOverlay()
         ChartIndicatorAdd(0, 1, g_h_rsi14);   // RSI ins Unterfenster 1
     else
         Print("[Dashboard] Warnung: RSI14 konnte nicht erstellt werden.");
+
+    if (InpDrawMacd)
+    {
+        if (g_h_macd != INVALID_HANDLE)
+            ChartIndicatorAdd(0, 2, g_h_macd);   // MACD ins Unterfenster 2
+        else
+            Print("[Dashboard] Warnung: MACD konnte nicht erstellt werden.");
+    }
+
+    if (InpDrawIchimokuCloud && g_h_ichimoku == INVALID_HANDLE)
+        Print("[Dashboard] Warnung: Ichimoku konnte nicht erstellt werden.");
 
     // ATR wird nicht aufs Chart gelegt – nur fuer Dashboard-Anzeige genutzt
     if (g_h_atr14 == INVALID_HANDLE)
@@ -294,6 +329,10 @@ void ReleaseTechnicalOverlay()
         IndicatorRelease(g_h_rsi14);
     if (g_h_atr14 != INVALID_HANDLE)
         IndicatorRelease(g_h_atr14);
+    if (g_h_macd != INVALID_HANDLE)
+        IndicatorRelease(g_h_macd);
+    if (g_h_ichimoku != INVALID_HANDLE)
+        IndicatorRelease(g_h_ichimoku);
 
     // Handles zuruecksetzen auf "nicht erstellt"
     g_h_ema20 = INVALID_HANDLE;
@@ -301,6 +340,8 @@ void ReleaseTechnicalOverlay()
     g_h_ema200 = INVALID_HANDLE;
     g_h_rsi14 = INVALID_HANDLE;
     g_h_atr14 = INVALID_HANDLE;
+    g_h_macd = INVALID_HANDLE;
+    g_h_ichimoku = INVALID_HANDLE;
 }
 
 // ============================================================
@@ -375,6 +416,17 @@ bool ParseBool(const string raw)
     return (v == "1" || v == "true" || v == "ja" || v == "yes");
 }
 
+// ParseIntSafe() – Parst Integer robust mit Fallback bei leerem Feld.
+int ParseIntSafe(const string raw, const int fallback)
+{
+    string value = raw;
+    StringTrimLeft(value);
+    StringTrimRight(value);
+    if (StringLen(value) == 0)
+        return fallback;
+    return (int)StringToInteger(value);
+}
+
 // ParseSignalDirection() – Vereinheitlicht Signal-Texte auf Long/Short/Kein.
 // Akzeptiert z.B. "long", "SHORT", "none", "0", "neutral".
 string ParseSignalDirection(const string raw)
@@ -438,6 +490,24 @@ string RegimeNameFromId(const int regime)
     if (regime == 2) return "Abwärtstrend";
     if (regime == 3) return "Hohe Volatilität";
     return "Unbekannt";
+}
+
+// HtfBiasNameFromId() – Text fuer den HTF-Bias des Two-Stage-Systems.
+string HtfBiasNameFromId(const int bias)
+{
+    if (bias == 0) return "Short";
+    if (bias == 1) return "Neutral";
+    if (bias == 2) return "Long";
+    return "n/a";
+}
+
+// LtfSignalNameFromId() – Text fuer das LTF-Signal des Two-Stage-Systems.
+string LtfSignalNameFromId(const int signal)
+{
+    if (signal == -1) return "Short";
+    if (signal == 0) return "Neutral";
+    if (signal == 2) return "Long";
+    return "n/a";
 }
 
 // NormalizeRegimeName() – bevorzugt CSV-Text, faellt sonst auf Regime-ID zurueck.
@@ -516,6 +586,8 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     int idx_entry = FindHeaderIndex(headers, "entry_price");    // Einstiegspreis
     int idx_sl = FindHeaderIndex(headers, "sl_price");          // Stop-Loss Preis
     int idx_tp = FindHeaderIndex(headers, "tp_price");          // Take-Profit Preis
+    int idx_htf_bias = FindHeaderIndex(headers, "htf_bias");    // HTF-Bias aus Two-Stage
+    int idx_ltf_signal = FindHeaderIndex(headers, "ltf_signal"); // LTF-Signal aus Two-Stage
 
     // SCHRITT 3: Alle Zeilen durchlaufen, nur die LETZTE Zeile behalten
     // (Wir brauchen immer das aktuellste Signal)
@@ -572,6 +644,8 @@ bool ReadLatestSnapshot(const string symbol, SignalSnapshot &out)
     out.entry_price = StringToDouble(SafeField(last, idx_entry, "0"));
     out.sl_price = StringToDouble(SafeField(last, idx_sl, "0"));
     out.tp_price = StringToDouble(SafeField(last, idx_tp, "0"));
+    out.htf_bias = ParseIntSafe(SafeField(last, idx_htf_bias, ""), -99);
+    out.ltf_signal = ParseIntSafe(SafeField(last, idx_ltf_signal, ""), -99);
 
     return true;
 }
@@ -1038,9 +1112,10 @@ void DrawTradeOnChart(const SignalSnapshot &snap)
     // Zeigt alle Trade-Details kompakt in einer Zeile an
     string label_name = pfx + "INFO";
     string info_text = StringFormat(
-        "%s %s @ %.5f | SL=%.5f | TP=%.5f | Prob=%.0f%% | %s",
+        "%s %s @ %.5f | SL=%.5f | TP=%.5f | Prob=%.0f%% | %s | HTF=%s | LTF=%s",
         snap.symbol, snap.richtung, snap.entry_price,
-        snap.sl_price, snap.tp_price, snap.prob * 100.0, snap.regime_name);
+        snap.sl_price, snap.tp_price, snap.prob * 100.0, snap.regime_name,
+        HtfBiasNameFromId(snap.htf_bias), LtfSignalNameFromId(snap.ltf_signal));
 
     // Label positionieren: rechts oben, Consolas-Font fuer gleichmaessige Breite
     if (ObjectFind(0, label_name) < 0)
@@ -1112,7 +1187,7 @@ void DrawEntryHistory(const SignalSnapshot &snap)
 // CopyBuffer() kopiert Indikator-Daten in unser Array.
 // ArraySetAsSeries(true) = Index 0 ist der NEUESTE Wert (nicht der aelteste).
 // Wird verwendet fuer: EMA20/50/200-Werte und ATR14.
-bool GetLatestBufferValue(const int handle, double &out_value)
+bool GetBufferValue(const int handle, const int buffer_index, const int shift, double &out_value)
 {
     out_value = 0.0;
     if (handle == INVALID_HANDLE)  // Indikator nicht erstellt
@@ -1120,12 +1195,43 @@ bool GetLatestBufferValue(const int handle, double &out_value)
 
     double buff[];               // Temporaerer Puffer fuer Indikator-Daten
     ArraySetAsSeries(buff, true); // Neuester Wert = Index 0
-    int copied = CopyBuffer(handle, 0, 0, 1, buff); // 1 Wert kopieren (den aktuellen)
+    int copied = CopyBuffer(handle, buffer_index, shift, 1, buff); // 1 Wert aus gewuenschtem Buffer kopieren
     if (copied < 1)              // Kopieren fehlgeschlagen
         return false;
 
     out_value = buff[0];          // Aktuellen Wert zurueckgeben
-    return (out_value > 0);       // true wenn Wert gueltig (> 0)
+    return (out_value != EMPTY_VALUE); // true wenn Wert gueltig ist
+}
+
+// Komfort-Helfer: Standard-Fall = Buffer 0, Shift 0.
+bool GetLatestBufferValue(const int handle, double &out_value)
+{
+    return GetBufferValue(handle, 0, 0, out_value);
+}
+
+// GetLatestNonEmptyBufferValue() – sucht den ersten nicht-leeren Wert in einem Buffer.
+// Das ist bei Ichimoku nuetzlich, weil projizierte Linien an manchen Stellen EMPTY_VALUE liefern koennen.
+bool GetLatestNonEmptyBufferValue(const int handle, const int buffer_index, double &out_value)
+{
+    out_value = 0.0;
+    if (handle == INVALID_HANDLE)
+        return false;
+
+    double buff[];
+    ArraySetAsSeries(buff, true);
+    int copied = CopyBuffer(handle, buffer_index, 0, 128, buff);
+    if (copied < 1)
+        return false;
+
+    for (int i = 0; i < copied; i++)
+    {
+        if (buff[i] == EMPTY_VALUE)
+            continue;
+        out_value = buff[i];
+        return true;
+    }
+
+    return false;
 }
 
 // DrawEmaGuides() – Zeichnet horizontale Linien fuer EMA20/50/200 auf den Chart.
@@ -1228,6 +1334,83 @@ void DrawEmaGuides()
     ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
     ObjectSetInteger(0, name, OBJPROP_COLOR, state_color);           // Farbe = Struktur-Farbe
     ObjectSetString(0, name, OBJPROP_TEXT, structure);                // z.B. "BULL: EMA20>EMA50>EMA200"
+}
+
+// DrawIchimokuCloudGuides() – zeichnet nur Senkou Span A und B als horizontale Hilfslinien.
+// So sehen wir die aktuelle Lage der Wolke, ohne Tenkan/Kijun/Chikou mit einzublenden.
+void DrawIchimokuCloudGuides()
+{
+    string pfx = "PYML_ICHI_";
+
+    if (!InpDrawTechnicalOverlay || !InpDrawIchimokuCloud)
+    {
+        DeleteObjPrefix(pfx);
+        return;
+    }
+
+    double span_a = 0.0;
+    double span_b = 0.0;
+    if (!GetLatestNonEmptyBufferValue(g_h_ichimoku, 2, span_a) ||
+        !GetLatestNonEmptyBufferValue(g_h_ichimoku, 3, span_b))
+    {
+        return;
+    }
+
+    int width = MathMax(1, InpIchimokuGuideWidth);
+    DrawHLine(pfx + "SPAN_A", span_a, InpIchimokuSpanAColor, STYLE_SOLID, width,
+              StringFormat("Ichimoku Senkou Span A: %.5f", span_a));
+    DrawHLine(pfx + "SPAN_B", span_b, InpIchimokuSpanBColor, STYLE_SOLID, width,
+              StringFormat("Ichimoku Senkou Span B: %.5f", span_b));
+
+    double price = iClose(Symbol(), PERIOD_CURRENT, 0);
+    if (price <= 0)
+        price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+
+    double cloud_top = MathMax(span_a, span_b);
+    double cloud_bottom = MathMin(span_a, span_b);
+    string structure = "Cloud: MIXED";
+    color state_color = InpDashboardMutedTextColor;
+
+    if (price > cloud_top && span_a > span_b)
+    {
+        structure = "Cloud: BULL | Preis ueber Kumo";
+        state_color = InpIchimokuSpanAColor;
+    }
+    else if (price < cloud_bottom && span_a < span_b)
+    {
+        structure = "Cloud: BEAR | Preis unter Kumo";
+        state_color = InpColorShort;
+    }
+    else if (price >= cloud_bottom && price <= cloud_top)
+    {
+        structure = "Cloud: NEUTRAL | Preis in Kumo";
+        state_color = clrGold;
+    }
+    else if (span_a > span_b)
+    {
+        structure = "Cloud: BULL Bias | Preis nahe Kumo";
+        state_color = InpIchimokuSpanAColor;
+    }
+    else if (span_a < span_b)
+    {
+        structure = "Cloud: BEAR Bias | Preis nahe Kumo";
+        state_color = InpIchimokuSpanBColor;
+    }
+
+    string name = pfx + "STATUS";
+    if (ObjectFind(0, name) < 0)
+        ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 10);
+    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 58);
+    ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+    ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+    ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+    ObjectSetInteger(0, name, OBJPROP_COLOR, state_color);
+    ObjectSetString(0, name, OBJPROP_TEXT, structure);
 }
 
 // ============================================================
@@ -1438,6 +1621,64 @@ void DrawAmpel()
     ObjectSetInteger(0, detail_name, OBJPROP_HIDDEN, true);
 }
 
+// DashboardLineColor() – Gibt fuer jede Textzeile eine passende Farbe zurueck.
+// So wirkt das Dashboard ruhiger und wichtige Infos stechen gezielt hervor.
+color DashboardLineColor(const string line, const int line_index)
+{
+    string normalized = line;
+    StringToLower(normalized);
+
+    if (line_index == 0)
+        return InpDashboardAccentColor;  // Titelzeile hervorheben
+
+    if (StringFind(line, "-------------------------") == 0)
+        return InpDashboardBorderColor;  // Trennlinien dezenter darstellen
+
+    if (StringFind(normalized, "connected") >= 0)
+        return clrPaleGreen;
+
+    if (StringFind(normalized, "partial_stale") >= 0 ||
+        StringFind(normalized, "stale") >= 0 ||
+        StringFind(normalized, "rot:") >= 0)
+        return clrOrange;
+
+    if (StringFind(normalized, "waiting_for_csv") >= 0 ||
+        StringFind(normalized, "keine daten") >= 0 ||
+        StringFind(normalized, "miss") >= 0 ||
+        StringFind(normalized, "wait") >= 0)
+        return clrTomato;
+
+    if (StringFind(normalized, "two-stage") >= 0)
+        return InpDashboardAccentColor;
+
+    if (StringFind(normalized, "macd:") >= 0)
+        return clrLightSkyBlue;
+
+    if (StringFind(normalized, "schwelle:") >= 0 ||
+        StringFind(normalized, "threshold:") >= 0)
+        return InpDashboardAccentColor;
+
+    if (StringFind(normalized, "ichimoku:") >= 0 ||
+        StringFind(normalized, "cloud:") >= 0)
+        return clrMediumPurple;
+
+    if (StringFind(normalized, "spread:") >= 0 ||
+        StringFind(normalized, "atr:") >= 0 ||
+        StringFind(normalized, "session:") >= 0 ||
+        StringFind(normalized, "regime:") >= 0 ||
+        StringFind(normalized, "countdown:") >= 0 ||
+        StringFind(normalized, "update in") >= 0 ||
+        StringFind(normalized, "hist:") >= 0 ||
+        StringFind(normalized, "history:") >= 0 ||
+        StringFind(normalized, "csv:") >= 0)
+        return InpDashboardMutedTextColor;
+
+    if (StringFind(line, "  ") == 0)
+        return InpDashboardMutedTextColor;
+
+    return InpDashboardTextColor;
+}
+
 // ============================================================
 // 13. DASHBOARD-TEXT-RENDERING
 // ============================================================
@@ -1475,18 +1716,19 @@ void DrawDashboardLabel(const string text)
     }
 
     // Textflaeche berechnen (Consolas = Monospace, jedes Zeichen gleich breit)
-    int char_width = (int)(font_size * 0.72);           // Geschaetzte Zeichenbreite
-    int line_height_est = font_size + 10;                // Geschaetzte Zeilenhoehe
-    int text_width = max_chars * char_width + 2 * pad;   // Gesamtbreite
-    int text_height = line_count * line_height_est + 2 * pad; // Gesamthoehe
+    int header_font_size = font_size + 1;                // Kopfzeile leicht vergroessern
+    int char_width = (int)MathMax(7, MathCeil(header_font_size * 0.78)); // Etwas grosszuegiger rechnen
+    int line_height = font_size + 14;                    // Mehr Luft zwischen den Zeilen
+    int text_width = max_chars * char_width + 2 * pad + 18; // Extra Luft rechts gegen Abschneiden
+    int text_height = line_count * line_height + 2 * pad + 10; // Unteren Rand etwas groesser
 
     // Hintergrund mindestens 45% der Chart-Breite und 40% der Chart-Hoehe
     int chart_w = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
     int chart_h = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
-    int width = MathMax(text_width, (int)(chart_w * 0.45));
-    int height = MathMax(text_height, (int)(chart_h * 0.40));
-    width = MathMax(width, 300);    // Mindestens 300px breit
-    height = MathMax(height, 250);  // Mindestens 250px hoch
+    int width = MathMax(text_width, 420);    // Etwas breiter, damit lange Statuszeilen sauber passen
+    int height = MathMax(text_height, 190);  // Hoehe passend fuer mehrere kompakte Infozeilen
+    width = MathMin(width, chart_w - 30);    // Nie ueber den Chart hinausragen
+    height = MathMin(height, (int)(chart_h * 0.75));
 
     // Hintergrund-Box zeichnen (halbtransparent, konfigurierbar)
     if (InpDashboardTextBackground)
@@ -1501,7 +1743,7 @@ void DrawDashboardLabel(const string text)
         ObjectSetInteger(0, bg_name, OBJPROP_XSIZE, width);          // Breite
         ObjectSetInteger(0, bg_name, OBJPROP_YSIZE, height);         // Hoehe
         ObjectSetInteger(0, bg_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, bg_name, OBJPROP_COLOR, clrDimGray);     // Randfarbe
+        ObjectSetInteger(0, bg_name, OBJPROP_COLOR, InpDashboardBorderColor); // Harmonischer Rahmen
         ObjectSetInteger(0, bg_name, OBJPROP_BGCOLOR, alpha_color);  // Hintergrundfarbe mit Transparenz
         ObjectSetInteger(0, bg_name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, bg_name, OBJPROP_BACK, false);           // VOR den Kerzen
@@ -1520,7 +1762,6 @@ void DrawDashboardLabel(const string text)
     DeleteObjPrefix(text_prefix);
 
     // Jede Zeile als eigenes OBJ_LABEL zeichnen (MQL5 kann kein mehrzeiliges Label)
-    int line_height = font_size + 12;  // Vertikaler Abstand zwischen Zeilen
     for (int i = 0; i < line_count; i++)
     {
         string name = text_prefix + IntegerToString(i);  // z.B. "PYML_DASH_TEXT_0"
@@ -1535,8 +1776,8 @@ void DrawDashboardLabel(const string text)
         ObjectSetInteger(0, name, OBJPROP_BACK, false);
         ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
         ObjectSetString(0, name, OBJPROP_FONT, "Consolas");                 // Monospace fuer gleichmaessige Breite
-        ObjectSetInteger(0, name, OBJPROP_FONTSIZE, font_size);
-        ObjectSetInteger(0, name, OBJPROP_COLOR, InpDashboardTextColor);    // Text-Farbe (konfigurierbar)
+        ObjectSetInteger(0, name, OBJPROP_FONTSIZE, (i == 0) ? header_font_size : font_size);
+        ObjectSetInteger(0, name, OBJPROP_COLOR, DashboardLineColor(lines[i], i)); // Zeilen farblich abstimmen
         ObjectSetString(0, name, OBJPROP_TEXT, lines[i]);                   // Zeilen-Text
     }
 }
@@ -1623,6 +1864,77 @@ string AtrVolaText()
     return StringFormat("ATR: %.0f Pips (%s)", atr_pips, level);
 }
 
+// ThresholdText() – Zeigt die aktuell verwendete Signal-Schwelle fuer den Trader.
+// Hinweis: Dieser Wert wird manuell im Dashboard gesetzt und sollte zum live_trader.py passen.
+string ThresholdText()
+{
+    double threshold_pct = MathMax(0.0, InpSignalThresholdDisplay) * 100.0;
+    return StringFormat("Schwelle: %.0f%%", threshold_pct);
+}
+
+// MacdText() – Zeigt Main-Line, Signal-Line und Histogramm kompakt an.
+// Bullish wenn Main > Signal und Histogramm > 0, bearish umgekehrt.
+string MacdText()
+{
+    if (!InpDrawMacd)
+        return "MACD: deaktiviert";
+
+    double macd_main = 0.0;
+    double macd_signal = 0.0;
+    if (!GetBufferValue(g_h_macd, 0, 0, macd_main) ||
+        !GetBufferValue(g_h_macd, 1, 0, macd_signal))
+        return "MACD: n/a";
+
+    double histogram = macd_main - macd_signal;
+    string bias = "neutral";
+    if (macd_main > macd_signal && histogram > 0)
+        bias = "bullish";
+    else if (macd_main < macd_signal && histogram < 0)
+        bias = "bearish";
+
+    return StringFormat(
+        "MACD: %s | M=%.5f | S=%.5f | H=%.5f",
+        bias,
+        macd_main,
+        macd_signal,
+        histogram);
+}
+
+// IchimokuCloudText() – Zeigt die aktuelle Senkou-Span-Struktur kompakt im Dashboard.
+string IchimokuCloudText()
+{
+    if (!InpDrawIchimokuCloud)
+        return "Ichimoku: deaktiviert";
+
+    double span_a = 0.0;
+    double span_b = 0.0;
+    if (!GetLatestNonEmptyBufferValue(g_h_ichimoku, 2, span_a) ||
+        !GetLatestNonEmptyBufferValue(g_h_ichimoku, 3, span_b))
+        return "Ichimoku: n/a";
+
+    double price = iClose(Symbol(), PERIOD_CURRENT, 0);
+    if (price <= 0)
+        price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+
+    double cloud_top = MathMax(span_a, span_b);
+    double cloud_bottom = MathMin(span_a, span_b);
+    string location = "am Rand";
+    if (price > cloud_top)
+        location = "ueber Kumo";
+    else if (price < cloud_bottom)
+        location = "unter Kumo";
+    else
+        location = "in Kumo";
+
+    string bias = (span_a >= span_b) ? "bullish" : "bearish";
+    return StringFormat(
+        "Ichimoku: %s | %s | A=%.5f | B=%.5f",
+        bias,
+        location,
+        span_a,
+        span_b);
+}
+
 // SessionText() – Zeigt die aktive Handels-Session basierend auf UTC-Stunde an.
 // Wichtig: Verschiedene Sessions haben unterschiedliche Liquiditaet und Volatilitaet.
 // Session-Zeiten (UTC):
@@ -1682,6 +1994,32 @@ string RegimeModusText()
     }
 
     return StringFormat("Regime: %s | %s", regime_name, modus);
+}
+
+// TwoStageText() – Zeigt HTF-Bias und LTF-Signal fuer das aktive Symbol an.
+string TwoStageText()
+{
+    if (StringCompare(g_snap1.symbol, Symbol()) == 0 && g_snap1.valid)
+    {
+        if (g_snap1.htf_bias == -99 && g_snap1.ltf_signal == -99)
+            return "Two-Stage: n/a";
+        return StringFormat(
+            "Two-Stage: HTF=%s | LTF=%s",
+            HtfBiasNameFromId(g_snap1.htf_bias),
+            LtfSignalNameFromId(g_snap1.ltf_signal));
+    }
+
+    if (StringCompare(g_snap2.symbol, Symbol()) == 0 && g_snap2.valid)
+    {
+        if (g_snap2.htf_bias == -99 && g_snap2.ltf_signal == -99)
+            return "Two-Stage: n/a";
+        return StringFormat(
+            "Two-Stage: HTF=%s | LTF=%s",
+            HtfBiasNameFromId(g_snap2.htf_bias),
+            LtfSignalNameFromId(g_snap2.ltf_signal));
+    }
+
+    return "Two-Stage: n/a";
 }
 
 // ShortState() – Wandelt lange Status-Bezeichnungen in kurze Abkuerzungen.
@@ -1744,20 +2082,34 @@ void DrawDashboard()
             g_snap2.richtung, g_snap2.prob,
             (int)g_snap2.rows);
 
-        // Zusatz-Infos: Spread + ATR + Regime + Session + Countdown
-        string spread_atr = SpreadText() + " | " + AtrVolaText();
-        string regime_session = RegimeModusText() + " | " + SessionText();
+        // Zusatz-Infos bewusst auf mehrere Zeilen verteilen,
+        // damit die Box besser zur Textbreite passt.
+        string spread_text = SpreadText();
+        string atr_text = AtrVolaText();
+        string threshold_text = ThresholdText();
+        string macd_text = MacdText();
+        string ichimoku_text = IchimokuCloudText();
+        string regime_text = RegimeModusText();
+        string session_text = SessionText();
+        string two_stage = TwoStageText();
         string countdown = CountdownText();
 
         // Alles zusammenbauen mit Trennlinien
         dashboard_text = header + "\n" +
-            stale_info + " | " + countdown + "\n" +
+            stale_info + "\n" +
+            countdown + "\n" +
             sep + "\n" +
             s1a + "\n" + s1b + "\n" +
             s2a + "\n" + s2b + "\n" +
             sep + "\n" +
-            spread_atr + "\n" +
-            regime_session;
+            spread_text + "\n" +
+            atr_text + "\n" +
+            threshold_text + "\n" +
+            macd_text + "\n" +
+            ichimoku_text + "\n" +
+            regime_text + "\n" +
+            session_text + "\n" +
+            two_stage;
 
         // Debug: Historie-Zaehler anzeigen (nur wenn aktiviert)
         if (InpDebugHistoryInfo)
@@ -1815,14 +2167,27 @@ void DrawDashboard()
         string hint = "CSV: " + ExpectedFolderText();
         dashboard_text += "\n" + hint;
 
-        // Auch im ausfuehrlichen Modus: Spread, ATR, Session, Countdown
-        string spread_atr_v = SpreadText() + " | " + AtrVolaText();
-        string regime_session_v = RegimeModusText() + " | " + SessionText();
+        // Auch im ausfuehrlichen Modus Infos kuerzer umbrechen,
+        // damit der Kasten nicht unnoetig breit wird.
+        string spread_text_v = SpreadText();
+        string atr_text_v = AtrVolaText();
+        string threshold_text_v = ThresholdText();
+        string macd_text_v = MacdText();
+        string ichimoku_text_v = IchimokuCloudText();
+        string regime_text_v = RegimeModusText();
+        string session_text_v = SessionText();
+        string two_stage_v = TwoStageText();
         string countdown_v = CountdownText();
         dashboard_text += "\n" + sep + "\n" +
-            "Countdown: " + countdown_v + "\n" +
-            spread_atr_v + "\n" +
-            regime_session_v;
+            countdown_v + "\n" +
+            spread_text_v + "\n" +
+            atr_text_v + "\n" +
+            threshold_text_v + "\n" +
+            macd_text_v + "\n" +
+            ichimoku_text_v + "\n" +
+            regime_text_v + "\n" +
+            session_text_v + "\n" +
+            two_stage_v;
     }
 
     // === Text-Ausgabe: Label-Modus oder Comment()-Modus ===
@@ -1880,6 +2245,7 @@ void RefreshAll()
     DrawEntryHistory(g_snap1);    // Historie-Pfeile fuer Symbol 1
     DrawEntryHistory(g_snap2);    // Historie-Pfeile fuer Symbol 2
     DrawEmaGuides();              // EMA-Linien + Struktur-Label
+    DrawIchimokuCloudGuides();    // Senkou Span A/B + Cloud-Status
     DrawAmpel();                  // Ampel-System aktualisieren
 }
 
@@ -1897,6 +2263,10 @@ int OnInit()
     g_snap2.symbol = InpSymbol2;  // z.B. "USDJPY"
     g_snap1.valid = false;
     g_snap2.valid = false;
+    g_snap1.htf_bias = -99;
+    g_snap1.ltf_signal = -99;
+    g_snap2.htf_bias = -99;
+    g_snap2.ltf_signal = -99;
 
     // Technische Indikatoren erstellen (EMA, RSI, ATR)
     SetupTechnicalOverlay();

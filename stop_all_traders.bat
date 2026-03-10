@@ -29,14 +29,22 @@ call :kill_window "MT5-Trader-USDJPY*"
 call :kill_window "MT5-Trader-USDCAD-v4*"
 call :kill_window "MT5-Trader-USDJPY-v4*"
 
+REM Demo-/Paper-/Testphase-Fenster
+call :kill_window "MT5-Demo-USDCAD*"
+call :kill_window "MT5-Demo-USDJPY*"
+call :kill_window "MT5-Testphase-USDCAD*"
+call :kill_window "MT5-Testphase-USDJPY*"
+call :kill_window "MT5-Paper-USDCAD*"
+call :kill_window "MT5-Paper-USDJPY*"
+
 REM Generischer Fallback: alle MT5-* Fensterprozesse
-for /f "usebackq delims=" %%L in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$wins = Get-Process ^| Where-Object { $_.MainWindowTitle -like 'MT5-*' }; if (-not $wins) { Write-Output '[INFO] Keine weiteren MT5-* Fenster gefunden.' } else { foreach ($p in $wins) { try { Stop-Process -Id $p.Id -Force -ErrorAction Stop; Write-Output ('[OK] Fensterprozess beendet: PID=' + $p.Id + ' | Titel=' + $p.MainWindowTitle) } catch { Write-Output ('[WARN] Fensterprozess nicht beendet: PID=' + $p.Id + ' | ' + $_.Exception.Message) } } }"`) do (
+for /f "usebackq delims=" %%L in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$wins = Get-Process ^| Where-Object { $_.MainWindowTitle -like 'MT5-*' }; if (-not $wins) { Write-Output '[INFO] Keine weiteren MT5-* Fenster gefunden.' } else { foreach ($p in $wins) { try { taskkill /PID $p.Id /T /F ^| Out-Null; Write-Output ('[OK] Fensterprozessbaum beendet: PID=' + $p.Id + ' | Titel=' + $p.MainWindowTitle) } catch { Write-Output ('[WARN] Fensterprozess nicht beendet: PID=' + $p.Id + ' | ' + $_.Exception.Message) } } }"`) do (
     echo   %%L
 )
 
 echo.
 echo [INFO] Stoppe live_trader.py Prozesse (CommandLine-basiert)...
-for /f "usebackq delims=" %%L in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets = Get-CimInstance Win32_Process ^| Where-Object { $_.CommandLine -match 'live_trader\.py' }; if (-not $targets) { Write-Output '[INFO] Keine live_trader.py Prozesse gefunden.' } else { foreach ($t in $targets) { try { Stop-Process -Id $t.ProcessId -Force -ErrorAction Stop; Write-Output ('[OK] live_trader Prozess beendet: PID=' + $t.ProcessId) } catch { Write-Output ('[WARN] live_trader Prozess nicht beendet: PID=' + $t.ProcessId + ' | ' + $_.Exception.Message) } } }"`) do (
+for /f "usebackq delims=" %%L in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets = Get-CimInstance Win32_Process ^| Where-Object { $_.CommandLine -and $_.CommandLine -match 'live_trader\.py' }; if (-not $targets) { Write-Output '[INFO] Keine live_trader.py Prozesse gefunden.' } else { $ids = $targets ^| Select-Object -ExpandProperty ProcessId -Unique; foreach ($pid in $ids) { try { taskkill /PID $pid /T /F ^| Out-Null; Write-Output ('[OK] live_trader Prozessbaum beendet: PID=' + $pid) } catch { Write-Output ('[WARN] live_trader Prozess nicht beendet: PID=' + $pid + ' | ' + $_.Exception.Message) } } }"`) do (
     echo   %%L
 )
 

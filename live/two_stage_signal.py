@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Protocol, Tuple, cast
 
 import joblib
 import numpy as np
@@ -29,12 +29,33 @@ class ZweiStufenSignal:
         prob: Eintrittswahrscheinlichkeit des gewählten Signals.
         htf_bias_klasse: HTF-Bias-Klasse als 0/1/2.
         htf_bias_proba: HTF-Bias-Wahrscheinlichkeiten je Klasse.
+        ltf_klasse: Rohklasse des LTF-Modells als 0/1/2.
+        ltf_signal_vor_filter: LTF-Signal vor Schwellenwertfilter.
+        ltf_entry_erlaubt: True wenn der LTF-Schwellenfilter den Entry erlaubt.
+        ltf_proba: LTF-Wahrscheinlichkeiten je Klasse.
     """
 
     signal: int
     prob: float
     htf_bias_klasse: int
     htf_bias_proba: Dict[str, float]
+    ltf_klasse: int
+    ltf_signal_vor_filter: int
+    ltf_entry_erlaubt: bool
+    ltf_proba: Dict[str, float]
+
+
+class WahrscheinlichkeitsModell(Protocol):
+    """Minimales Protokoll für Modelle mit predict_proba."""
+
+    def predict_proba(self, x_features: pd.DataFrame) -> Any:
+        """Gibt Klassenwahrscheinlichkeiten für die übergebenen Features zurück."""
+
+
+def _modell_predict_proba(modell: object, x_features: pd.DataFrame) -> np.ndarray:
+    """Ruft predict_proba typrobust auf und liefert ein NumPy-Array zurück."""
+    modell_any = cast(Any, modell)
+    return np.asarray(modell_any.predict_proba(x_features), dtype=float)
 
 
 def _letzte_geschlossene_zeile(df: pd.DataFrame) -> pd.DataFrame:
@@ -135,7 +156,7 @@ def zwei_stufen_signal(
     htf_x = htf_row.reindex(columns=htf_feature_spalten).copy()
     htf_x = htf_x.fillna(htf_x.median(numeric_only=True)).fillna(0.0)
 
-    htf_proba_arr = htf_model.predict_proba(htf_x)[0]
+    htf_proba_arr = _modell_predict_proba(htf_model, htf_x)[0]
     htf_klasse = int(np.argmax(htf_proba_arr))
 
     # 2) LTF-Features vorbereiten und HTF-Bias anhängen.
@@ -154,15 +175,19 @@ def zwei_stufen_signal(
     ltf_x = ltf_x.fillna(ltf_x.median(numeric_only=True)).fillna(0.0)
 
     # 3) LTF-Signal erzeugen.
-    ltf_proba_arr = ltf_model.predict_proba(ltf_x)[0]
+    ltf_proba_arr = _modell_predict_proba(ltf_model, ltf_x)[0]
     ltf_klasse = int(np.argmax(ltf_proba_arr))
     signal = _klasse_zu_signal(ltf_klasse)
+    ltf_signal_vor_filter = signal
+    ltf_entry_erlaubt = True
 
     # Schwellenwert nur für aktive Trades anwenden.
     if signal == 2 and float(ltf_proba_arr[2]) < schwelle:
         signal = 0
+        ltf_entry_erlaubt = False
     if signal == -1 and float(ltf_proba_arr[0]) < schwelle:
         signal = 0
+        ltf_entry_erlaubt = False
 
     if signal == 2:
         prob = float(ltf_proba_arr[2])
@@ -179,5 +204,13 @@ def zwei_stufen_signal(
             "short": float(htf_proba_arr[0]),
             "neutral": float(htf_proba_arr[1]),
             "long": float(htf_proba_arr[2]),
+        },
+        ltf_klasse=ltf_klasse,
+        ltf_signal_vor_filter=ltf_signal_vor_filter,
+        ltf_entry_erlaubt=ltf_entry_erlaubt,
+        ltf_proba={
+            "short": float(ltf_proba_arr[0]),
+            "neutral": float(ltf_proba_arr[1]),
+            "long": float(ltf_proba_arr[2]),
         },
     )

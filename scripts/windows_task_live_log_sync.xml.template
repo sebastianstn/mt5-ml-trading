@@ -19,7 +19,7 @@
     <Principal id="Author">
       <UserId>{{TASK_USER}}</UserId>
       <LogonType>InteractiveToken</LogonType>
-      <RunLevel>HighestAvailable</RunLevel>
+      <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
   <Settings>
@@ -43,8 +43,8 @@
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>{{POWERSHELL_ARGS}}</Arguments>
+      <Command>{{EXEC_COMMAND}}</Command>
+      <Arguments>{{EXEC_ARGS}}</Arguments>
       <WorkingDirectory>{{PROJECT_DIR}}</WorkingDirectory>
     </Exec>
   </Actions>

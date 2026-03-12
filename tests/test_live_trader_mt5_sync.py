@@ -2,17 +2,18 @@
 
 from pathlib import Path
 
-from live import live_trader
+from live import mt5_connector
+from live import config as live_config  # MT5_COMMON_FILES_ENV lebt jetzt in config
 
 
-RESOLVE_MT5_COMMON_FILES_DIR = getattr(live_trader, "_resolve_mt5_common_files_dir")
-MIRROR_CSV_TO_MT5_COMMON = getattr(live_trader, "_mirror_csv_to_mt5_common")
+RESOLVE_MT5_COMMON_FILES_DIR = getattr(mt5_connector, "_resolve_mt5_common_files_dir")
+MIRROR_CSV_TO_MT5_COMMON = getattr(mt5_connector, "mirror_csv_to_mt5_common")
 
 
 def test_resolve_mt5_common_files_dir_prefers_override(monkeypatch) -> None:
     """Expliziter Override soll Vorrang vor APPDATA haben."""
     override_dir = Path("/tmp/custom_mt5_common")
-    monkeypatch.setenv(live_trader.MT5_COMMON_FILES_ENV, str(override_dir))
+    monkeypatch.setenv(live_config.MT5_COMMON_FILES_ENV, str(override_dir))
     monkeypatch.setenv("APPDATA", "/tmp/appdata_should_not_win")
 
     resolved = RESOLVE_MT5_COMMON_FILES_DIR()
@@ -22,7 +23,7 @@ def test_resolve_mt5_common_files_dir_prefers_override(monkeypatch) -> None:
 
 def test_resolve_mt5_common_files_dir_uses_appdata(monkeypatch) -> None:
     """Ohne Override soll APPDATA auf den Standardordner abgebildet werden."""
-    monkeypatch.delenv(live_trader.MT5_COMMON_FILES_ENV, raising=False)
+    monkeypatch.delenv(live_config.MT5_COMMON_FILES_ENV, raising=False)
     monkeypatch.setenv("APPDATA", "/tmp/roaming")
 
     resolved = RESOLVE_MT5_COMMON_FILES_DIR()
@@ -39,7 +40,7 @@ def test_mirror_csv_to_mt5_common_copies_latest_file(
     local_csv.write_text("time,symbol\n2026-03-10 19:35:09,USDCAD\n", encoding="utf-8")
 
     mt5_common_dir = tmp_path / "mt5_common"
-    monkeypatch.setenv(live_trader.MT5_COMMON_FILES_ENV, str(mt5_common_dir))
+    monkeypatch.setenv(live_config.MT5_COMMON_FILES_ENV, str(mt5_common_dir))
     monkeypatch.delenv("APPDATA", raising=False)
 
     ok = MIRROR_CSV_TO_MT5_COMMON(local_csv, "USDCAD_signals.csv")

@@ -114,13 +114,14 @@ fi
 echo ""
 echo "[ 2/4 ] Erstelle Ordnerstruktur auf Laptop..."
 # Windows braucht PowerShell statt mkdir -p (cmd.exe kennt -p nicht)
-ssh ${SSH_OPTS} "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "powershell -Command \"New-Item -ItemType Directory -Force -Path '${LAPTOP_ZIELORDNER}/live','${LAPTOP_ZIELORDNER}/live/mt5','${LAPTOP_ZIELORDNER}/models','${LAPTOP_ZIELORDNER}/logs','${LAPTOP_ZIELORDNER}/logs/paper_test128','${LAPTOP_ZIELORDNER}/scripts' | Out-Null; Write-Output 'Ordner erstellt'\""
+ssh ${SSH_OPTS} "${LAPTOP_BENUTZER}@${LAPTOP_IP}" "powershell -Command \"New-Item -ItemType Directory -Force -Path '${LAPTOP_ZIELORDNER}/live','${LAPTOP_ZIELORDNER}/live/mt5','${LAPTOP_ZIELORDNER}/models','${LAPTOP_ZIELORDNER}/logs','${LAPTOP_ZIELORDNER}/logs/paper_test128','${LAPTOP_ZIELORDNER}/scripts','${LAPTOP_ZIELORDNER}/tests' | Out-Null; Write-Output 'Ordner erstellt'\""
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/live/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/live/mt5/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/models/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/logs/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/logs/paper_test128/"
 echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/scripts/"
+echo "        ✅ Ordner: ${LAPTOP_ZIELORDNER}/tests/"
 
 # ------------------------------------------------------------
 # Modelle übertragen
@@ -159,8 +160,32 @@ done
 # ------------------------------------------------------------
 echo ""
 echo "[ 4/4 ] Übertrage Skripte..."
-sftp_put "${LIVE_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/live/live_trader.py"
-echo "        ✅ live/live_trader.py"
+
+# Alle Live-Trading-Module übertragen (nach Refactoring in Schritt 4)
+LIVE_MODULE=(
+    "live_trader.py"
+    "config.py"
+    "indicators.py"
+    "feature_builder.py"
+    "external_api.py"
+    "signal_engine.py"
+    "mt5_connector.py"
+    "trade_logger.py"
+    "paper_trading.py"
+    "risk_manager.py"
+    "db_manager.py"
+    "__init__.py"
+    "two_stage_signal.py"
+)
+for MODUL in "${LIVE_MODULE[@]}"; do
+    PFAD="${SERVER_BASIS}/live/${MODUL}"
+    if [ -f "${PFAD}" ]; then
+        sftp_put "${PFAD}" "${LAPTOP_ZIELORDNER_SFTP}/live/${MODUL}"
+        echo "        ✅ live/${MODUL}"
+    else
+        echo "        ⚠️  live/${MODUL} nicht gefunden – übersprungen"
+    fi
+done
 
 # MT5 Dashboard-Indicator (MQL5)
 if [ -f "${MT5_DASHBOARD_SKRIPT}" ]; then
@@ -182,12 +207,15 @@ if [ -f "${MT5_INSTALL_TASK}" ]; then
     echo "        ✅ live/mt5/install_sync_task.ps1"
 fi
 
-# Two-Stage-Signal-Modul (für Shadow-Mode)
-TWO_STAGE_SKRIPT="${SERVER_BASIS}/live/two_stage_signal.py"
-if [ -f "${TWO_STAGE_SKRIPT}" ]; then
-    sftp_put "${TWO_STAGE_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/live/two_stage_signal.py"
-    echo "        ✅ live/two_stage_signal.py (Two-Stage Shadow-Mode)"
-fi
+# Tests übertragen (Windows-kompatible Tests für live/ Module)
+TEST_DATEIEN=("conftest.py" "test_live_trader_mt5_sync.py")
+for TEST in "${TEST_DATEIEN[@]}"; do
+    PFAD="${SERVER_BASIS}/tests/${TEST}"
+    if [ -f "${PFAD}" ]; then
+        sftp_put "${PFAD}" "${LAPTOP_ZIELORDNER_SFTP}/tests/${TEST}"
+        echo "        ✅ tests/${TEST}"
+    fi
+done
 
 sftp_put "${REQUIREMENTS}" "${LAPTOP_ZIELORDNER_SFTP}/requirements-laptop.txt"
 echo "        ✅ requirements-laptop.txt"

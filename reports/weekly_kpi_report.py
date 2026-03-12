@@ -37,10 +37,11 @@ Ausgabe:
 # Standard-Bibliotheken
 import argparse
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 # Datenverarbeitung
 import pandas as pd
@@ -82,6 +83,12 @@ STALE_FACTOR = 1.5
 
 # 3-Monats-Regel (ca. 12 Wochen): Eskalation nur bei stabilen GO-Werten
 PAPER_GATE_WOCHEN = 12
+
+# Statistische Signifikanz (Punkt 1 + 3)
+# Mindestanzahl abgeschlossener Trades für belastbare KPI-Bewertung.
+# Unterhalb dieser Grenze sind Win-Rate und Profit Factor statistisch zu unsicher.
+MIN_TRADES_STATISTIK = 30
+KONFIDENZ_NIVEAU = 0.95  # Wilson-Konfidenzintervall (95%)
 
 
 @dataclass
@@ -126,6 +133,59 @@ class SymbolKPI:
     return_pct: float
     status: str
     hinweis: str
+    # Statistische Signifikanz (Punkt 1 + 3)
+    stat_signifikant: bool        # True wenn genug Trades (>= MIN_TRADES_STATISTIK)
+    win_rate_ci_low: Optional[float]   # Wilson-CI untere Grenze (95%)
+    win_rate_ci_high: Optional[float]  # Wilson-CI obere Grenze (95%)
+    trades_fuer_signifikanz: int       # Wie viele Trades fehlen noch bis Signifikanz
+
+
+def wilson_konfidenzintervall(
+    wins: int,
+    n: int,
+    konfidenz: float = KONFIDENZ_NIVEAU,
+) -> Tuple[float, float]:
+    """Berechnet das Wilson-Konfidenzintervall für eine beobachtete Win-Rate.
+
+    Das Wilson-Intervall ist besser als die Normalapproximation, besonders
+    bei kleinen Stichproben oder Win-Raten nahe 0% oder 100%.
+
+    Args:
+        wins: Anzahl gewonnener Trades.
+        n: Gesamtanzahl Trades.
+        konfidenz: Konfidenzniveau (Standard: 0.95 = 95%).
+
+    Returns:
+        Tuple (untere_grenze_pct, obere_grenze_pct) in Prozent (0–100).
+    """
+    if n <= 0:
+        return (0.0, 100.0)
+
+    # Z-Wert für das Konfidenzniveau (ohne scipy-Abhängigkeit)
+    # z = invnorm(1 - alpha/2): 1.96 für 95%, 2.576 für 99%
+    z_tabelle = {0.90: 1.645, 0.95: 1.960, 0.99: 2.576}
+    z = z_tabelle.get(konfidenz, 1.960)
+
+    p_hat = wins / n
+    nenner = 1.0 + z**2 / n
+    mitte = (p_hat + z**2 / (2 * n)) / nenner
+    spanne = z * math.sqrt(p_hat * (1.0 - p_hat) / n + z**2 / (4 * n**2)) / nenner
+
+    untere = max(0.0, (mitte - spanne) * 100.0)
+    obere = min(100.0, (mitte + spanne) * 100.0)
+    return (round(untere, 1), round(obere, 1))
+
+
+def statistisch_signifikant(n_trades: int) -> bool:
+    """Prüft ob genug Trades für belastbare KPI-Bewertung vorhanden sind.
+
+    Args:
+        n_trades: Anzahl abgeschlossener Trades.
+
+    Returns:
+        True wenn n_trades >= MIN_TRADES_STATISTIK.
+    """
+    return n_trades >= MIN_TRADES_STATISTIK
 
 
 def lade_live_log(symbol: str, tage: int) -> Optional[pd.DataFrame]:
@@ -385,7 +445,7 @@ def live_close_kpis_berechnen(symbol: str, tage: int) -> dict:
 
 
 def status_bewerten(kpi: dict) -> tuple[str, str]:
-    """Bewertet KPI-Werte als GO/NO-GO/UNKLAR.
+    """Bewertet KPI-Werte als GO/NO-GO/UNKLAR/DATENBASIS_ZU_KLEIN.
 
     Args:
         kpi: Kombinierte KPI-Werte eines Symbols.
@@ -399,6 +459,17 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
     # Mindestaktivität: sonst keine belastbare Entscheidung
     if int(kpi["live_signale"]) < ZIEL_SIGNALE_WOCHE:
         return "UNKLAR", "Zu wenige Live-Signale im Zeitraum"
+
+    # Statistische Signifikanz prüfen: Live-Closes vorhanden aber unter Minimum?
+    # Unterhalb von MIN_TRADES_STATISTIK sind Win-Rate und PF nicht belastbar.
+    live_closes = int(kpi.get("live_closes", 0))
+    if 0 < live_closes < MIN_TRADES_STATISTIK:
+        fehlend = MIN_TRADES_STATISTIK - live_closes
+        return (
+            "DATENBASIS_ZU_KLEIN",
+            f"Nur {live_closes} Live-Trades (min. {MIN_TRADES_STATISTIK} für Signifikanz, "
+            f"noch {fehlend} fehlend – weiter Paper-Trading sammeln)",
+        )
 
     if int(kpi.get("live_closes", 0)) >= ZIEL_CLOSES_WOCHE:
         checks = {
@@ -469,6 +540,28 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
         else "BACKTEST_FALLBACK"
     )
 
+    # Statistische Signifikanz und Wilson-Konfidenzintervall für Win-Rate berechnen
+    n_closes = int(kombiniert.get("live_closes", 0))
+    ist_signifikant = statistisch_signifikant(n_closes)
+    fehlende_trades = max(0, MIN_TRADES_STATISTIK - n_closes)
+
+    # Wilson-CI: aus Live-Closes wenn verfügbar, sonst aus Backtest-Win-Rate
+    ci_low: Optional[float] = None
+    ci_high: Optional[float] = None
+    if n_closes > 0:
+        live_wr = kombiniert.get("live_win_rate_pct")
+        if live_wr is not None:
+            n_wins = round(float(live_wr) / 100.0 * n_closes)
+            ci_low, ci_high = wilson_konfidenzintervall(n_wins, n_closes)
+    elif float(kombiniert.get("win_rate_pct", 0.0)) > 0:
+        # Fallback: Backtest-Win-Rate (historische Stichprobe, nur als Orientierung)
+        bt_wr = float(kombiniert["win_rate_pct"])
+        bt_df = lade_close_log(symbol, tage=365 * 8)  # alle verfügbaren Backtest-Trades
+        n_bt = len(bt_df) if bt_df is not None else 0
+        if n_bt > 0:
+            n_wins_bt = round(bt_wr / 100.0 * n_bt)
+            ci_low, ci_high = wilson_konfidenzintervall(n_wins_bt, n_bt)
+
     return SymbolKPI(
         symbol=symbol,
         live_signale=int(kombiniert["live_signale"]),
@@ -483,7 +576,7 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
             else None
         ),
         live_fresh=bool(kombiniert.get("live_fresh", False)),
-        live_closes=int(kombiniert.get("live_closes", 0)),
+        live_closes=n_closes,
         live_profit_factor=(
             float(kombiniert["live_profit_factor"])
             if kombiniert.get("live_profit_factor") is not None
@@ -517,6 +610,10 @@ def symbol_report_erstellen(symbol: str, tage: int, timeframe: str = "H1") -> Sy
         return_pct=float(kombiniert["return_pct"]),
         status=status,
         hinweis=hinweis,
+        stat_signifikant=ist_signifikant,
+        win_rate_ci_low=ci_low,
+        win_rate_ci_high=ci_high,
+        trades_fuer_signifikanz=fehlende_trades,
     )
 
 
@@ -571,20 +668,30 @@ def markdown_bericht_schreiben(
         f"- Win-Rate > {ZIEL_WIN_RATE:.1f}%",
         f"- Mindest-Live-Signale/Woche: {ZIEL_SIGNALE_WOCHE}",
         f"- Mindest-Live-Closes/Woche: {ZIEL_CLOSES_WOCHE}",
+        f"- **Statistik-Minimum:** {MIN_TRADES_STATISTIK} abgeschlossene Trades für belastbare KPIs",
         "",
         "## Ergebnis je Symbol",
         "",
-        "| Symbol | Status | Quelle | Live Fresh | Letztes Event (UTC) | Min seit Event | "
+        "| Symbol | Status | Stat.Sign. | WR-CI 95% | Quelle | Live Fresh | Letztes Event (UTC) | Min seit Event | "
         "Events | Signale | Closes | Ø Prob | Live PnL | Live PF | Live DD% | Live WR% | Ø Dauer Min | PF (BT) | Sharpe (BT) | Hinweis |",
-        "|---|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "|---|---:|:---:|:---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
 
     for k in kpis:
+        # Statistische Signifikanz anzeigen
+        stat_symbol = "✅" if k.stat_signifikant else f"⚠️ ({MIN_TRADES_STATISTIK - k.live_closes} fehlen)"
+        # Wilson-CI für Win-Rate
+        if k.win_rate_ci_low is not None and k.win_rate_ci_high is not None:
+            ci_str = f"{k.win_rate_ci_low:.1f}–{k.win_rate_ci_high:.1f}%"
+        else:
+            ci_str = "-"
         lines.append(
-            "| {symbol} | {status} | {source} | {fresh} | {last} | {mins} | {events} | {live_signale} | {closes} | "
+            "| {symbol} | {status} | {stat} | {ci} | {source} | {fresh} | {last} | {mins} | {events} | {live_signale} | {closes} | "
             "{prob:.3f} | {live_pnl} | {live_pf} | {live_dd} | {live_wr} | {live_dauer} | {pf:.3f} | {sh:.3f} | {hint} |".format(
                 symbol=k.symbol,
                 status=k.status,
+                stat=stat_symbol,
+                ci=ci_str,
                 source=k.metric_source,
                 fresh="OK" if k.live_fresh else "STALE",
                 last=k.live_last_event_utc if k.live_last_event_utc else "-",
@@ -640,6 +747,10 @@ def markdown_bericht_schreiben(
         "- **Live-Freshness** ist ein hartes Gate: ohne frische Events wird der Status auf NO-GO gesetzt.",
         "- **Live-Signale** messen operative Aktivität und Freshness.",
         "- **Live-Closes** liefern realisierte Paper-/Live-PnL-KPIs und werden bevorzugt, sobald genug Daten vorliegen.",
+        f"- **Statistische Signifikanz (⚠️/✅):** KPIs sind erst ab {MIN_TRADES_STATISTIK} abgeschlossenen Trades belastbar. "
+        "Darunter ist die Win-Rate statistisch zu unsicher für Entscheidungen.",
+        "- **WR-CI 95%:** Wilson-Konfidenzintervall für die Win-Rate. Breite Spanne = wenig Daten, enge Spanne = belastbarer Wert.",
+        f"- **DATENBASIS_ZU_KLEIN:** Status wenn Live-Closes vorhanden aber < {MIN_TRADES_STATISTIK}. Kein GO/NO-GO möglich.",
         (
             "- **Backtest-KPIs** bleiben Fallback, solange noch nicht genug Live-Closes vorhanden sind "
             "(`backtest/SYMBOL_trades.csv`)."

@@ -7,6 +7,17 @@
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [🏆 TOP-10 Konfigurationen](#-top-10-konfigurationen-sortiert-nach-ø-sharpe-ratio)
+- [📌 Detailanalyse TOP-3](#-detailanalyse-top-3-konfigurationen)
+- [🔍 Wichtige Erkenntnisse](#-wichtige-erkenntnisse)
+- [🎯 Empfehlung](#-empfehlung)
+- [📊 Vollständige Ergebnisse](#-vollständige-ergebnisse)
+- [⚠️ Nächste Schritte](#️-wichtig-nächste-schritte)
+
+---
+
 ## 🏆 TOP-10 KONFIGURATIONEN (sortiert nach Ø Sharpe Ratio)
 
 | # | Test | Ø Sharpe | Ø Return | Ø MaxDD | Total Trades | Ø PF | Beschreibung |

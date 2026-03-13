@@ -6,6 +6,24 @@ Aktueller Betriebsmodus: **Paper-Trading aktiv** (USDCAD + USDJPY).
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [System-Architektur](#system-architektur)
+- [Schnellstart](#schnellstart)
+  - [Linux-Server](#linux-server-trainingbacktest)
+  - [Windows-Laptop](#windows-laptop-paper-trading)
+  - [Threshold-KPI-Auswertung](#threshold-kpi-auswertung-linux-server)
+  - [Probability-Kalibrierung](#probability-kalibrierung-linux-server)
+  - [Demo-Micro-Reactive Modus](#demo-micro-reactive-modus-windows-laptop)
+  - [Betriebsrollen](#betriebsrollen-start_shadow_comparebat-vs-livesignaldashboardmq5)
+- [Projektstruktur](#projektstruktur)
+- [Phasenstatus](#phasenstatus-aktuell)
+- [Operative Leitplanken](#operative-leitplanken)
+- [Nächster Fokus](#nächster-fokus)
+- [Automatischer Doc-Guard vor Commit](#automatischer-doc-guard-vor-commit)
+
+---
+
 ## System-Architektur
 
 | Gerät | Rolle | Was läuft hier? |

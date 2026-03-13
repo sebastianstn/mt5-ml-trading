@@ -4,6 +4,18 @@ Ziel: In 3–5 Minuten prüfen, ob das System stabil läuft und ob Eingriff nöt
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [Ampel-Logik (Sofortbewertung)](#ampel-logik-sofortbewertung)
+- [Start-Check (vor Betriebsbeginn)](#start-check-vor-betriebsbeginn)
+- [Laufender Betrieb](#laufender-betrieb-alle-3060-minuten)
+- [1-Minuten-Notfallcheck: STALE](#1-minuten-notfallcheck-dashboard-zeigt-stale)
+- [Eskalation: Wann Copilot einbeziehen?](#eskalation-wann-copilot-sofort-einbeziehen)
+- [Standard-Fehlerbilder & Sofortmaßnahmen](#standard-fehlerbilder--sofortmaßnahmen)
+- [Betriebsregel](#betriebsregel-wichtig)
+
+---
+
 ## Ampel-Logik (Sofortbewertung)
 
 - 🟢 **Grün (normal)**

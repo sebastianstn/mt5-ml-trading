@@ -14,7 +14,10 @@ from typing import Optional
 
 import pandas as pd
 
-import config
+try:
+    from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+except ImportError:
+    import config  # Import direkt aus live/-Verzeichnis
 import db_manager
 from mt5_connector import mirror_csv_to_mt5_common
 

@@ -2,6 +2,17 @@
 
 **Ziel:** Frische Live-Daten (`*_signals.csv`, optional `*_closes.csv`) automatisiert auf den Linux-Server übertragen und Drift zwischen `live_trader.log` und Signal-CSVs früh erkennen.
 
+## 📖 Inhaltsverzeichnis
+
+- [1. Voraussetzung](#1-voraussetzung-windows-laptop)
+- [2. Manuell testen](#2-manuell-testen)
+- [3. Geplante Aufgabe (Task Scheduler)](#3-geplante-aufgabe-anlegen-task-scheduler)
+- [4. Linux-Verifikation](#4-linux-verifikation)
+- [5. Watchdog-Interpretation](#5-watchdog-interpretation)
+- [6. Gate-Erzwingung](#6-gate-erzwingung)
+
+---
+
 ## 1) Voraussetzung (Windows-Laptop)
 
 - OpenSSH-Client installiert (`ssh`, `scp` verfügbar)

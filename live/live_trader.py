@@ -60,6 +60,15 @@ import pandas as pd
 import joblib
 
 # ---- Projekt-Module (alle ausgelagerten Funktionen) ----
+# live/-Verzeichnis in sys.path eintragen damit Bare-Imports
+# (config, mt5_connector, ...) sowohl beim direkten Start als auch
+# beim Paket-Import (pytest, externe Aufrufe) funktionieren.
+import sys as _sys
+from pathlib import Path as _Path
+_live_dir = str(_Path(__file__).parent)
+if _live_dir not in _sys.path:
+    _sys.path.insert(0, _live_dir)
+
 import config
 from config import (
     BASE_DIR,
@@ -92,6 +101,7 @@ from paper_trading import _letzte_geschlossene_kerze, paper_trade_pruefen_und_lo
 from risk_manager import kill_switch_pruefen, offenen_trade_pruefen
 from signal_engine import _modell_feature_namen, shadow_signal_generieren
 from trade_logger import trade_loggen
+import db_manager
 
 
 # ============================================================
@@ -170,6 +180,10 @@ def configure_logging(log_dir: Path) -> Path:
         ],
         force=True,
     )
+
+    # SQLite-Datenbank initialisieren (erstellt Tabellen falls nicht vorhanden)
+    db_manager.schema_erstellen()
+
     return resolved_log_dir
 
 

@@ -11,6 +11,22 @@ Diese Dateien helfen dir, Python-Signale in MT5 **zeitnah** zu sehen:
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [Aktueller Stand](#aktueller-stand-2026-03-09)
+- [1. Indikator installieren](#1-indikator-in-mt5-installieren-windows-laptop)
+- [2. Logs in MT5 verfügbar machen](#2-logs-aus-python-in-mt5-verfügbar-machen)
+  - [2.1 Einmaliger Testlauf](#21-einmaliger-testlauf-windows-powershell)
+  - [2.2 Dauerlauf](#22-dauerlauf-empfohlen-während-paper-trading)
+  - [2.3 Autostart Task Scheduler](#23-autostart-beim-login-task-scheduler)
+  - [2.4 Verifikation in MT5](#24-verifikation-in-mt5)
+  - [2.5 Typische Fehler](#25-typische-fehler--schnelle-fixes)
+- [3. Was du im Dashboard siehst](#3-was-du-im-mt5-dashboard-siehst)
+- [4. Bessere Idee (für später)](#4-bessere-idee-für-später)
+- [5. Kompatibilitätshinweis](#5-kompatibilitätshinweis-wichtig)
+
+---
+
 ## Aktueller Stand (2026-03-09)
 
 - Paper-Betrieb für `USDCAD` und `USDJPY` läuft.

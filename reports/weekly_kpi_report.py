@@ -916,7 +916,25 @@ def main() -> None:
             "Für M5_TWO_STAGE werden backtest/SYMBOL_M5_two_stage_trades.csv ausgewertet."
         ),
     )
+    parser.add_argument(
+        "--log_dir",
+        default="",
+        help=(
+            "Optionaler Log-Ordner mit *_signals.csv und *_closes.csv "
+            "(Standard: BASE_DIR/logs). Beispiel: --log_dir logs/paper_test128"
+        ),
+    )
     args = parser.parse_args()
+
+    # LOG_DIR global überschreiben wenn --log_dir angegeben
+    if args.log_dir.strip():
+        import sys as _sys  # pylint: disable=import-outside-toplevel
+        log_pfad = Path(args.log_dir.strip())
+        if not log_pfad.is_absolute():
+            log_pfad = BASE_DIR / log_pfad
+        # Modul-globale Variable überschreiben
+        _sys.modules[__name__].LOG_DIR = log_pfad  # type: ignore[attr-defined]
+        logger.info("Log-Verzeichnis überschrieben: %s", log_pfad)
 
     logger.info("Starte Wochenreport für Kernsymbole: %s", ", ".join(KERN_SYMBOLE))
     logger.info("Timeframe fuer Backtest-KPIs: %s", args.timeframe)

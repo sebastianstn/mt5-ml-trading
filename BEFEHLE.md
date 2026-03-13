@@ -4,6 +4,38 @@
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [📍 Schnellübersicht](#-schnellübersicht)
+- [🪟 Windows Laptop – Befehle](#-windows-laptop--befehle)
+  - [Virtuelle Umgebung aktivieren](#virtuelle-umgebung-aktivieren)
+  - [Daten von MT5 laden](#daten-von-mt5-laden-data_loaderpy)
+  - [Paper-Trading starten](#paper-trading-starten-livelive_traderpy)
+  - [Paper-Trading – Sofort-Start](#paper-trading--sofort-start-konkrete-werte-2026-03-03)
+  - [Shadow-Compare starten](#shadow-compare-starten-usdcad-v4-vs-usdjpy-v5)
+  - [Testphase starten](#testphase-starten-neue-top-konfiguration-two-stage-v4)
+  - [Alle Trader stoppen](#alle-trader-stoppen-vor-neustart-empfohlen)
+  - [Daten zum Server kopieren](#daten-vom-laptop-zum-linux-server-kopieren)
+- [🐧 Linux Server – Befehle](#-linux-server--befehle)
+  - [Virtuelle Umgebung aktivieren](#virtuelle-umgebung-aktivieren-linux)
+  - [Feature Engineering](#feature-engineering-featuresfeature_engineeringpy)
+  - [Labeling](#labeling-featureslabelingpy)
+  - [Modell trainieren](#modell-trainieren-train_modelpy)
+  - [Walk-Forward-Analyse](#walk-forward-analyse-walk_forwardpy)
+  - [Backtest](#backtest-backtestbacktestpy)
+  - [Retraining](#retraining-retrainingpy)
+  - [📅 Sonntagsroutine](#-sonntagsroutine--wöchentlicher-check) → [`scripts/sunday_check.sh`](scripts/sunday_check.sh)
+  - [KPI-Report](#kpi-report-reportsweekly_kpi_reportpy)
+  - [Testphase-Auswertung](#testphase-auswertung-scriptsevaluate_mt5_testphasepy)
+- [🔧 Pipeline-Skripte](#-pipeline-skripte-linux-server)
+- [🚀 Deployment (Linux → Windows)](#-deployment-linux--windows)
+- [📊 Referenz-Konfiguration](#-referenz-konfiguration-h1-baseline-stand-2026-03-03)
+- [📉 Two-Stage Status](#-aktueller-two-stage-status-stand-2026-03-05-stress-re-run)
+- [🔑 Regime-Nummern](#-regime-nummern-referenz)
+- [📁 Wichtige Pfade](#-wichtige-pfade)
+
+---
+
 ## 📍 Schnellübersicht
 
 | Kategorie | Gerät | Skript |
@@ -375,11 +407,23 @@ python retraining.py --symbol alle --erzwingen
 
 ---
 
+### 📅 Sonntagsroutine – Wöchentlicher Check
+
+```bash
+# Jeden Sonntag ausführen (Linux Server, vom Projekt-Root):
+cd /mnt/1Tb-Data/XGBoost-LightGBM
+bash scripts/sunday_check.sh
+```
+
+> Führt automatisch aus: Server-Sync-Check → KPI-Report → Trades der Woche → Checkliste
+
+---
+
 ### KPI-Report (`reports/weekly_kpi_report.py`)
 
 ```bash
-# Wöchentlicher Report
-python reports/weekly_kpi_report.py --tage 7
+# Wöchentlicher Report (mit korrektem Log-Pfad für paper_test128)
+python reports/weekly_kpi_report.py --tage 7 --log_dir logs/paper_test128
 
 # 14-Tage-Report
 python reports/weekly_kpi_report.py --tage 14

@@ -195,6 +195,24 @@ else
     echo "        ⚠️  LiveSignalDashboard.mq5 nicht gefunden – übersprungen"
 fi
 
+# MT5 Expert Advisor – PythonSignalExecutor (MQL5)
+MT5_EA_SKRIPT="${SERVER_BASIS}/live/mt5/PythonSignalExecutor.mq5"
+if [ -f "${MT5_EA_SKRIPT}" ]; then
+    sftp_put "${MT5_EA_SKRIPT}" "${LAPTOP_ZIELORDNER_SFTP}/live/mt5/PythonSignalExecutor.mq5"
+    echo "        ✅ live/mt5/PythonSignalExecutor.mq5"
+else
+    echo "        ⚠️  PythonSignalExecutor.mq5 nicht gefunden – übersprungen"
+fi
+
+# MT5 Historie-Export (Python-Skript, läuft auf Laptop)
+MT5_HISTORY_EXPORT="${SERVER_BASIS}/live/mt5_history_export.py"
+if [ -f "${MT5_HISTORY_EXPORT}" ]; then
+    sftp_put "${MT5_HISTORY_EXPORT}" "${LAPTOP_ZIELORDNER_SFTP}/live/mt5_history_export.py"
+    echo "        ✅ live/mt5_history_export.py"
+else
+    echo "        ⚠️  mt5_history_export.py nicht gefunden – übersprungen"
+fi
+
 # MT5 Sync-Skripte (PowerShell, für Scheduled Tasks)
 MT5_SYNC_SKRIPT="${SERVER_BASIS}/live/mt5/sync_live_logs_to_mt5_common.ps1"
 MT5_INSTALL_TASK="${SERVER_BASIS}/live/mt5/install_sync_task.ps1"

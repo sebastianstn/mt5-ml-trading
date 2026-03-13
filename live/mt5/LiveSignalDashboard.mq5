@@ -1108,27 +1108,60 @@ void DrawTradeOnChart(const SignalSnapshot &snap)
                       future_time, snap.tp_price, InpColorTP, tip_tp);
     }
 
-    // --- 5) Info-Label oben rechts ---
-    // Zeigt alle Trade-Details kompakt in einer Zeile an
-    string label_name = pfx + "INFO";
-    string info_text = StringFormat(
-        "%s %s @ %.5f | SL=%.5f | TP=%.5f | Prob=%.0f%% | %s | HTF=%s | LTF=%s",
-        snap.symbol, snap.richtung, snap.entry_price,
-        snap.sl_price, snap.tp_price, snap.prob * 100.0, snap.regime_name,
+    // --- 5) Info-Labels oben rechts (2 Zeilen fuer bessere Lesbarkeit) ---
+    // Zeile 1: Symbol, Richtung, Entry-Preis und Wahrscheinlichkeit
+    string label_name_1 = pfx + "INFO1";
+    string info_line1 = StringFormat(
+        "%s %s @ %.5f | Prob=%.0f%%",
+        snap.symbol, snap.richtung, snap.entry_price, snap.prob * 100.0);
+
+    if (ObjectFind(0, label_name_1) < 0)
+        ObjectCreate(0, label_name_1, OBJ_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, label_name_1, OBJPROP_XDISTANCE, 10);          // 10px vom rechten Rand
+    ObjectSetInteger(0, label_name_1, OBJPROP_YDISTANCE, 15);          // 15px von oben (Zeile 1)
+    ObjectSetInteger(0, label_name_1, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+    ObjectSetInteger(0, label_name_1, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetString(0, label_name_1, OBJPROP_TEXT, info_line1);
+    ObjectSetString(0, label_name_1, OBJPROP_FONT, "Consolas");
+    ObjectSetInteger(0, label_name_1, OBJPROP_FONTSIZE, 10);
+    ObjectSetInteger(0, label_name_1, OBJPROP_COLOR, trade_clr);
+
+    // Zeile 2: SL, TP und Regime
+    string label_name_2 = pfx + "INFO2";
+    string info_line2 = StringFormat(
+        "SL=%.5f | TP=%.5f | %s",
+        snap.sl_price, snap.tp_price, snap.regime_name);
+
+    if (ObjectFind(0, label_name_2) < 0)
+        ObjectCreate(0, label_name_2, OBJ_LABEL, 0, 0, 0);
+
+    ObjectSetInteger(0, label_name_2, OBJPROP_XDISTANCE, 10);          // 10px vom rechten Rand
+    ObjectSetInteger(0, label_name_2, OBJPROP_YDISTANCE, 32);          // 32px von oben (Zeile 2)
+    ObjectSetInteger(0, label_name_2, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+    ObjectSetInteger(0, label_name_2, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetString(0, label_name_2, OBJPROP_TEXT, info_line2);
+    ObjectSetString(0, label_name_2, OBJPROP_FONT, "Consolas");
+    ObjectSetInteger(0, label_name_2, OBJPROP_FONTSIZE, 9);
+    ObjectSetInteger(0, label_name_2, OBJPROP_COLOR, trade_clr);
+
+    // Zeile 3: HTF/LTF Two-Stage-Info
+    string label_name_3 = pfx + "INFO3";
+    string info_line3 = StringFormat(
+        "HTF=%s | LTF=%s",
         HtfBiasNameFromId(snap.htf_bias), LtfSignalNameFromId(snap.ltf_signal));
 
-    // Label positionieren: rechts oben, Consolas-Font fuer gleichmaessige Breite
-    if (ObjectFind(0, label_name) < 0)
-        ObjectCreate(0, label_name, OBJ_LABEL, 0, 0, 0);  // OBJ_LABEL = Text-Objekt
+    if (ObjectFind(0, label_name_3) < 0)
+        ObjectCreate(0, label_name_3, OBJ_LABEL, 0, 0, 0);
 
-    ObjectSetInteger(0, label_name, OBJPROP_XDISTANCE, 10);          // 10px vom rechten Rand
-    ObjectSetInteger(0, label_name, OBJPROP_YDISTANCE, 50);          // 50px von oben
-    ObjectSetInteger(0, label_name, OBJPROP_CORNER, CORNER_RIGHT_UPPER); // Ecke: Rechts oben
-    ObjectSetInteger(0, label_name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER); // Anker: Rechts oben
-    ObjectSetString(0, label_name, OBJPROP_TEXT, info_text);          // Text setzen
-    ObjectSetString(0, label_name, OBJPROP_FONT, "Consolas");        // Monospace-Font
-    ObjectSetInteger(0, label_name, OBJPROP_FONTSIZE, 10);
-    ObjectSetInteger(0, label_name, OBJPROP_COLOR, trade_clr);       // Farbe = Trade-Farbe
+    ObjectSetInteger(0, label_name_3, OBJPROP_XDISTANCE, 10);          // 10px vom rechten Rand
+    ObjectSetInteger(0, label_name_3, OBJPROP_YDISTANCE, 47);          // 47px von oben (Zeile 3)
+    ObjectSetInteger(0, label_name_3, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+    ObjectSetInteger(0, label_name_3, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetString(0, label_name_3, OBJPROP_TEXT, info_line3);
+    ObjectSetString(0, label_name_3, OBJPROP_FONT, "Consolas");
+    ObjectSetInteger(0, label_name_3, OBJPROP_FONTSIZE, 9);
+    ObjectSetInteger(0, label_name_3, OBJPROP_COLOR, trade_clr);
 
     ChartRedraw(0);  // Chart sofort neu zeichnen (damit alles sichtbar wird)
 }
@@ -1325,7 +1358,7 @@ void DrawEmaGuides()
         ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
 
     ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 10);                // 10px vom rechten Rand
-    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 42);                // 42px von oben
+    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 64);                // 64px von oben (unter HTF/LTF)
     ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);   // Rechts oben
     ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
     ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);            // Nicht anklickbar
@@ -1402,7 +1435,7 @@ void DrawIchimokuCloudGuides()
         ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
 
     ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 10);
-    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 58);
+    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 80);                // 80px von oben (unter EMA-Label)
     ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
     ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
     ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
@@ -1547,7 +1580,7 @@ void DrawAmpel()
     int font_size = MathMax(10, InpAmpelFontSize);  // Minimale Schriftgroesse: 10
     int light_size = font_size + 10;  // Groesse des farbigen Quadrats
     int box_height = 60;   // Hoehe der Hintergrund-Box
-    int box_width = 400;   // Breite der Hintergrund-Box
+    int box_width = 500;   // Breite der Hintergrund-Box
     int x_start = 15;      // Abstand vom linken Rand
     int y_top = chart_h - box_height - 25;  // Position von oben (= unten im Chart)
 

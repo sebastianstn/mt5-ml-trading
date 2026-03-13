@@ -7,6 +7,32 @@ Ich lerne programmieren und baue ein automatisches Handelssystem für MetaTrader
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [🎯 Projektziel](#-projektziel)
+- [🖥️ System-Architektur](#️-system-architektur-wichtig--immer-beachten)
+- [🛠️ Tech-Stack](#️-tech-stack)
+- [📁 Projektstruktur](#-projektstruktur)
+- [📐 Coding-Regeln](#-coding-regeln-immer-einhalten)
+  - [Allgemein](#allgemein)
+  - [Daten & Zeitreihen – KRITISCH](#daten--zeitreihen--kritisch)
+  - [Machine Learning](#machine-learning)
+  - [Trading & Risiko](#trading--risiko)
+- [🔄 Aktuelle Projektphase](#-aktuelle-projektphase)
+- [🤖 Wie Claude Code mir helfen soll](#-wie-claude-code-mir-helfen-soll)
+  - [Meine Grenzen](#meine-grenzen--was-ich-nicht-kann)
+  - [Beim Schreiben von Code](#beim-schreiben-von-code)
+  - [Bei Fehlern](#bei-fehlern)
+  - [Bei Entscheidungen](#bei-entscheidungen-zb-welcher-algorithmus)
+- [📝 Code-Templates](#-code-templates)
+  - [Standard-Import-Block](#standard-import-block-für-neue-python-dateien-auf-dem-linux-server)
+  - [Standard-Funktions-Template](#standard-funktions-template)
+  - [Modell speichern / laden](#modell-speichern--laden-immer-mit-joblib)
+- [⚠️ Warnzeichen](#️-warnzeichen--claude-soll-mich-warnen-wenn)
+- [🗣️ Kommunikation](#️-kommunikation)
+
+---
+
 ## 🎯 Projektziel
 
 Ein ML-gestütztes Trading-System mit **XGBoost** und **LightGBM**, das Marktphasen

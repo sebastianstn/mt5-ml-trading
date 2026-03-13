@@ -9,7 +9,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-import config
+try:
+    from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+except ImportError:
+    import config  # Import direkt aus live/-Verzeichnis
 from mt5_connector import alle_positionen_schliessen
 from trade_logger import trade_close_loggen
 

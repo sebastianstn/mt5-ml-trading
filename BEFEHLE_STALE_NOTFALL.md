@@ -5,6 +5,35 @@ oder sehr alte Minutenwerte zeigt.
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [Ziel](#ziel)
+- [🪟 Schnellcheck](#-windows-laptop--schnellcheck)
+  - [1) Lokale Logs prüfen](#1-aktive-lokale-logs-prüfen)
+  - [2) MT5 Common\\Files prüfen](#2-mt5-commonfiles-prüfen)
+  - [3) Dateizeit + Größe prüfen](#3-dateizeit--größe-prüfen)
+- [🪟 Sync manuell anstoßen](#-windows-laptop--sync-manuell-anstoßen)
+  - [4) Skriptordner wechseln](#4-in-den-mt5-skriptordner-wechseln)
+  - [5) Dry-Run](#5-dry-run-ausführen)
+  - [6) Echter Sync](#6-echten-sync-ausführen)
+  - [7) Dauerlauf](#7-dauerlauf-starten)
+- [🪟 Task Scheduler](#-windows-laptop--task-scheduler)
+  - [8) Task starten](#8-sync-task-starten)
+  - [9) Task-Status prüfen](#9-task-status-prüfen)
+  - [10) Task neu registrieren](#10-task-neu-registrieren)
+- [🪟 Trader neu starten](#-windows-laptop--trader-neu-starten)
+  - [11) Alle Trader stoppen](#11-alle-trader-stoppen)
+  - [12) Test 128 neu starten](#12-test-128-neu-starten)
+- [🐧 Linux – Deploy](#-linux-server--frischen-code-deployen)
+- [Entscheidungshilfe](#entscheidungshilfe)
+  - [Fall A: Sync-Problem](#fall-a-lokale-logs-frisch-commonfiles-alt)
+  - [Fall B: Indikator-Problem](#fall-b-lokale-logs-frisch-commonfiles-frisch-chart-trotzdem-stale)
+  - [Fall C: Trader hängt](#fall-c-lokale-logs-selbst-alt)
+- [⚡ Minimal-Sequenz](#empfohlene-minimal-sequenz)
+- [Merksatz](#merksatz)
+
+---
+
 ## Ziel
 
 In 1–3 Minuten herausfinden:

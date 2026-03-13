@@ -1,5 +1,18 @@
 # Runbook – MT5 Testphase mit neuer Top-Konfiguration (2026-03-08)
 
+## 📖 Inhaltsverzeichnis
+
+- [Ziel](#ziel)
+- [1. Vor dem Start](#1-vor-dem-start-windows-laptop)
+- [2. Testphase starten](#2-testphase-starten-windows-laptop)
+- [3. Während der Laufzeit überwachen](#3-während-der-laufzeit-überwachen)
+- [4. Log-Sync sicherstellen](#4-log-sync-richtung-linux-sicherstellen)
+- [5. Nach 24–48h auswerten](#5-nach-2448h-auswerten-linux-server)
+- [6. Entscheidungslogik GO/WATCH/NO_GO](#6-entscheidungslogik-go--watch--no_go)
+- [7. Nächste Roadmap-Aufgabe](#7-nächste-roadmap-aufgabe)
+
+---
+
 ## Ziel
 
 Die im Live-kompatiblen Sweep beste Konfiguration kontrolliert auf dem **Windows 11 MT5-Host** im **Paper-Modus** laufen lassen und danach auf dem **Linux-Server** objektiv auswerten.

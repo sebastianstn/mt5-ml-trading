@@ -15,7 +15,10 @@ from typing import Any, Optional, cast
 
 import pandas as pd
 
-import config
+try:
+    from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+except ImportError:
+    import config  # Import direkt aus live/-Verzeichnis
 
 logger = logging.getLogger(__name__)
 

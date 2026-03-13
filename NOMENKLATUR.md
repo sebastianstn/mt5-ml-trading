@@ -4,6 +4,29 @@
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [1. Trading-Abkürzungen](#1-trading-abkürzungen)
+- [2. ML-Abkürzungen](#2-ml-abkürzungen)
+- [3. Deutsche Projektbegriffe](#3-deutsche-projektbegriffe)
+- [4. Regime-Klassifikation](#4-regime-klassifikation)
+- [5. Klassen-Labels](#5-klassen-labels)
+- [6. Währungspaare](#6-währungspaare)
+- [7. Zeitrahmen (Timeframes)](#7-zeitrahmen-timeframes)
+- [8. Feature-Liste](#8-feature-liste-alle-spalten)
+- [9. Datei-Namenskonventionen](#9-datei-namenskonventionen)
+- [10. Labeling-Modi](#10-labeling-modi)
+- [11. Datenaufteilung (zeitlich)](#11-datenaufteilung-zeitlich)
+- [12. Wichtige Konstanten](#12-wichtige-konstanten)
+- [13. Python-Bibliotheken](#13-python-bibliotheken)
+- [14. Weitere Fachbegriffe](#14-weitere-fachbegriffe)
+- [15. KPI-Snapshot](#15-kpi-snapshot-beispiel-aus-backtest)
+- [16. KPI-Zielrichtung](#16-kpi-zielrichtung-höher-vs-niedriger)
+- [17. Weitere wichtige Werte](#17-weitere-wichtige-werte-bereits-im-projekt-vorhanden)
+- [18. LiveSignalDashboard (MT5-Chart-Anzeige)](#18-livesignaldashboard-mt5-chart-anzeige)
+
+---
+
 ## 1. Trading-Abkürzungen
 
 | Abkürzung | Ausgeschrieben | Bedeutung |
@@ -383,4 +406,104 @@ Für Go/No-Go im laufenden Betrieb immer **mehrere KPIs gemeinsam** betrachten (
 
 ---
 
-Letzte Aktualisierung: 2026-03-05
+## 18. LiveSignalDashboard (MT5-Chart-Anzeige)
+
+Das **LiveSignalDashboard** (`LiveSignalDashboard.mq5`) ist ein MQL5-Indikator auf dem Windows-Laptop.
+Es liest die CSV-Signaldateien von Python und zeigt alle Informationen direkt auf dem MT5-Chart an.
+
+### Kopfbereich (oben links)
+
+| Zeile | Beispiel | Bedeutung |
+| ----- | -------- | --------- |
+| **Status** | `Live Dashboard \| CONNECTED` | Verbindungsstatus. CONNECTED = CSV wird gelesen. STALE/OFFLINE = Verbindung gestört. **Erwünscht: immer CONNECTED.** |
+| **Grenze** | `Grenze: 70min (SignalTF)` | Maximale Gültigkeitsdauer eines Signals. Nach Ablauf wird es als veraltet ignoriert. Standard: 70min für H1. |
+| **Countdown** | `Update in 16:23` | Zeit bis zum nächsten Signal-Update von Python. **Je kleiner, desto frischer werden die Daten bald.** |
+
+### Symbol-Status (pro Währungspaar)
+
+| Feld | Beispiel | Bedeutung |
+| ---- | -------- | --------- |
+| **Symbol** | `USDJPY` | Welches Währungspaar. |
+| **State** | `SIGNAL` / `IDLE` | SIGNAL = aktives Handelssignal. IDLE = kein Signal. **SIGNAL = Modell hat etwas gefunden.** |
+| **Frische** | `OK (63 min)` | OK = Daten innerhalb der Grenze. Zahl = Alter der letzten CSV-Zeile. **Je kleiner die Zahl, desto frischer.** |
+| **Richtung** | `Short` / `Long` / `Kein` | Handelsrichtung des Modells. "Kein" = kein Trade empfohlen. |
+| **P=** | `P=0.45` | Wahrscheinlichkeit (Probability) des Modells für das stärkste Signal (0.00–1.00). **Je höher, desto sicherer das Signal.** Aktuell muss P ≥ Schwelle sein (z.B. 0.45). |
+| **R=** | `R=463` | Regime-ID – interne Kennung für den aktuellen Marktmodus. Siehe Abschnitt 4 für Zuordnung. |
+
+### Technische Marktdaten (Mitte links)
+
+| Zeile | Beispiel | Bedeutung |
+| ----- | -------- | --------- |
+| **Spread** | `Spread: 1.8 Pips` | Differenz Bid/Ask = Eintrittskosten pro Trade. **Je niedriger, desto besser.** Typisch: USDJPY 1.0–2.5 Pips, USDCAD 1.5–3.0 Pips. |
+| **ATR** | `ATR: 19 Pips (NIEDRIG)` | Average True Range = durchschnittliche Schwankungsbreite. NIEDRIG/NORMAL/HOCH beeinflusst SL/TP-Berechnung. **Kein "besser" – nur Kontext.** NIEDRIG = engere SL/TP, HOCH = weitere SL/TP. |
+| **Schwelle** | `Schwelle: 45%` | Mindest-Wahrscheinlichkeit, ab der ein Signal als handelbar gilt. **Höhere Schwelle = weniger Trades, aber höhere Qualität.** Typisch: 40–55%. |
+
+### Indikator-Analyse
+
+| Zeile | Beispiel | Bedeutung |
+| ----- | -------- | --------- |
+| **MACD** | `MACD: bearish` | MACD-Trendrichtung: bullish (aufwärts) oder bearish (abwärts). **Kein "besser" – zeigt nur Richtung.** |
+| **M=** | `M=0.00411` | MACD-Linie = Differenz zwischen EMA12 und EMA26. **Positiv = bullish Tendenz, Negativ = bearish.** |
+| **S=** | `S=0.01351` | Signal-Linie = geglätteter Durchschnitt der MACD-Linie. **M > S = bullish Crossover, S > M = bearish.** |
+| **H=** | `H=-0.00940` | Histogramm = M minus S. **Je weiter von 0 entfernt, desto stärker das Momentum.** Negativ = bearish, Positiv = bullish. |
+| **Ichimoku** | `Ichimoku: bullish \| ueber Kumo` | Ichimoku-Wolke: Preis über Kumo = bullisch, unter Kumo = bärisch, in Kumo = neutral. **"ueber Kumo" ist das stärkste bullische Signal.** |
+| **A=** | `A=159.28550` | Senkou Span A (obere/untere Wolkengrenze). **A > B = bullische Wolke (grün).** |
+| **B=** | `B=159.19750` | Senkou Span B (obere/untere Wolkengrenze). **B > A = bärische Wolke (rot).** Je größer der Abstand A↔B, desto stärker die Wolke. |
+
+### Regime, Session & Two-Stage
+
+| Zeile | Beispiel | Bedeutung |
+| ----- | -------- | --------- |
+| **Regime** | `Regime: Hohe Volatilität \| PAPER` | Vom ML-Modell erkannte Marktphase (siehe Abschnitt 4). PAPER = kein echtes Geld. **Aufwärtstrend/Abwärtstrend = klarer Markt (gut). Hohe Volatilität = vorsichtig. Seitwärts = wenig Bewegung.** |
+| **Session** | `Session: New York` | Aktive Handelssitzung: Asia, London, New York oder Overlap (London+NY). **Overlap (London+NY) = höchste Liquidität und engste Spreads. Asia = ruhigster Markt.** |
+| **Two-Stage** | `Two-Stage: HTF=Neutral \| LTF=Short` | HTF = Higher Timeframe (H1) Bias, LTF = Lower Timeframe (M5) Entry. **Idealfall: beide zeigen in dieselbe Richtung (z.B. HTF=Long + LTF=Long). Widerspruch = schwaches Signal.** |
+
+### Trade-Info-Labels (oben rechts, 3 Zeilen)
+
+| Zeile | Beispiel | Bedeutung |
+| ----- | -------- | --------- |
+| **Zeile 1** | `USDJPY Short @ 159.20100 \| Prob=49%` | Symbol, Richtung, Entry-Preis und Modell-Wahrscheinlichkeit. **Prob: je höher, desto besser. Ab Schwelle (~45%) wird gehandelt. >60% = starkes Signal.** |
+| **Zeile 2** | `SL=159.50796 \| TP=158.58781 \| Hohe Volatilität` | Stop-Loss, Take-Profit und aktuelles Regime. **TP sollte weiter vom Entry entfernt sein als SL (gutes RRR). SL immer gesetzt = Pflicht.** |
+| **Zeile 3** | `HTF=Short \| LTF=Short` | Two-Stage HTF-Bias und LTF-Entry-Signal. **Beide gleich (z.B. Short+Short) = stärkstes Signal. Widerspruch = vorsichtig.** |
+
+### EMA-Struktur-Label (oben rechts)
+
+| Beispiel | Bedeutung |
+| -------- | --------- |
+| `BULL: EMA20>EMA50>EMA200 \| Preis ueber allen` | Optimaler Aufwärtstrend: alle EMAs gestapelt + Preis darüber. **Stärkstes bullisches Setup.** |
+| `BEAR: EMA20<EMA50<EMA200 \| Preis unter allen` | Optimaler Abwärtstrend: EMAs umgekehrt + Preis darunter. **Stärkstes bärisches Setup.** |
+| `BULL Stack, Preis in Pullback-Zone` | EMAs bullisch, aber Preis zwischen den EMAs (Rücksetzer). **Möglicher Einstieg, aber riskanter.** |
+| `MIXED` | Keine klare EMA-Reihenfolge – Seitwärtsmarkt oder Übergang. **Schwächstes Setup – besser abwarten.** |
+
+### Ichimoku-Cloud-Label (oben rechts)
+
+| Beispiel | Bedeutung |
+| -------- | --------- |
+| `Cloud: BULL \| Preis ueber Kumo` | Preis über bullischer Wolke = starker Aufwärtstrend. **Stärkstes bullisches Ichimoku-Signal.** |
+| `Cloud: BEAR \| Preis unter Kumo` | Preis unter bärischer Wolke = starker Abwärtstrend. **Stärkstes bärisches Ichimoku-Signal.** |
+| `Cloud: NEUTRAL \| Preis in Kumo` | Preis innerhalb der Wolke = unklare Richtung. **Kein klares Signal – besser abwarten.** |
+| `Cloud: BULL/BEAR Bias \| Preis nahe Kumo` | Wolke zeigt Tendenz, aber Preis ist nahe an der Wolke. **Schwaches Signal – Richtung unsicher.** |
+
+### Ampel-System (unten links)
+
+| Farbe | Text | Bedeutung |
+| ----- | ---- | --------- |
+| 🟢 **GRÜN** | `GRUEN: HANDELN` | Signal aktiv + hohe Wahrscheinlichkeit → Trade möglich. |
+| 🟡 **GELB** | `GELB: BEOBACHTEN` | Daten frisch, aber kein/schwaches Signal → abwarten. |
+| 🔴 **ROT** | `ROT: WARTEN` | Daten veraltet oder keine CSV → Finger weg! |
+
+### Datenfluss
+
+```text
+Python (live_trader.py auf Windows)
+  → trade_logger.py → CSV schreiben (USDJPY_signals.csv)
+  → mt5_connector.py → CSV nach MT5 Common/Files kopieren
+
+MQL5 (LiveSignalDashboard.mq5 auf MT5)
+  → liest CSV alle 5 Sekunden
+  → zeichnet Dashboard, Trade-Linien, Ampel auf den Chart
+```
+
+---
+
+Letzte Aktualisierung: 2026-03-12

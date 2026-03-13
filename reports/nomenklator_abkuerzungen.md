@@ -9,6 +9,21 @@
 > Dieser Nomenklator sammelt die wichtigsten Abkürzungen aus Code, Reports und Roadmap.
 > Fokus: fachlich relevante Kürzel + häufige Projekt-Konstanten.
 
+## 📖 Inhaltsverzeichnis
+
+- [Trading & Markt](#trading--markt)
+- [Zeitrahmen & Marktstruktur](#zeitrahmen--marktstruktur)
+- [Indikatoren & Features](#indikatoren--features)
+- [Machine Learning & Statistik](#machine-learning--statistik)
+- [Daten, Dateien & Formate](#daten-dateien--formate)
+- [Infrastruktur, Betrieb & Protokolle](#infrastruktur-betrieb--protokolle)
+- [Symbole (Forex)](#symbole-forex)
+- [Krypto-/Sentiment-Bezug](#krypto-sentiment-bezug)
+- [Häufige Projekt-Konstanten im Code](#häufige-projekt-konstanten-im-code)
+- [Hinweis zur Vollständigkeit](#hinweis-zur-vollständigkeit)
+
+---
+
 ## Trading & Markt
 
 | Abkürzung | Bedeutung | Kurz erklärt |

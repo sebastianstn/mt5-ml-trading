@@ -7,6 +7,21 @@
 
 ---
 
+## 📖 Inhaltsverzeichnis
+
+- [Executive Summary](#executive-summary)
+- [1. Verifizierter Ist-Stand](#1-verifizierter-ist-stand-code-basiert)
+- [2. Was überholt ist](#2-was-aus-der-alten-auswertung-überholt-ist)
+- [3. Was kritisch/offen bleibt](#3-was-weiterhin-kritischoffen-bleibt)
+- [4. Kurzbewertung](#4-kurzbewertung-hat-sich-das-system-verbessert)
+- [5. Priorisierte nächste Schritte](#5-priorisierte-nächste-schritte-ab-heute)
+- [6. Aktueller Gesamtstatus](#6-aktueller-gesamtstatus)
+- [7. Die 5 wichtigsten Fragen](#7-die-5-wichtigsten-fragen-ab-jetzt)
+- [8. Einordnung der Profitabilität](#8-einordnung-der-profitabilität)
+- [9. Konkrete nächste Schritte](#9-konkrete-nächste-schritte)
+
+---
+
 ## Executive Summary
 
 Dein System ist gegenüber dem alten Analyse-Stand **klar verbessert**:

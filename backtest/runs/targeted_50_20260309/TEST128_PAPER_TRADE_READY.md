@@ -1,5 +1,18 @@
 # Test 128 – Paper-Trade bereit
 
+## 📖 Inhaltsverzeichnis
+
+- [Empfehlung](#empfehlung)
+- [Originale Backtest-Parameter](#originale-backtest-parameter)
+- [Log-Speicherorte für Test 128](#log-speicherorte-für-test-128)
+- [Live-/Paper-Mapping](#live-paper-mapping)
+- [Wichtige Einschränkung](#wichtige-einschränkung)
+- [Startdatei](#startdatei)
+- [Sicherheits-Hinweise](#sicherheits-hinweise)
+- [Erwartung](#erwartung)
+
+---
+
 ## Empfehlung
 
 **Test 128 (`ZoneC s0.59 h18`)** ist die beste ausgewogene Konfiguration aus dem 50er-Feintuning.

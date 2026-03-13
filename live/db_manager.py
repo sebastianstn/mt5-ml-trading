@@ -13,7 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import config
+try:
+    from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+except ImportError:
+    import config  # Import direkt aus live/-Verzeichnis
 
 logger = logging.getLogger(__name__)
 

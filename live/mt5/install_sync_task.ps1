@@ -1,6 +1,6 @@
 param(
     [string]$TaskName = "MT5_Sync_Live_Logs",
-    [string]$SourceDir = "C:\Users\Sebastian Setnescu\mt5_trading\logs",
+    [string]$SourceDir = "",
     [int]$IntervalSec = 5,
     [switch]$RunHidden,
     [switch]$Force
@@ -8,6 +8,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($SourceDir)) {
+    $projectDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $SourceDir = Join-Path $projectDir "logs"
+}
 
 function Resolve-ScriptPath {
     $scriptDir = $PSScriptRoot

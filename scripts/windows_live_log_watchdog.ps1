@@ -1,5 +1,5 @@
 param(
-	[string]$ProjectDir = "C:\Users\Sebastian Setnescu\mt5_trading",
+	[string]$ProjectDir = "",
 	[string]$LocalLogsDir = "",
 	[string]$Symbols = "USDCAD,USDJPY",
 	[string]$Timeframe = "M5_TWO_STAGE",
@@ -27,6 +27,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+	$ProjectDir = Split-Path -Parent $PSScriptRoot
+}
 
 function Get-TimeframeMinutes {
 	param([Parameter(Mandatory = $true)][string]$Name)

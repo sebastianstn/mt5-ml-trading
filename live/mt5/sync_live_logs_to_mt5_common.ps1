@@ -1,6 +1,6 @@
 param(
     # Quelle: Ordner mit Python-Logs (live_trader.py schreibt standardmäßig in ./logs)
-    [string]$SourceDir = "C:\Users\Sebastian Setnescu\mt5_trading\logs",
+    [string]$SourceDir = "",
 
     # Symbole laut aktueller Betriebsstrategie (2 aktive Paare)
     [string[]]$Symbols = @("USDCAD", "USDJPY"),
@@ -24,6 +24,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($SourceDir)) {
+    $projectDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $SourceDir = Join-Path $projectDir "logs"
+}
 
 function Resolve-Mt5CommonFiles {
     # Standardpfad für MT5 Common Files unter Windows

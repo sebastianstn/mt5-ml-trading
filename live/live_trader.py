@@ -48,6 +48,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,49 +60,66 @@ import pandas as pd
 # Modell laden
 import joblib
 
-# ---- Projekt-Module (alle ausgelagerten Funktionen) ----
-# live/-Verzeichnis in sys.path eintragen damit Bare-Imports
-# (config, mt5_connector, ...) sowohl beim direkten Start als auch
-# beim Paket-Import (pytest, externe Aufrufe) funktionieren.
-import sys as _sys
-from pathlib import Path as _Path
-_live_dir = str(_Path(__file__).parent)
-if _live_dir not in _sys.path:
-    _sys.path.insert(0, _live_dir)
+# live/-Verzeichnis als Fallback in sys.path eintragen, damit Bare-Imports
+# in Untermodulen (z.B. "from indicators import ...") robust aufgelöst werden.
+_LIVE_DIR = str(Path(__file__).parent)
+if _LIVE_DIR not in sys.path:
+    sys.path.insert(0, _LIVE_DIR)
 
-import config
-from config import (
-    BASE_DIR,
-    FEATURE_SPALTEN,
-    HEARTBEAT_LOG_DEFAULT,
-    KILL_SWITCH_DD_DEFAULT,
-    LOT,
-    MODEL_DIR,
-    MT5_VERFUEGBAR,
-    REGIME_NAMEN,
-    STANDARD_SCHWELLE,
-    STANDARD_STARTUP_OBSERVATION_BARS,
-    STANDARD_TWO_STAGE_COOLDOWN_BARS,
-    SYMBOLE,
-    AKTIVE_SYMBOLE,
-    TIMEFRAME_CONFIG,
-    mt5_api as _mt5_api,
-)
-from external_api import externe_features_einfuegen, externe_features_holen
-from feature_builder import features_berechnen
-from mt5_connector import (
-    alle_positionen_schliessen,
-    mt5_daten_holen,
-    mt5_letzte_kerze_uhrzeit,
-    mt5_offene_position,
-    mt5_verbinden,
-    order_senden,
-)
-from paper_trading import _letzte_geschlossene_kerze, paper_trade_pruefen_und_loggen
-from risk_manager import kill_switch_pruefen, offenen_trade_pruefen
-from signal_engine import _modell_feature_namen, shadow_signal_generieren
-from trade_logger import trade_loggen
-import db_manager
+# ---- Projekt-Module (alle ausgelagerten Funktionen) ----
+try:
+    from live import config
+    from live import db_manager
+    from live.external_api import externe_features_einfuegen, externe_features_holen
+    from live.feature_builder import features_berechnen
+    from live.mt5_connector import (
+        alle_positionen_schliessen,
+        mt5_daten_holen,
+        mt5_letzte_kerze_uhrzeit,
+        mt5_offene_position,
+        mt5_verbinden,
+        order_senden,
+    )
+    from live.paper_trading import (
+        _letzte_geschlossene_kerze,
+        paper_trade_pruefen_und_loggen,
+    )
+    from live.risk_manager import kill_switch_pruefen, offenen_trade_pruefen
+    from live.signal_engine import _modell_feature_namen, shadow_signal_generieren
+    from live.trade_logger import trade_loggen
+except ImportError:
+    import config
+    import db_manager
+    from external_api import externe_features_einfuegen, externe_features_holen
+    from feature_builder import features_berechnen
+    from mt5_connector import (
+        alle_positionen_schliessen,
+        mt5_daten_holen,
+        mt5_letzte_kerze_uhrzeit,
+        mt5_offene_position,
+        mt5_verbinden,
+        order_senden,
+    )
+    from paper_trading import _letzte_geschlossene_kerze, paper_trade_pruefen_und_loggen
+    from risk_manager import kill_switch_pruefen, offenen_trade_pruefen
+    from signal_engine import _modell_feature_namen, shadow_signal_generieren
+    from trade_logger import trade_loggen
+
+BASE_DIR = config.BASE_DIR
+FEATURE_SPALTEN = config.FEATURE_SPALTEN
+HEARTBEAT_LOG_DEFAULT = config.HEARTBEAT_LOG_DEFAULT
+KILL_SWITCH_DD_DEFAULT = config.KILL_SWITCH_DD_DEFAULT
+LOT = config.LOT
+MODEL_DIR = config.MODEL_DIR
+MT5_VERFUEGBAR = config.MT5_VERFUEGBAR
+REGIME_NAMEN = config.REGIME_NAMEN
+STANDARD_SCHWELLE = config.STANDARD_SCHWELLE
+STANDARD_STARTUP_OBSERVATION_BARS = config.STANDARD_STARTUP_OBSERVATION_BARS
+STANDARD_TWO_STAGE_COOLDOWN_BARS = config.STANDARD_TWO_STAGE_COOLDOWN_BARS
+SYMBOLE = config.SYMBOLE
+AKTIVE_SYMBOLE = config.AKTIVE_SYMBOLE
+TIMEFRAME_CONFIG = config.TIMEFRAME_CONFIG
+_mt5_api = config.mt5_api
 
 
 # ============================================================
@@ -220,14 +238,78 @@ def neue_kerze_abwarten(
 
     # Debug-Logging (alle 60 Sekunden, um Spam zu vermeiden)
     jetzt = time.time()
-    if jetzt - float(config._MT5_RUNTIME_STATE.get("kerzen_debug_last_ts", 0.0)) > 60:
+    if jetzt - float(config.mt5_runtime_state_get("kerzen_debug_last_ts", 0.0)) > 60:
         logger.debug(
             f"[{symbol}] Kerzen-Check: Letzte={letzte_kerzen_zeit} | "
             f"Aktuell={aktuelle_kerze}"
         )
-        config._MT5_RUNTIME_STATE["kerzen_debug_last_ts"] = jetzt
+        config.mt5_runtime_state_set("kerzen_debug_last_ts", jetzt)
 
     return letzte_kerzen_zeit is None or aktuelle_kerze != letzte_kerzen_zeit
+
+
+def _spread_ok(
+    symbol: str, sl_pct: float, close_preis: float, max_spread_pips: float = 0.0
+) -> bool:
+    """
+    Prüft ob der aktuelle Spread akzeptabel ist für einen Trade.
+
+    Zwei Bedingungen müssen erfüllt sein:
+      1) Spread <= max_spread_pips (absoluter Deckel)
+      2) Spread-Kosten < 30% des SL (relativer Schutz)
+
+    Args:
+        symbol:          Handelssymbol (z.B. 'USDJPY')
+        sl_pct:          Stop-Loss in Dezimal (z.B. 0.004)
+        close_preis:     Aktueller Schlusskurs
+        max_spread_pips: Maximaler Spread in Pips (0 = nur relative Prüfung)
+
+    Returns:
+        True wenn Spread OK, False wenn zu hoch.
+    """
+    if max_spread_pips <= 0:
+        max_spread_pips = config.MAX_SPREAD_PIPS
+
+    # MT5 Spread-Daten holen
+    if not config.MT5_VERFUEGBAR:
+        return True  # Im Offline-Modus kein Filter möglich
+
+    mt5 = config.mt5_api()
+    tick = mt5.symbol_info_tick(symbol)
+    sym_info = mt5.symbol_info(symbol)
+    if tick is None or sym_info is None:
+        logger.warning(
+            f"[{symbol}] Spread-Check: Tick-Daten nicht verfügbar – Trade erlaubt"
+        )
+        return True
+
+    # Spread in Pips berechnen
+    spread_points = tick.ask - tick.bid
+    if sym_info.digits == 5 or sym_info.digits == 3:
+        spread_pips = spread_points / (sym_info.point * 10)
+    else:
+        spread_pips = spread_points / sym_info.point
+
+    # Bedingung 1: Absoluter Spread-Deckel
+    if spread_pips > max_spread_pips:
+        logger.warning(
+            f"[{symbol}] Spread {spread_pips:.1f} Pips > Max {max_spread_pips:.1f} Pips – Trade blockiert"
+        )
+        return False
+
+    # Bedingung 2: Spread-Kosten < 30% des SL (sonst ist das R:R kaputt)
+    sl_absolut = sl_pct * close_preis if close_preis > 0 else 0
+    if sl_absolut > 0:
+        spread_anteil = spread_points / sl_absolut
+        if spread_anteil > 0.30:
+            logger.warning(
+                f"[{symbol}] Spread-Kosten {spread_anteil:.0%} des SL – Trade blockiert "
+                f"(Spread={spread_pips:.1f} Pips, SL={sl_absolut:.5f})"
+            )
+            return False
+
+    logger.info(f"[{symbol}] Spread-Check OK: {spread_pips:.1f} Pips")
+    return True
 
 
 # ============================================================
@@ -251,12 +333,16 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     heartbeat_log: bool = HEARTBEAT_LOG_DEFAULT,
     timeframe: str = "H1",
     atr_sl_aktiv: bool = True,
-    atr_sl_faktor: float = 1.5,
+    atr_sl_faktor: float = config.ATR_SL_FAKTOR,
     two_stage_config: Optional[dict] = None,
+    two_stage_mode: str = config.STANDARD_TWO_STAGE_MODE,
+    two_stage_htf_schwelle: Optional[float] = config.STANDARD_TWO_STAGE_HTF_SCHWELLE,
+    two_stage_ltf_schwelle: Optional[float] = config.STANDARD_TWO_STAGE_LTF_SCHWELLE,
     tp_pct: float = 0.006,
     sl_pct: float = 0.003,
     cooldown_bars: int = 12,
     startup_observation_bars: int = STANDARD_STARTUP_OBSERVATION_BARS,
+    max_spread_pips: float = 0.0,
 ) -> None:
     """
     Haupt-Schleife: Läuft dauerhaft und wartet auf neue Kerzen im gewählten Zeitrahmen.
@@ -283,8 +369,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         kapital_start:   Startkapital für Paper-Tracking und Kill-Switch-Berechnung
         heartbeat_log:   True = schreibe pro neuer Kerze einen CSV-Heartbeat
         atr_sl_aktiv:    True = ATR-basiertes SL (dynamisch), False = festes SL
-        atr_sl_faktor:   ATR-Multiplikator für SL (Standard: 1.5)
+        atr_sl_faktor:   ATR-Multiplikator für SL (Standard: 2.0)
         two_stage_config: Two-Stage-Konfiguration für Shadow-Mode (optional)
+        two_stage_mode: Two-Stage-Modus (shadow|primary)
+        two_stage_htf_schwelle: Separate HTF-Schwelle (optional)
+        two_stage_ltf_schwelle: Separate LTF-Schwelle (optional)
         tp_pct:          Take-Profit in Dezimal (Standard: 0.006 = 0.6%)
         sl_pct:          Stop-Loss Fallback in Dezimal (Standard: 0.003 = 0.3%)
         cooldown_bars:   Mindest-Bars zwischen Trades (Standard: 12, bei M5 = 1h)
@@ -344,6 +433,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
         logger.info(
             f"M5-Takt:        AKTIV → Loop auf {ts_cfg.get('ltf_timeframe', 'M5')}, "
             f"HTF-Bias auf H1 (gecached)"
+        )
+        logger.info(f"Two-Stage Modus: {two_stage_mode}")
+        logger.info(
+            f"Two-Stage Schwellen: HTF={two_stage_htf_schwelle if two_stage_htf_schwelle is not None else 'auto'} | "
+            f"LTF={two_stage_ltf_schwelle if two_stage_ltf_schwelle is not None else 'auto'}"
         )
         logger.info(f"Warte auf neue {ts_cfg.get('ltf_timeframe', 'M5')}-Kerze ...")
     else:
@@ -443,6 +537,7 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             # ==============================================================
             # DATEN LADEN
             # ==============================================================
+            markt_df_raw: Optional[pd.DataFrame] = None
 
             if ts_aktiv:
                 # ── Two-Stage M5-Takt ──────────────────────────────────
@@ -506,6 +601,9 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
                     continue
 
+                # Für Paper-Trade-Prüfung: abgeschlossene LTF-Kerzen verwenden
+                markt_df_raw = ltf_df_raw
+
                 # df_clean = gecachte H1-Daten (Single-Stage Baseline-Vergleich)
                 df_clean = cached_h1_df_clean
 
@@ -540,8 +638,17 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
                     continue
 
+                # Für Paper-Trade-Prüfung: abgeschlossene H1-Kerzen verwenden
+                markt_df_raw = df
+
             # Paper-Trades gegen die inzwischen abgeschlossenen Kerzen prüfen
-            markt_df_raw = ltf_df_raw if ts_aktiv else cast(pd.DataFrame, df)
+            if markt_df_raw is None:
+                logger.warning(
+                    f"[{symbol}] Markt-DataFrame fehlt unerwartet – Kerze wird übersprungen"
+                )
+                letzte_kerzen_zeit = mt5_letzte_kerze_uhrzeit(symbol, effektiver_tf)
+                continue
+
             if paper_trading and letzter_trade is not None:
                 letzter_trade, paper_kapital = paper_trade_pruefen_und_loggen(
                     symbol=symbol,
@@ -551,18 +658,45 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                     timeframe=effektiver_tf,
                 )
 
+            # ---- Schwelle bei Seitwärts-Regime dynamisch erhöhen ----
+            # In Regime 0 (Seitwärts) braucht es ein stärkeres Signal,
+            # weil Trend-Trades in Ranging-Märkten schlechter performen.
+            effektive_schwelle = schwelle
+            if regime_erlaubt is not None and 0 in regime_erlaubt:
+                # Vorab-Regime-Check: letzte Kerze lesen
+                try:
+                    letzte_k = (
+                        df_clean.iloc[-1]
+                        if df_clean is not None and len(df_clean) > 0
+                        else None
+                    )
+                    if letzte_k is not None and regime_spalte in df_clean.columns:
+                        vorab_regime = int(letzte_k[regime_spalte])
+                        if vorab_regime == 0:  # Seitwärts
+                            aufschlag = config.REGIME_SEITWAERTS_SCHWELLE_AUFSCHLAG
+                            effektive_schwelle = schwelle + aufschlag
+                            logger.info(
+                                f"[{symbol}] Regime=Seitwärts → Schwelle erhöht: "
+                                f"{schwelle:.0%} + {aufschlag:.0%} = {effektive_schwelle:.0%}"
+                            )
+                except (IndexError, KeyError, TypeError):
+                    pass  # Bei Fehler: Normal-Schwelle verwenden
+
             # ---- Signal generieren (Shadow-Mode) ----
             signal, prob, regime, atr_pct = shadow_signal_generieren(
                 symbol=symbol,
                 df=df_clean,
                 modell=modell,
-                schwelle=schwelle,
+                schwelle=effektive_schwelle,
                 short_schwelle=short_schwelle,
                 decision_mapping=decision_mapping,
                 regime_spalte=regime_spalte,
                 two_stage_kongruenz=two_stage_kongruenz,
                 regime_erlaubt=regime_erlaubt,
                 two_stage_config=two_stage_config,
+                two_stage_mode=two_stage_mode,
+                two_stage_htf_schwelle=two_stage_htf_schwelle,
+                two_stage_ltf_schwelle=two_stage_ltf_schwelle,
             )
             regime_name = REGIME_NAMEN.get(regime, "?")
 
@@ -641,6 +775,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 elif mt5_offene_position(symbol):
                     logger.info(
                         f"[{symbol}] Bereits offene Position – kein neuer Trade"
+                    )
+                elif not _spread_ok(symbol, sl_aktuell, close_preis, max_spread_pips):
+                    logger.warning(
+                        f"[{symbol}] ⚠️ SPREAD-FILTER: Trade blockiert – "
+                        f"Spread zu hoch relativ zum SL. Nächste Kerze abwarten."
                     )
                 else:
                     order_info = order_senden(
@@ -721,6 +860,11 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             break
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error(f"[{symbol}] Fehler in Haupt-Schleife: {e}", exc_info=True)
+            # Bei RPyC-Verbindungsfehlern: Verbindung zurücksetzen für Reconnect
+            err_msg = str(e).lower()
+            if any(k in err_msg for k in ("eof", "stream has been closed", "connection closed", "rpyc")):
+                logger.warning(f"[{symbol}] RPyC-Verbindungsfehler erkannt – setze Verbindung zurück")
+                config.mt5_rpyc_reconnect()
             logger.info("Warte 60 Sekunden vor Neustart ...")
             time.sleep(60)
 
@@ -796,20 +940,20 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         "--two_stage_kongruenz",
         type=int,
         choices=[0, 1],
-        default=0,
+        default=1,
         help=(
-            "1 = HTF/LTF Kongruenzfilter aktiv (sicherer, weniger Trades), "
-            "0 = Kongruenzfilter aus (aggressiver, mehr Trades, Standard)."
+            "1 = HTF/LTF Kongruenzfilter aktiv (sicherer, weniger Trades, Standard), "
+            "0 = Kongruenzfilter aus (aggressiver, mehr Trades, NICHT empfohlen)."
         ),
     )
     parser.add_argument(
         "--two_stage_allow_neutral_htf",
         type=int,
         choices=[0, 1],
-        default=1,
+        default=0,
         help=(
-            "1 = neutraler H1-Bias darf starke M5-Entries trotzdem zulassen (Standard), "
-            "0 = neutraler H1-Bias blockiert aktive M5-Signale."
+            "0 = neutraler H1-Bias blockiert aktive LTF-Signale (Standard, sicherer), "
+            "1 = neutraler H1-Bias darf starke LTF-Entries trotzdem zulassen."
         ),
     )
     parser.add_argument(
@@ -937,10 +1081,19 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
     parser.add_argument(
         "--atr_faktor",
         type=float,
-        default=1.5,
+        default=2.0,
         help=(
-            "ATR-Multiplikator für SL-Berechnung (Standard: 1.5). "
-            "SL = ATR_14 × Faktor. Empfehlung aus Backtest: 1.5"
+            "ATR-Multiplikator für SL-Berechnung (Standard: 2.0). "
+            "SL = ATR_14 × Faktor. Erhöht von 1.5 auf 2.0 um Rauschen-Stopouts zu vermeiden."
+        ),
+    )
+    parser.add_argument(
+        "--max_spread_pips",
+        type=float,
+        default=config.MAX_SPREAD_PIPS,
+        help=(
+            f"Maximaler Spread in Pips für Trade-Eröffnung (Standard: {config.MAX_SPREAD_PIPS}). "
+            "Trades werden blockiert wenn der aktuelle Spread höher ist."
         ),
     )
     parser.add_argument(
@@ -954,11 +1107,21 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         ),
     )
     parser.add_argument(
+        "--two_stage_mode",
+        type=str,
+        choices=["shadow", "primary"],
+        default=config.STANDARD_TWO_STAGE_MODE,
+        help=(
+            "Two-Stage Betriebsmodus: shadow = nur beobachten, Baseline handelt; "
+            "primary = Two-Stage ist Hauptsignal (empfohlen)."
+        ),
+    )
+    parser.add_argument(
         "--two_stage_ltf_timeframe",
-        default="M5",
+        default="M15",
         choices=["M5", "M15"],
         help=(
-            "LTF-Zeitrahmen für Two-Stage (Standard: M5). "
+            "LTF-Zeitrahmen für Two-Stage (Standard: M15). "
             "HTF ist immer H1. Nur relevant wenn --two_stage_enable 1"
         ),
     )
@@ -969,6 +1132,24 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
             "Modellversion für Two-Stage-Modelle (Standard: v4). "
             "Erwartet: lgbm_htf_bias_SYMBOL_H1_VERSION.pkl und "
             "lgbm_ltf_entry_SYMBOL_LTF-TF_VERSION.pkl"
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_htf_schwelle",
+        type=float,
+        default=config.STANDARD_TWO_STAGE_HTF_SCHWELLE,
+        help=(
+            "Separate HTF-Schwelle (z.B. 0.35). "
+            "Wenn weder Short noch Long die Schwelle erreicht, gilt HTF als Neutral."
+        ),
+    )
+    parser.add_argument(
+        "--two_stage_ltf_schwelle",
+        type=float,
+        default=config.STANDARD_TWO_STAGE_LTF_SCHWELLE,
+        help=(
+            "Separate LTF-Schwelle (z.B. 0.50). "
+            "Bei None/Fallback wird --schwelle verwendet."
         ),
     )
     parser.add_argument(
@@ -1198,10 +1379,14 @@ def main() -> None:  # pylint: disable=too-many-locals,too-many-branches
         atr_sl_aktiv=atr_sl_aktiv,
         atr_sl_faktor=atr_sl_faktor,
         two_stage_config=two_stage_config,
+        two_stage_mode=args.two_stage_mode,
+        two_stage_htf_schwelle=args.two_stage_htf_schwelle,
+        two_stage_ltf_schwelle=args.two_stage_ltf_schwelle,
         tp_pct=args.tp_pct,
         sl_pct=args.sl_pct,
         cooldown_bars=args.two_stage_cooldown_bars,
         startup_observation_bars=args.startup_observation_bars,
+        max_spread_pips=args.max_spread_pips,
     )
 
     # MT5 Verbindung beenden

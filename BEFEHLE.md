@@ -16,6 +16,11 @@
   - [Testphase starten](#testphase-starten-neue-top-konfiguration-two-stage-v4)
   - [Alle Trader stoppen](#alle-trader-stoppen-vor-neustart-empfohlen)
   - [Daten zum Server kopieren](#daten-vom-laptop-zum-linux-server-kopieren)
+- [🐧 Linux Mint Laptop – Paper-Trading (Wine + RPyC)](#-linux-mint-laptop--paper-trading-wine--rpyc)
+  - [Alle Trader stoppen](#alle-trader-stoppen-linux-mint)
+  - [RPyC-Server starten](#rpyc-server-starten)
+  - [Paper-Trading starten](#paper-trading-starten-linux-mint)
+  - [Kompletter Neustart (3 Schritte)](#kompletter-neustart-3-schritte)
 - [🐧 Linux Server – Befehle](#-linux-server--befehle)
   - [Virtuelle Umgebung aktivieren](#virtuelle-umgebung-aktivieren-linux)
   - [Feature Engineering](#feature-engineering-featuresfeature_engineeringpy)
@@ -30,7 +35,7 @@
 - [🔧 Pipeline-Skripte](#-pipeline-skripte-linux-server)
 - [🚀 Deployment (Linux → Windows)](#-deployment-linux--windows)
 - [📊 Referenz-Konfiguration](#-referenz-konfiguration-h1-baseline-stand-2026-03-03)
-- [📉 Two-Stage Status](#-aktueller-two-stage-status-stand-2026-03-05-stress-re-run)
+- [📉 Two-Stage Status](#-aktueller-two-stage-status-stand-2026-03-14)
 - [🔑 Regime-Nummern](#-regime-nummern-referenz)
 - [📁 Wichtige Pfade](#-wichtige-pfade)
 
@@ -55,13 +60,13 @@
 > `BEFEHLE_STALE_NOTFALL.md`
 >
 > Relevante Verzeichnisse im Workspace:
-> [Projektwurzel](./) · [MT5-Dashboard-Skripte](live/mt5/) · [Test128-Logs](logs/paper_test128/)
+> [Projektwurzel](./) · [MT5-Dashboard-Skripte](live/mt5/) · [Aktive Logs](logs/)
 
 ### Im Notfall zuerst öffnen
 
 1. [`BEFEHLE_STALE_NOTFALL.md`](BEFEHLE_STALE_NOTFALL.md) – wenn das Dashboard `STALE` oder `PARTIAL_STALE` zeigt
 2. [`live/mt5/OPERATOR_CHECKLIST.md`](live/mt5/OPERATOR_CHECKLIST.md) – wenn du die Prüf-Reihenfolge Schritt für Schritt brauchst
-3. [`logs/paper_test128/`](logs/paper_test128/) – wenn du direkt in die aktiven Signal- und Close-Logs schauen willst
+3. [`logs/`](logs/) – wenn du direkt in die aktiven Signal- und Close-Logs schauen willst
 
 ### Wichtige Schnellzugriffe
 
@@ -72,7 +77,7 @@
 | Dashboard-Doku | [`live/mt5/README_MT5_Dashboard.md`](live/mt5/README_MT5_Dashboard.md) | Installation, Nutzung und Troubleshooting |
 | Projektwurzel | [`./`](./) | Schnell zurück zur Repo-Übersicht |
 | MT5-Dashboard-Skripte | [`live/mt5/`](live/mt5/) | EA, Sync-Skripte und MT5-Hilfsdateien |
-| Test128-Logs | [`logs/paper_test128/`](logs/paper_test128/) | Aktive Signal-/Close-Logs für Paper-Betrieb |
+| Aktive Logs | [`logs/`](logs/) | Signal-/Close-Logs für Paper-Betrieb |
 
 ---
 
@@ -82,7 +87,7 @@
 > `BEFEHLE_STALE_NOTFALL.md`
 >
 > Direkt öffnen:
-> [Projektwurzel](./) · [MT5-Dashboard-Skripte](live/mt5/) · [Test128-Logs](logs/paper_test128/)
+> [Projektwurzel](./) · [MT5-Dashboard-Skripte](live/mt5/) · [Aktive Logs](logs/)
 
 ### Virtuelle Umgebung aktivieren
 
@@ -172,37 +177,34 @@ python live\live_trader.py --symbol USDCAD --schwelle 0.50 --regime_filter 2 --a
 
 ### Shadow-Compare starten (USDCAD v4 vs. USDJPY v5)
 
-> Kontrollierter Rollout auf **Windows Laptop**: USDCAD bleibt auf stabiler v4, USDJPY testet v5.
-
-```powershell
-cd "C:\Users\Sebastian Setnescu\mt5_trading"
-.\start_shadow_compare.bat
-```
-
-**Voraussetzung (einmalig):**
-
-```powershell
-setx MT5_SERVER "SwissquoteLtd-Server"
-setx MT5_LOGIN "<dein_login>"
-setx MT5_PASSWORD "<dein_passwort>"
-```
+> ⚠️ **Veraltet / nicht mehr aktiv.** Shadow-Compare (v5) war NO-GO.
+> Aktuell läuft ausschließlich die Top-Konfiguration (Two-Stage v4, H1+M15).
+> Siehe Abschnitt [Testphase starten](#testphase-starten-neue-top-konfiguration-two-stage-v4).
 
 ### Testphase starten (neue Top-Konfiguration, Two-Stage v4)
 
 > Empfohlener Start für die aktuelle Testphase auf dem Windows-Laptop.
+> Dies ist die **HAUPT-Startdatei** für den laufenden Betrieb (Phase 7).
 
 ```powershell
 cd "C:\Users\Sebastian Setnescu\mt5_trading"
-.\start_testphase_topconfig.bat
+.\start_testphase_topconfig_H1_M15.bat
 ```
 
-Verwendete Kernparameter:
+Verwendete Kernparameter (Stand: 14.03.2026):
 
-- `--schwelle 0.54`
-- `--regime_filter 0,1,2`
+- `--schwelle 0.45` (Long und Short, class-Mapping)
+- `--regime_filter 0,1,2,3` (alle Regime erlaubt)
+- `--regime_source market_regime_hmm`
 - `--two_stage_enable 1`
-- `--two_stage_ltf_timeframe M5`
+- `--two_stage_ltf_timeframe M15`
 - `--two_stage_version v4`
+- `--two_stage_kongruenz 1` (Kongruenzfilter aktiv)
+- `--two_stage_allow_neutral_htf 0` (neutral blockiert)
+- `--atr_faktor 2.0`
+- `--kill_switch_dd 0.15`
+- `--kapital_start 10000`
+- `--max_spread_pips 2.0`
 - `--paper_trading 1`
 
 ### Alle Trader stoppen (vor Neustart empfohlen)
@@ -218,15 +220,15 @@ stop_all_traders.bat
 
 | Komponente | Rolle | Nutzung |
 | --- | --- | --- |
-| `start_shadow_compare.bat` | **Engine** (Ausführung) | Startet die Python-Trader im Hintergrund, erzeugt Signale/CSV/Logs, führt Paper-Orders aus |
+| `start_testphase_topconfig_H1_M15.bat` | **Engine** (Ausführung) | Startet die Python-Trader im Hintergrund, erzeugt Signale/CSV/Logs, führt Paper-Orders aus |
 | `LiveSignalDashboard.mq5` | **Dashboard** (Beobachtung) | Liest CSV aus MT5 Common Files, zeigt Status/Freshness und zeichnet Entry/SL/TP/History im Chart |
 
-**Merksatz:** `start_shadow_compare.bat` arbeitet – `LiveSignalDashboard.mq5` zeigt an.
+**Merksatz:** `start_testphase_topconfig_H1_M15.bat` arbeitet – `LiveSignalDashboard.mq5` zeigt an.
 
 **Empfehlung im Betrieb:**
 
 1. `stop_all_traders.bat`
-2. `start_shadow_compare.bat`
+2. `start_testphase_topconfig_H1_M15.bat`
 3. Dashboard-EA auf einem MT5-Chart aktivieren (doppelte Alerts vermeiden)
 
 **Entwicklung:**
@@ -239,14 +241,67 @@ Single Source of Truth bleibt das Repo auf Linux (`live/mt5/LiveSignalDashboard.
 
 ```powershell
 # Einzelne Datei
-scp "data\USDCAD_H1.csv" "sebastian setnescu@192.168.1.19:/mnt/1T-Data/XGBoost-LightGBM/data/"
+scp "data\USDCAD_H1.csv" "sebastian setnescu@192.168.1.19:/mnt/1Tb-Data/XGBoost-LightGBM/data/"
 
 # Alle H1-Daten
-scp data\*_H1.csv "sebastian setnescu@192.168.1.19:/mnt/1T-Data/XGBoost-LightGBM/data/"
+scp data\*_H1.csv "sebastian setnescu@192.168.1.19:/mnt/1Tb-Data/XGBoost-LightGBM/data/"
 
 # Alle M15-Daten
-scp data\*_M15.csv "sebastian setnescu@192.168.1.19:/mnt/1T-Data/XGBoost-LightGBM/data/"
+scp data\*_M15.csv "sebastian setnescu@192.168.1.19:/mnt/1Tb-Data/XGBoost-LightGBM/data/"
 ```
+
+---
+
+## 🐧 Linux Mint Laptop – Paper-Trading (Wine + RPyC)
+
+> MT5 läuft unter Wine, Python kommuniziert über die mt5linux RPyC-Bridge.
+> Alle Befehle im Terminal ausführen (`Ctrl+Alt+T`).
+
+### Alle Trader stoppen (Linux Mint)
+
+```bash
+cd ~/mt5_trading
+bash stop_all_traders.sh
+```
+
+### RPyC-Server starten
+
+> Startet den RPyC-Bridge-Server (Wine-Python → MT5). Muss **vor** den Tradern laufen.
+> MT5 muss vorher über Wine gestartet sein!
+
+```bash
+cd ~/mt5_trading
+bash scripts/start_mt5_rpyc_server.sh
+```
+
+### Paper-Trading starten (Linux Mint)
+
+> Startet beide Trader (USDCAD + USDJPY) im Paper-Modus.
+> Prüft automatisch ob RPyC-Server läuft und startet ihn bei Bedarf.
+
+```bash
+cd ~/mt5_trading
+bash start_paper_trading_linux.sh
+```
+
+### Kompletter Neustart (3 Schritte)
+
+> Nach Deploy vom Server oder bei Verbindungsproblemen:
+
+```bash
+cd ~/mt5_trading
+bash stop_all_traders.sh
+bash scripts/start_mt5_rpyc_server.sh
+bash start_paper_trading_linux.sh
+```
+
+| Schritt | Befehl | Was passiert |
+| ------- | ------ | ------------ |
+| 1. Stoppen | `bash stop_all_traders.sh` | Beendet alle Trader-Prozesse |
+| 2. RPyC-Server | `bash scripts/start_mt5_rpyc_server.sh` | Wine-Python RPyC-Bridge auf Port 18812 |
+| 3. Trader | `bash start_paper_trading_linux.sh` | USDCAD + USDJPY Paper-Trading |
+
+> **Tipp:** Bei `EOFError: connection closed by peer` reicht meist nur Schritt 2 + 3 (RPyC-Server + Trader neu starten). Der Auto-Reconnect in `config.py` versucht auch automatisch neu zu verbinden.
 
 ---
 
@@ -255,7 +310,7 @@ scp data\*_M15.csv "sebastian setnescu@192.168.1.19:/mnt/1T-Data/XGBoost-LightGB
 ### Virtuelle Umgebung aktivieren (Linux)
 
 ```bash
-cd /mnt/1T-Data/XGBoost-LightGBM
+cd /mnt/1Tb-Data/XGBoost-LightGBM
 source .venv/bin/activate
 ```
 
@@ -422,8 +477,8 @@ bash scripts/sunday_check.sh
 ### KPI-Report (`reports/weekly_kpi_report.py`)
 
 ```bash
-# Wöchentlicher Report (mit korrektem Log-Pfad für paper_test128)
-python reports/weekly_kpi_report.py --tage 7 --log_dir logs/paper_test128
+# Wöchentlicher Report (Standard-Log-Pfad: logs/)
+python reports/weekly_kpi_report.py --tage 7 --log_dir logs
 
 # 14-Tage-Report
 python reports/weekly_kpi_report.py --tage 14
@@ -483,7 +538,7 @@ bash run_pipeline_v2_v3.sh
 ### Automatisch (alle Modelle + Skript)
 
 ```bash
-cd /mnt/1T-Data/XGBoost-LightGBM
+cd /mnt/1Tb-Data/XGBoost-LightGBM
 bash deploy_to_laptop.sh
 ```
 
@@ -519,16 +574,19 @@ ssh "sebastian setnescu@192.168.1.19" "echo OK"
 | USDJPY | 0.50 | 1 (Aufwärtstrend) | 1.5× ATR | 1.263 | +5.94% |
 
 > Hinweis: Diese Tabelle ist die historische H1-Baseline.
-> Aktueller Fokus (2026-03-05) ist Shadow-Compare im Two-Stage-Setup (M5).
+> Aktueller Fokus (2026-03-14) ist Two-Stage v4 (H1-Bias + M15-Entry) im Paper-Betrieb.
 
-## 📉 Aktueller Two-Stage Status (Stand: 2026-03-05, Stress-Re-Run)
+## 📉 Aktueller Two-Stage Status (Stand: 2026-03-14)
 
-| Symbol | Version | Sharpe | PF | MaxDD | Status |
-| ------ | ------- | ------ | -- | ----- | ------ |
-| USDCAD | v5 | -23.002 | 0.011 | -164.30% | ❌ NO-GO |
-| USDJPY | v5 | -2.140 | 0.692 | -34.36% | ❌ NO-GO |
+### Aktives Setup: Two-Stage v4 (H1-Bias + M15-Entry)
 
-> Konsequenz: Weiterhin **PAPER_ONLY** und Shadow-Compare-Laufzeit bewerten.
+| Symbol | Version | Schwelle | Regime-Filter | ATR-SL | Modus |
+| ------ | ------- | -------- | ------------- | ------ | ----- |
+| USDCAD | v4 | 0.45 | 0,1,2,3 | 2.0× ATR | Paper |
+| USDJPY | v4 | 0.45 | 0,1,2,3 | 2.0× ATR | Paper |
+
+> v5 Stress-Re-Run (2026-03-05) war NO-GO: USDCAD Sharpe -23, USDJPY Sharpe -2.1.
+> Aktives Setup ist v4 mit H1-Bias + M15-Entry (Kongruenzfilter aktiv).
 
 ---
 
@@ -547,11 +605,11 @@ ssh "sebastian setnescu@192.168.1.19" "echo OK"
 
 | Was | Linux Server | Windows Laptop |
 | --- | ------------ | -------------- |
-| Projektordner | `/mnt/1T-Data/XGBoost-LightGBM/` | `C:\Users\Sebastian Setnescu\mt5_trading\` |
+| Projektordner | `/mnt/1Tb-Data/XGBoost-LightGBM/` | `C:\Users\Sebastian Setnescu\mt5_trading\` |
 | venv | `.venv/bin/activate` | `venv\Scripts\activate` |
 | Modelle | `models/` | `models/` |
 | Daten (CSV) | `data/` | `data/` |
-| Logs | – | `logs/` |
+| Logs | `logs/` (via Sync vom Laptop) | `logs/` |
 | Backtest-Ergebnisse | `backtest/` | – |
 | Reports | `reports/` | – |
 
@@ -559,4 +617,4 @@ ssh "sebastian setnescu@192.168.1.19" "echo OK"
 
 ## Stand
 
-Letzte Aktualisierung: 2026-03-05
+Letzte Aktualisierung: 2026-03-14

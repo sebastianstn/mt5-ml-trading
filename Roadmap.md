@@ -792,7 +792,7 @@ python backtest/backtest.py --symbol USDJPY --schwelle 0.50 --regime_filter 1 --
 | `CLAUDE.md` | Instruktionen für KI-Assistenten (Zielwerte, Regeln, Tech-Stack) |
 | `Roadmap.md` | Diese Datei – Projektplan mit allen Phasen |
 | `BEFEHLE.md` | Alle CLI-Befehle für Server + Laptop auf einen Blick |
-| `NOMENKLATUR.md` | Alle Abkürzungen, Fachbegriffe und Namenskonventionen |
+| `docs/reference/NOMENKLATUR.md` | Alle Abkürzungen, Fachbegriffe und Namenskonventionen |
 | `README.md` | Projektbeschreibung und Setup-Anleitung |
 
 ---

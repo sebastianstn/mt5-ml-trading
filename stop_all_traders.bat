@@ -70,7 +70,10 @@ endlocal
 exit /b 0
 
 :kill_window
-taskkill /F /FI "WINDOWTITLE eq %~1" /T >nul 2>&1
+REM Kein /T (Tree-Kill) hier – verhindert Race Condition, bei der cmd.exe
+REM sich selbst im Prozessbaum killt und das Sprungziel verliert.
+REM Kind-Prozesse (Python) werden in der zweiten Phase sauber per CommandLine beendet.
+taskkill /F /FI "WINDOWTITLE eq %~1" >nul 2>&1
 if not errorlevel 1 (
     echo   [OK] Fenster %~1 beendet.
 )

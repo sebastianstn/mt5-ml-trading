@@ -7,6 +7,8 @@ Unterstützt Single-Stage (H1) und Two-Stage Shadow-Mode (H1 + M5).
 Läuft auf: Windows 11 Laptop
 """
 
+# pylint: disable=logging-fstring-interpolation
+
 import logging
 from typing import Any, Optional, Tuple, cast
 
@@ -108,7 +110,9 @@ def signal_generieren(
     x_features = letzte_kerze[verfuegbare].copy()
 
     if x_features.isna().any().any():
-        logger.warning("NaN-Werte in Features – werden mit Median der letzten 50 Kerzen gefüllt")
+        logger.warning(
+            "NaN-Werte in Features – werden mit Median der letzten 50 Kerzen gefüllt"
+        )
         nan_fill = df[verfuegbare].iloc[-50:].median()
         x_features = x_features.fillna(nan_fill)
 
@@ -131,17 +135,25 @@ def signal_generieren(
 
     if decision_mapping == "long_prob":
         if long_prob >= schwelle:
-            logger.info(f"→ Long-Signal ausgelöst (proba_long={long_prob:.1%} >= {schwelle:.1%})")
+            logger.info(
+                f"→ Long-Signal ausgelöst (proba_long={long_prob:.1%} >= {schwelle:.1%})"
+            )
             return 2, long_prob, aktuelles_regime, atr_pct
         if long_prob <= short_schwelle_eff:
-            logger.info(f"→ Short-Signal ausgelöst (proba_long={long_prob:.1%} <= {short_schwelle_eff:.1%})")
+            logger.info(
+                f"→ Short-Signal ausgelöst (proba_long={long_prob:.1%} <= {short_schwelle_eff:.1%})"
+            )
             return -1, 1.0 - long_prob, aktuelles_regime, atr_pct
     else:
         if raw_pred == 2 and long_prob >= schwelle:
-            logger.info(f"→ Long-Signal ausgelöst (proba_long={long_prob:.1%} >= {schwelle:.1%})")
+            logger.info(
+                f"→ Long-Signal ausgelöst (proba_long={long_prob:.1%} >= {schwelle:.1%})"
+            )
             return 2, long_prob, aktuelles_regime, atr_pct
         if raw_pred == 0 and short_prob >= short_schwelle_eff:
-            logger.info(f"→ Short-Signal ausgelöst (proba_short={short_prob:.1%} >= {short_schwelle_eff:.1%})")
+            logger.info(
+                f"→ Short-Signal ausgelöst (proba_short={short_prob:.1%} >= {short_schwelle_eff:.1%})"
+            )
             return -1, short_prob, aktuelles_regime, atr_pct
 
     logger.info(
@@ -161,9 +173,12 @@ def shadow_signal_generieren(
     two_stage_kongruenz: bool = True,
     regime_erlaubt: Optional[list] = None,
     two_stage_config: Optional[dict] = None,
+    two_stage_mode: str = "primary",
+    two_stage_htf_schwelle: Optional[float] = None,
+    two_stage_ltf_schwelle: Optional[float] = None,
 ) -> Tuple[int, float, int, float]:
     """
-    Shadow-Mode: Routet zwischen Single-Stage und Two-Stage.
+    Routet zwischen Single-Stage-Baseline und Two-Stage.
 
     Bei jedem Fehler im Two-Stage-Pfad: Hard Fallback zu Single-Stage.
 
@@ -178,21 +193,24 @@ def shadow_signal_generieren(
         two_stage_kongruenz: True=Kongruenzfilter aktiv, False=aggressiver
         regime_erlaubt:   Erlaubte Regime oder None
         two_stage_config: Two-Stage-Konfiguration (enable, ltf_timeframe, version, htf_df, ltf_df)
+        two_stage_mode: "shadow" = nur beobachten, Baseline handelt;
+                "primary" = Two-Stage ist Entscheidungsquelle.
+        two_stage_htf_schwelle: Optionale eigene HTF-Schwelle.
+        two_stage_ltf_schwelle: Optionale eigene LTF-Schwelle.
 
     Returns:
         Tuple (signal, prob, regime, atr_pct) – identisch zu signal_generieren()
     """
     # Single-Stage als Baseline (immer berechnen)
     baseline_signal, baseline_prob, baseline_regime, baseline_atr = signal_generieren(
-        df=df, modell=modell, schwelle=schwelle, short_schwelle=short_schwelle,
-        decision_mapping=decision_mapping, regime_spalte=regime_spalte, regime_erlaubt=regime_erlaubt,
+        df=df,
+        modell=modell,
+        schwelle=schwelle,
+        short_schwelle=short_schwelle,
+        decision_mapping=decision_mapping,
+        regime_spalte=regime_spalte,
+        regime_erlaubt=regime_erlaubt,
     )
-
-    baseline_prob_label = (
-        "proba_long" if baseline_signal == 2
-        else "short_score(1-proba_long)" if baseline_signal == -1
-        else "score"
-    ) if decision_mapping == "long_prob" else "proba_class"
 
     # Two-Stage nur wenn explizit enabled und Symbol freigegeben
     TWO_STAGE_APPROVED = {"USDCAD", "USDJPY"}
@@ -204,7 +222,9 @@ def shadow_signal_generieren(
 
     try:
         if not config.TWO_STAGE_VERFUEGBAR:
-            logger.warning(f"[{symbol}] Two-Stage-Modul nicht verfügbar – Fallback Single-Stage")
+            logger.warning(
+                f"[{symbol}] Two-Stage-Modul nicht verfügbar – Fallback Single-Stage"
+            )
             return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
         # Modelle laden (lazy)
@@ -212,24 +232,39 @@ def shadow_signal_generieren(
             ltf_tf = two_stage_config.get("ltf_timeframe", "M5")
             version = two_stage_config.get("version", "v4")
             htf_model, ltf_model = config.two_stage_modelle_laden(
-                models_dir=config.MODEL_DIR, symbol=symbol, ltf_timeframe=ltf_tf, version=version,
+                models_dir=config.MODEL_DIR,
+                symbol=symbol,
+                ltf_timeframe=ltf_tf,
+                version=version,
             )
             two_stage_config["htf_model"] = htf_model
             two_stage_config["ltf_model"] = ltf_model
-            logger.info(f"[{symbol}] Two-Stage-Modelle geladen: H1 HTF + {ltf_tf} LTF ({version})")
+            logger.info(
+                f"[{symbol}] Two-Stage-Modelle geladen: H1 HTF + {ltf_tf} LTF ({version})"
+            )
 
         htf_df = two_stage_config.get("htf_df")
         ltf_df = two_stage_config.get("ltf_df")
         if htf_df is None or ltf_df is None:
-            logger.warning(f"[{symbol}] HTF/LTF DataFrames fehlen – Fallback Single-Stage")
+            logger.warning(
+                f"[{symbol}] HTF/LTF DataFrames fehlen – Fallback Single-Stage"
+            )
             return baseline_signal, baseline_prob, baseline_regime, baseline_atr
 
         ts_signal = config.zwei_stufen_signal(
-            htf_df=htf_df, ltf_df=ltf_df,
-            htf_model=two_stage_config["htf_model"], ltf_model=two_stage_config["ltf_model"],
-            htf_feature_spalten=two_stage_config.get("htf_features", config.FEATURE_SPALTEN),
-            ltf_feature_spalten=two_stage_config.get("ltf_features", config.FEATURE_SPALTEN),
+            htf_df=htf_df,
+            ltf_df=ltf_df,
+            htf_model=two_stage_config["htf_model"],
+            ltf_model=two_stage_config["ltf_model"],
+            htf_feature_spalten=two_stage_config.get(
+                "htf_features", config.FEATURE_SPALTEN
+            ),
+            ltf_feature_spalten=two_stage_config.get(
+                "ltf_features", config.FEATURE_SPALTEN
+            ),
             schwelle=schwelle,
+            htf_schwelle=two_stage_htf_schwelle,
+            ltf_schwelle=two_stage_ltf_schwelle,
         )
 
         logger.info(
@@ -249,7 +284,9 @@ def shadow_signal_generieren(
         two_stage_config["last_ltf_signal"] = ltf_signal
 
         allow_neutral_htf = bool(
-            two_stage_config.get("allow_neutral_htf_entries", config.STANDARD_TWO_STAGE_ALLOW_NEUTRAL_HTF)
+            two_stage_config.get(
+                "allow_neutral_htf_entries", config.STANDARD_TWO_STAGE_ALLOW_NEUTRAL_HTF
+            )
         )
         kongruent = True
 
@@ -269,6 +306,20 @@ def shadow_signal_generieren(
             )
             return 0, ts_signal.prob, baseline_regime, baseline_atr
 
+        # Sicherheitswarnung: Trade gegen HTF-Bias ohne aktiven Kongruenzfilter
+        if not two_stage_kongruenz and not kongruent:
+            htf_name = config.KLASSEN_NAMEN.get(htf_bias, str(htf_bias))
+            ltf_dir = (
+                "Long"
+                if ltf_signal == 2
+                else "Short" if ltf_signal == -1 else "Neutral"
+            )
+            logger.warning(
+                f"[{symbol}] ⚠️ KONGRUENZ-KONFLIKT IGNORIERT! "
+                f"LTF={ltf_dir} vs HTF={htf_name} | "
+                f"Kongruenzfilter ist DEAKTIVIERT – Trade geht GEGEN den HTF-Bias!"
+            )
+
         if ts_signal.signal != baseline_signal:
             logger.info(
                 f"[{symbol}] SHADOW-DIVERGENZ | Two-Stage={ts_signal.signal} | Baseline={baseline_signal}"
@@ -276,11 +327,24 @@ def shadow_signal_generieren(
         else:
             logger.info(f"[{symbol}] SHADOW-KONGRUENZ | Signal={ts_signal.signal}")
 
+        mode = (two_stage_mode or "primary").strip().lower()
+        if mode == "shadow":
+            # Echter Shadow-Modus: Baseline entscheidet über Trades.
+            return baseline_signal, baseline_prob, baseline_regime, baseline_atr
+
+        # Default + "primary": Two-Stage entscheidet über Trades.
         return ts_signal.signal, ts_signal.prob, baseline_regime, baseline_atr
 
     except FileNotFoundError as e:
-        logger.warning(f"[{symbol}] Two-Stage-Modelle nicht gefunden: {e} – Fallback Single-Stage")
+        logger.warning(
+            f"[{symbol}] ⚠️ Two-Stage-Modelle nicht gefunden: {e} – "
+            f"FALLBACK auf Single-Stage (KEIN HTF-Schutz aktiv!)"
+        )
         return baseline_signal, baseline_prob, baseline_regime, baseline_atr
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error(f"[{symbol}] Two-Stage-Fehler: {e} – Fallback Single-Stage", exc_info=True)
+        logger.error(
+            f"[{symbol}] ⚠️ Two-Stage-Fehler: {e} – "
+            f"FALLBACK auf Single-Stage (KEIN HTF-Schutz aktiv!)",
+            exc_info=True,
+        )
         return baseline_signal, baseline_prob, baseline_regime, baseline_atr

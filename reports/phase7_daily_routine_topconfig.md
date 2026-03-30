@@ -3,14 +3,14 @@
 Gültig für:
 
 - Operative Symbole: `USDCAD`, `USDJPY`
-- Setup: `start_testphase_topconfig.bat` (Paper, Two-Stage v4)
+- Setup: `start_testphase_topconfig_H1_M15.bat` (Paper, Two-Stage v4)
 
 ## Morgen-Check (3 Schritte, 5–10 Minuten)
 
 1. **Windows Laptop**
    - MT5 offen + eingeloggt
    - Trader-Fenster laufen (`USDCAD`, `USDJPY`)
-   - Falls nicht: `start_testphase_topconfig.bat` starten
+   - Falls nicht: `start_testphase_topconfig_H1_M15.bat` starten
 
 2. **Linux Freshness-Check**
    - `python scripts/verify_live_log_sync.py --symbols USDCAD,USDJPY --max_age_minutes 10`

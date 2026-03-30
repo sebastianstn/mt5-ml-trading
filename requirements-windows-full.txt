@@ -1,0 +1,52 @@
+# ============================================================
+# Windows 11: ALLE Abhaengigkeiten (Training + Live-Trading)
+#
+# Installieren mit:
+#     python -m venv .venv
+#     .venv\Scripts\activate
+#     pip install -r requirements-windows-full.txt
+#     pip install pandas_ta --no-deps
+#
+# Diese Datei kombiniert requirements-server.txt und
+# requirements-laptop.txt fuer Windows 11 (alles auf einer Maschine).
+# ============================================================
+
+# --- MT5-Verbindung (nur Windows) ---
+MetaTrader5>=5.0.45
+
+# --- Datenverarbeitung ---
+pandas>=2.0.0
+numpy>=1.24.0
+
+# --- Technische Indikatoren ---
+# WICHTIG: pandas_ta SEPARAT installieren mit --no-deps!
+# Grund: pandas_ta 0.4.x haengt von numba ab, numba unterstuetzt nicht alle Python-Versionen.
+# Installieren mit: pip install pandas_ta --no-deps
+
+# --- Machine Learning ---
+xgboost>=2.0.0
+lightgbm>=4.0.0
+scikit-learn>=1.3.0
+hmmlearn>=0.3.3
+
+# --- Hyperparameter-Optimierung ---
+optuna>=3.4.0
+
+# --- Backtesting ---
+vectorbt>=0.26.0
+
+# --- Modell-Erklaerbarkeit ---
+shap>=0.43.0
+
+# --- Modell-Speicherung ---
+joblib>=1.3.0
+
+# --- Visualisierung ---
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# --- Umgebungsvariablen ---
+python-dotenv>=1.0.0
+
+# --- HTTP-Anfragen (externe APIs) ---
+requests>=2.28.0

@@ -52,20 +52,22 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Pfade
+BASE_DIR = Path(__file__).parent.parent
+DATA_DIR = BASE_DIR / "data"
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 # Logging konfigurieren
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("labeling.log", encoding="utf-8"),
+        logging.FileHandler(LOG_DIR / "labeling.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
-
-# Pfade
-BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / "data"
 
 # Symbole
 SYMBOLE = [

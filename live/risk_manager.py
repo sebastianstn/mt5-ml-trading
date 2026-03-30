@@ -5,16 +5,18 @@ Schützt das Kapital durch automatische Stopp-Logik und überwacht offene Positi
 Läuft auf: Windows 11 Laptop
 """
 
+# pylint: disable=logging-fstring-interpolation
+
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 try:
     from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+    from live.trade_logger import trade_close_loggen
 except ImportError:
     import config  # Import direkt aus live/-Verzeichnis
-from mt5_connector import alle_positionen_schliessen
-from trade_logger import trade_close_loggen
+    from trade_logger import trade_close_loggen
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +93,9 @@ def kill_switch_pruefen(
         modus = "PAPER" if paper_trading else "LIVE"
         logger.critical("=" * 65)
         logger.critical(f"[{symbol}] KILL-SWITCH AUSGELÖST! [{modus}]")
-        logger.critical(f"[{symbol}] Drawdown: {drawdown_pct:.1%} (Limit: {max_dd_pct:.1%})")
+        logger.critical(
+            f"[{symbol}] Drawdown: {drawdown_pct:.1%} (Limit: {max_dd_pct:.1%})"
+        )
         logger.critical(
             f"[{symbol}] Startkapital: {start_equity:.2f} | "
             f"Aktuell: {aktuell_equity:.2f} | Verlust: {verlust:.2f}"
@@ -105,7 +109,9 @@ def kill_switch_pruefen(
             f"[{symbol}] Drawdown-WARNUNG: {drawdown_pct:.1%} (Kill-Switch-Limit: {max_dd_pct:.1%})"
         )
     elif drawdown_pct >= max_dd_pct * 0.50:
-        logger.warning(f"[{symbol}] Drawdown {drawdown_pct:.1%} – Kill-Switch bei {max_dd_pct:.1%}")
+        logger.warning(
+            f"[{symbol}] Drawdown {drawdown_pct:.1%} – Kill-Switch bei {max_dd_pct:.1%}"
+        )
 
     return False
 
@@ -164,21 +170,27 @@ def offenen_trade_pruefen(
             target_position_id = position_ticket
 
             if target_position_id <= 0 and deal_ticket > 0:
-                open_deals = [d for d in deals if int(getattr(d, "ticket", 0)) == deal_ticket]
+                open_deals = [
+                    d for d in deals if int(getattr(d, "ticket", 0)) == deal_ticket
+                ]
                 if open_deals:
-                    target_position_id = int(getattr(open_deals[-1], "position_id", 0) or 0)
+                    target_position_id = int(
+                        getattr(open_deals[-1], "position_id", 0) or 0
+                    )
 
             close_deals = []
             if target_position_id > 0:
                 close_deals = [
-                    d for d in deals
+                    d
+                    for d in deals
                     if int(getattr(d, "position_id", 0) or 0) == target_position_id
                     and int(getattr(d, "entry", -1)) == int(deal_entry_out)
                 ]
 
             if not close_deals and target_position_id > 0:
                 close_deals = [
-                    d for d in deals
+                    d
+                    for d in deals
                     if int(getattr(d, "position_id", 0) or 0) == target_position_id
                     and int(getattr(d, "entry", -1)) in (1, 3)
                 ]
@@ -200,9 +212,14 @@ def offenen_trade_pruefen(
                 close_grund = _close_grund_aus_deal(deal)
 
                 trade_close_loggen(
-                    symbol=symbol, ticket=target_position_id, richtung=richtung,
-                    entry_price=entry_price, exit_price=exit_price,
-                    pnl_pips=pnl_pips, pnl_money=pnl_money, close_grund=close_grund,
+                    symbol=symbol,
+                    ticket=target_position_id,
+                    richtung=richtung,
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    pnl_pips=pnl_pips,
+                    pnl_money=pnl_money,
+                    close_grund=close_grund,
                     dauer_minuten=dauer_min,
                     htf_bias=letzter_trade.get("htf_bias"),
                     ltf_signal=letzter_trade.get("ltf_signal"),

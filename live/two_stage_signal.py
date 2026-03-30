@@ -131,6 +131,8 @@ def zwei_stufen_signal(
     htf_feature_spalten: list[str],
     ltf_feature_spalten: list[str],
     schwelle: float = 0.55,
+    htf_schwelle: float | None = None,
+    ltf_schwelle: float | None = None,
 ) -> ZweiStufenSignal:
     """Erzeugt ein kombiniertes Signal aus HTF-Bias und LTF-Entry.
 
@@ -146,7 +148,9 @@ def zwei_stufen_signal(
         ltf_model: Trainiertes LTF-Modell.
         htf_feature_spalten: Featureliste des HTF-Modells.
         ltf_feature_spalten: Featureliste des LTF-Modells.
-        schwelle: Mindestwahrscheinlichkeit für Short/Long.
+        schwelle: Fallback-Mindestwahrscheinlichkeit für Short/Long.
+        htf_schwelle: Optionale HTF-Schwelle; darunter wird HTF als Neutral behandelt.
+        ltf_schwelle: Optionale LTF-Schwelle; falls None wird ``schwelle`` genutzt.
 
     Returns:
         ZweiStufenSignal mit Signal und Diagnoseinformationen.
@@ -158,6 +162,19 @@ def zwei_stufen_signal(
 
     htf_proba_arr = _modell_predict_proba(htf_model, htf_x)[0]
     htf_klasse = int(np.argmax(htf_proba_arr))
+
+    # M3: Separate HTF-Schwelle – wenn weder Short noch Long sie überschreitet,
+    # wird HTF explizit als Neutral klassifiziert.
+    if htf_schwelle is not None:
+        htf_thr = float(htf_schwelle)
+        short_ok = float(htf_proba_arr[0]) >= htf_thr
+        long_ok = float(htf_proba_arr[2]) >= htf_thr
+        if short_ok and (float(htf_proba_arr[0]) >= float(htf_proba_arr[2])):
+            htf_klasse = 0
+        elif long_ok and (float(htf_proba_arr[2]) > float(htf_proba_arr[0])):
+            htf_klasse = 2
+        else:
+            htf_klasse = 1
 
     # 2) LTF-Features vorbereiten und HTF-Bias anhängen.
     ltf_row = _letzte_geschlossene_zeile(ltf_df)
@@ -182,10 +199,11 @@ def zwei_stufen_signal(
     ltf_entry_erlaubt = True
 
     # Schwellenwert nur für aktive Trades anwenden.
-    if signal == 2 and float(ltf_proba_arr[2]) < schwelle:
+    ltf_thr = float(ltf_schwelle) if ltf_schwelle is not None else float(schwelle)
+    if signal == 2 and float(ltf_proba_arr[2]) < ltf_thr:
         signal = 0
         ltf_entry_erlaubt = False
-    if signal == -1 and float(ltf_proba_arr[0]) < schwelle:
+    if signal == -1 and float(ltf_proba_arr[0]) < ltf_thr:
         signal = 0
         ltf_entry_erlaubt = False
 

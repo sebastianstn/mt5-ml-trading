@@ -8,7 +8,8 @@
 // ║                                                              ║
 // ║   WIE ES FUNKTIONIERT (Gesamtbild):                          ║
 // ║   1. Python (live_trader.py) laeuft auf dem Windows-Laptop   ║
-// ║      und schreibt alle 5 Min eine CSV-Datei ins MT5-         ║
+// ║      und schreibt pro neuer Signal-Kerze (aktuell M15)       ║
+// ║      eine CSV-Datei ins MT5-                                  ║
 // ║      Common/Files-Verzeichnis (z.B. USDJPY_signals.csv)      ║
 // ║   2. Dieser Indikator liest diese CSV-Datei alle 5 Sekunden  ║
 // ║   3. Er zeigt die Daten als:                                 ║
@@ -57,18 +58,18 @@ input bool InpAlertPrintToJournal = false;  // true = Alert-Text zusaetzlich ins
 
 // --- Freshness / "Wie alt duerfen die Daten sein?" ---
 // Wenn die CSV-Daten aelter als X Minuten sind, gelten sie als "STALE" (veraltet).
-// Bei H1-Signalen: Die CSV wird nur 1x pro Stunde aktualisiert, daher ist 70 min sinnvoll.
+// Im aktuellen H1->M15-Betrieb werden Signale pro M15-Kerze aktualisiert.
 // Freshness-Schwelle in Minuten:
 // H1: 70 (empfohlen), M30: 40, M15: 25, M5: 15
 // Hintergrund: Bei H1 kommt ein neues Update typischerweise nur pro neuer Kerze.
-input int InpStaleMinutes = 70;             // Fester Stale-Schwellenwert (Fallback)
+input int InpStaleMinutes = 25;             // Fester Stale-Schwellenwert (Fallback)
 input bool InpAutoStaleByTimeframe = true;  // true = Schwelle automatisch aus Zeitrahmen berechnen
                                             // (ueberschreibt InpStaleMinutes)
-input bool InpUseSignalTimeframeForStale = true; // true = nutze den Signal-Zeitrahmen (H1=60 Min)
-                                                  // Dies ist wichtig wenn du einen M5-Chart hast
-                                                  // aber H1-Signale empfaengst!
-input int InpSignalTimeframeMinutes = 60;   // Signal-Zeitrahmen in Minuten (H1=60, M30=30, M15=15, M5=5)
-input int InpStaleBufferMinutes = 10;       // Zusaetzlicher Puffer: 60 + 10 = 70 min Grenze
+input bool InpUseSignalTimeframeForStale = true; // true = nutze den Signal-Zeitrahmen (M15=15 Min im aktuellen Setup)
+                                                  // Dies ist wichtig wenn du einen anderen Chart-TF offen hast
+                                                  // aber M15-Signale empfaengst!
+input int InpSignalTimeframeMinutes = 15;   // Signal-Zeitrahmen in Minuten (H1=60, M30=30, M15=15, M5=5)
+input int InpStaleBufferMinutes = 20;       // Zusaetzlicher Puffer: 15 + 20 = 35 min Grenze (robuster im M15-Betrieb)
 input int InpMissingFileLogEverySec = 300;  // Wenn CSV fehlt: alle 300 Sek (5 Min) eine Warnung ins Log schreiben
 
 // --- Chart-Zeichnungen ---
@@ -89,7 +90,8 @@ input color InpDashboardAccentColor = clrDeepSkyBlue; // Akzentfarbe fuer Titel 
 input color InpDashboardMutedTextColor = clrSilver; // Ruhigere Farbe fuer Sekundaerinfos
 input color InpDashboardBorderColor = clrSlateGray; // Rahmenfarbe fuer harmonische Abgrenzung
 input bool InpDashboardCompactMode = true;    // true = kurze Zeilen (empfohlen), false = ausfuehrlich
-input double InpSignalThresholdDisplay = 0.45; // Sichtbarer Schwellenwert aus live_trader.py fuer schnelle Kontrolle im Dashboard
+input double InpSignalThresholdDisplay = 0.50; // Sichtbarer Schwellenwert aus live_trader.py fuer schnelle Kontrolle im Dashboard
+input double InpDashboardStartEquity = 10000.0; // Startkapital fuer DD-Schaetzung aus *_closes.csv
 
 // --- Farben fuer Trade-Zeichnungen ---
 input color InpColorLong = clrDodgerBlue;   // Farbe fuer Long-Trades (Kauf) = Blau
@@ -193,13 +195,13 @@ int g_hist_count_2 = 0;           // Anzahl historischer Trade-Signale fuer Symb
 // "Stale" = veraltet. Wenn die CSV-Daten zu alt sind, warnt uns der
 // Indikator. Die Grenze haengt vom Signal-Zeitrahmen ab:
 // - H1-Signal: CSV darf max. 70 Min alt sein (60 + 10 Buffer)
-// - M5-Signal: CSV darf max. 15 Min alt sein (5 + 10 Buffer)
+// - M15-Signal (aktueller Standard): CSV darf max. 25 Min alt sein (15 + 10 Buffer)
 
 // StaleBaseMinutes() – Ermittelt den Basis-Zeitrahmen in Minuten.
 // Entweder aus dem Signal-TF (empfohlen) oder dem aktuellen Chart-TF.
 int StaleBaseMinutes()
 {
-    // Option 1: Signal-TF nutzen (empfohlen wenn H1-Signale auf M5-Chart laufen)
+    // Option 1: Signal-TF nutzen (empfohlen wenn Signale und Chart-TF unterschiedlich sind)
     if (InpUseSignalTimeframeForStale)
     {
         if (InpSignalTimeframeMinutes > 0)
@@ -220,7 +222,7 @@ int StaleBaseMinutes()
 }
 
 // EffectiveStaleMinutes() – Die tatsaechliche Stale-Grenze (Basis + Buffer).
-// Beispiel: H1 (60) + Buffer (10) = 70 Minuten. Erst danach zeigt das Dashboard "STALE".
+// Beispiel: M15 (15) + Buffer (10) = 25 Minuten. Erst danach zeigt das Dashboard "STALE".
 int EffectiveStaleMinutes()
 {
     // Manuelle Einstellung verwenden wenn Auto-Modus deaktiviert
@@ -716,7 +718,7 @@ string FreshnessText(const SignalSnapshot &snap)
         return "keine Daten";  // Kein gueltiger Zeitstempel vorhanden
 
     int stale_minutes = EffectiveStaleMinutes();              // Grenzwert (z.B. 70 Min)
-    int age_min = (int)((TimeCurrent() - snap.ts) / 60);     // Alter in Minuten
+    int age_min = (int)((TimeGMT() - snap.ts) / 60);         // Alter in Minuten (UTC gegen UTC)
     string tag = (age_min <= stale_minutes) ? "OK" : "STALE"; // Frisch oder veraltet?
     return StringFormat("%s (%d min)", tag, age_min);
 }
@@ -737,7 +739,7 @@ string SnapshotState(const SignalSnapshot &snap)
         return "NO_TS";    // Kein Zeitstempel in der letzten Zeile
 
     int stale_minutes = EffectiveStaleMinutes();
-    int age_min = (int)((TimeCurrent() - snap.ts) / 60);
+    int age_min = (int)((TimeGMT() - snap.ts) / 60);
     if (age_min > stale_minutes)
         return "STALE";    // Daten aelter als Grenzwert
 
@@ -853,6 +855,94 @@ int CountRecentEntries(const string symbol, const int max_entries)
     if (!ReadRecentEntries(symbol, entries, max_entries))
         return 0;
     return ArraySize(entries);  // Anzahl der Eintraege mit Signal
+}
+
+// BuildCloseFileName() – Erzeugt den Dateinamen der Close-CSV pro Symbol.
+// Beispiel: "USDJPY" -> "USDJPY_closes.csv"
+string BuildCloseFileName(const string symbol)
+{
+    return symbol + "_closes.csv";
+}
+
+// LiveStatsTextForSymbol() – Berechnet kompakte Live-Statistiken aus *_closes.csv.
+// Ausgabeformat: "Live: T7d=12 | WR=58% | DD=3.2%"
+string LiveStatsTextForSymbol(const string symbol)
+{
+    int flags = FILE_READ | FILE_CSV | FILE_ANSI;
+    if (InpUseCommonFiles)
+        flags |= FILE_COMMON;
+
+    string file_name = BuildCloseFileName(symbol);
+    int h = FileOpen(file_name, flags, ',');
+    if (h == INVALID_HANDLE)
+        return "Live: n/a (kein closes.csv)";
+
+    string headers[];
+    ReadCsvLine(h, headers);
+    if (ArraySize(headers) == 0)
+    {
+        FileClose(h);
+        return "Live: n/a (Header fehlt)";
+    }
+
+    int idx_time = FindHeaderIndex(headers, "time");
+    int idx_pnl = FindHeaderIndex(headers, "pnl_money");
+    if (idx_time < 0 || idx_pnl < 0)
+    {
+        FileClose(h);
+        return "Live: n/a (Spalten fehlen)";
+    }
+
+    datetime now_utc = TimeGMT();
+    datetime cutoff = now_utc - 7 * 24 * 60 * 60;
+    int trades_7d = 0;
+    int wins_7d = 0;
+
+    double equity = InpDashboardStartEquity;
+    double peak = equity;
+
+    while (!FileIsEnding(h))
+    {
+        string cols[];
+        ReadCsvLine(h, cols);
+        if (ArraySize(cols) == 0)
+            continue;
+
+        datetime ts = ParseCsvTime(SafeField(cols, idx_time, ""));
+        double pnl = StringToDouble(SafeField(cols, idx_pnl, "0"));
+
+        if (ts <= 0)
+            continue;
+
+        equity += pnl;
+        if (equity > peak)
+            peak = equity;
+
+        if (ts >= cutoff)
+        {
+            trades_7d++;
+            if (pnl > 0.0)
+                wins_7d++;
+        }
+    }
+
+    FileClose(h);
+
+    double wr = (trades_7d > 0) ? (100.0 * wins_7d / trades_7d) : 0.0;
+    double dd = (peak > 0.0) ? (100.0 * (peak - equity) / peak) : 0.0;
+
+    return StringFormat("Live: T7d=%d | WR=%.0f%% | DD=%.1f%%", trades_7d, wr, dd);
+}
+
+// LiveStatsText() – Liefert die Live-Statistik für das aktive Chart-Symbol.
+string LiveStatsText()
+{
+    string sym = Symbol();
+    if (StringCompare(sym, InpSymbol1) == 0 || StringCompare(sym, InpSymbol2) == 0)
+        return LiveStatsTextForSymbol(sym);
+
+    // Fallback: kombiniere beide operativen Symbole
+    return LiveStatsTextForSymbol(InpSymbol1) + " | " + LiveStatsTextForSymbol(InpSymbol2);
 }
 
 // OverallState() – Kombiniert den Status beider Symbole zu einem Gesamtstatus.
@@ -2125,6 +2215,7 @@ void DrawDashboard()
         string regime_text = RegimeModusText();
         string session_text = SessionText();
         string two_stage = TwoStageText();
+        string live_stats = LiveStatsText();
         string countdown = CountdownText();
 
         // Alles zusammenbauen mit Trennlinien
@@ -2142,7 +2233,8 @@ void DrawDashboard()
             ichimoku_text + "\n" +
             regime_text + "\n" +
             session_text + "\n" +
-            two_stage;
+            two_stage + "\n" +
+            live_stats;
 
         // Debug: Historie-Zaehler anzeigen (nur wenn aktiviert)
         if (InpDebugHistoryInfo)
@@ -2210,6 +2302,7 @@ void DrawDashboard()
         string regime_text_v = RegimeModusText();
         string session_text_v = SessionText();
         string two_stage_v = TwoStageText();
+        string live_stats_v = LiveStatsText();
         string countdown_v = CountdownText();
         dashboard_text += "\n" + sep + "\n" +
             countdown_v + "\n" +
@@ -2220,7 +2313,8 @@ void DrawDashboard()
             ichimoku_text_v + "\n" +
             regime_text_v + "\n" +
             session_text_v + "\n" +
-            two_stage_v;
+            two_stage_v + "\n" +
+            live_stats_v;
     }
 
     // === Text-Ausgabe: Label-Modus oder Comment()-Modus ===

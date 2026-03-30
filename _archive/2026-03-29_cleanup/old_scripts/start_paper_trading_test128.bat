@@ -8,14 +8,14 @@ REM Backtest-Sieger aus 50er Feintuning:
 REM   Test 128 = ZoneC s0.59 h18
 REM
 REM 1:1 übernehmbare Parameter in live_trader.py:
-REM   - Schwelle: gelockert auf 0.45 fuer mehr Live-Feedback
+REM   - Schwelle/Mapping: long_prob mit Long >= 50%%, Short <= 50%%
 REM   - Regime-Filter: 0,1,2,3
 REM   - ATR-SL: 1.5x
 REM   - TP/SL: 0.6%% / 0.3%%
 REM   - Cooldown: 3 Bars
 REM   - Nach Start: 5 Kerzen nur beobachten
 REM   - Two-Stage: H1 -> M5, Version v4
-REM   - Neutraler H1-Bias darf M5-Entries passieren
+REM   - Neutraler H1-Bias darf M15-Entries passieren
 REM   - Regime-Quelle: market_regime_hmm (hmmlearn-basiert, falls verfügbar)
 REM
 REM Wichtiger Unterschied:
@@ -30,8 +30,9 @@ REM ============================================================================
 
 setlocal
 
-set "BASE_DIR=C:\Users\Sebastian Setnescu\mt5_trading"
-set "PYTHON_EXE=%BASE_DIR%\venv\Scripts\python.exe"
+set "BASE_DIR=%~dp0"
+if "%BASE_DIR:~-1%"=="\" set "BASE_DIR=%BASE_DIR:~0,-1%"
+set "PYTHON_EXE=%BASE_DIR%\.venv\Scripts\python.exe"
 set "TRADER_SCRIPT=%BASE_DIR%\live\live_trader.py"
 set "TEST128_LOG_DIR=%BASE_DIR%\logs\paper_test128"
 
@@ -54,9 +55,24 @@ if not exist "%BASE_DIR%" (
 )
 
 if not exist "%PYTHON_EXE%" (
-    echo [WARNUNG] venv-Python nicht gefunden: %PYTHON_EXE%
-    echo [INFO] Fallback auf System-Python aus PATH ...
-    set "PYTHON_EXE=python"
+    if exist "%BASE_DIR%\venv\Scripts\python.exe" (
+        echo [WARNUNG] .venv-Python nicht gefunden, nutze Legacy-Pfad venv\Scripts\python.exe
+        set "PYTHON_EXE=%BASE_DIR%\venv\Scripts\python.exe"
+    ) else (
+        echo [FEHLER] Kein Projekt-Python gefunden.
+        echo Erwartet: %BASE_DIR%\.venv\Scripts\python.exe
+        echo Optionaler Altpfad: %BASE_DIR%\venv\Scripts\python.exe
+        echo.
+        echo Loesung auf Windows:
+        echo   cd /d %BASE_DIR%
+        echo   .\setup_windows.bat
+        echo.
+        echo Alternativ manuell:
+        echo   python -m venv .venv
+        echo   .\.venv\Scripts\pip install -r requirements-laptop.txt
+        pause
+        exit /b 1
+    )
 )
 
 if not exist "%TRADER_SCRIPT%" (
@@ -79,7 +95,7 @@ set "MT5_TRADING_LOG_DIR=%TEST128_LOG_DIR%"
 
 echo ========================================================
 echo   MT5 Paper-Trade - Test 128 vorbereitet
-echo   USDCAD + USDJPY ^| Two-Stage v4 ^| M5
+echo   USDCAD + USDJPY ^| Two-Stage v4 ^| M15
 echo   Schwelle=45%% ^| TP=0.6%% ^| SL=0.3%%
 echo   Cooldown=3 Bars ^| ATR-SL 1.5x ^| Regime=0,1,2,3 ^| Quelle=HMM
 echo   Konto: %MT5_ACCOUNT_NAME% ^| %MT5_ACCOUNT_TYPE%
@@ -90,12 +106,12 @@ echo   Hinweis: Horizon 18 ist im Live-Trader derzeit nicht direkt setzbar
 echo ========================================================
 
 echo [INFO] Starte USDCAD im Paper-Modus...
-start "MT5-Paper-USDCAD-Test128" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDCAD --version v4 --paper_trading 1 --schwelle 0.45 --decision_mapping class --regime_source market_regime_hmm --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --kill_switch_dd 0.15 --kapital_start 10000 --log_subdir paper_test128 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
+start "MT5-Paper-USDCAD-Test128" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDCAD --version v4 --paper_trading 1 --schwelle 0.50 --short_schwelle 0.50 --decision_mapping long_prob --regime_source market_regime_hmm --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 2.0 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_mode primary --two_stage_ltf_timeframe M15 --two_stage_version v4 --two_stage_htf_schwelle 0.35 --two_stage_ltf_schwelle 0.50 --two_stage_kongruenz 1 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --kill_switch_dd 0.15 --kapital_start 10000 --max_spread_pips 2.0 --log_subdir paper_test128 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
 
 timeout /t 5 /nobreak >nul
 
 echo [INFO] Starte USDJPY im Paper-Modus...
-start "MT5-Paper-USDJPY-Test128" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDJPY --version v4 --paper_trading 1 --schwelle 0.45 --decision_mapping class --regime_source market_regime_hmm --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --kill_switch_dd 0.15 --kapital_start 10000 --log_subdir paper_test128 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
+start "MT5-Paper-USDJPY-Test128" "%ComSpec%" /k ""%PYTHON_EXE%" "%TRADER_SCRIPT%" --symbol USDJPY --version v4 --paper_trading 1 --schwelle 0.50 --short_schwelle 0.50 --decision_mapping long_prob --regime_source market_regime_hmm --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 2.0 --lot 0.01 --tp_pct 0.006 --sl_pct 0.003 --two_stage_enable 1 --two_stage_mode primary --two_stage_ltf_timeframe M15 --two_stage_version v4 --two_stage_htf_schwelle 0.35 --two_stage_ltf_schwelle 0.50 --two_stage_kongruenz 1 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --heartbeat_log 1 --kill_switch_dd 0.15 --kapital_start 10000 --max_spread_pips 2.0 --log_subdir paper_test128 --mt5_server "%MT5_SERVER%" --mt5_login "%MT5_LOGIN%" --mt5_password "%MT5_PASSWORD%""
 
 echo.
 echo [OK] Test 128 Paper-Trade wurde gestartet.

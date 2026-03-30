@@ -460,18 +460,11 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
     if int(kpi["live_signale"]) < ZIEL_SIGNALE_WOCHE:
         return "UNKLAR", "Zu wenige Live-Signale im Zeitraum"
 
-    # Statistische Signifikanz prüfen: Live-Closes vorhanden aber unter Minimum?
-    # Unterhalb von MIN_TRADES_STATISTIK sind Win-Rate und PF nicht belastbar.
     live_closes = int(kpi.get("live_closes", 0))
-    if 0 < live_closes < MIN_TRADES_STATISTIK:
-        fehlend = MIN_TRADES_STATISTIK - live_closes
-        return (
-            "DATENBASIS_ZU_KLEIN",
-            f"Nur {live_closes} Live-Trades (min. {MIN_TRADES_STATISTIK} für Signifikanz, "
-            f"noch {fehlend} fehlend – weiter Paper-Trading sammeln)",
-        )
 
-    if int(kpi.get("live_closes", 0)) >= ZIEL_CLOSES_WOCHE:
+    # Wochen-Gates priorisieren operative Live-Closes bereits ab dem Wochenminimum.
+    # Die Statistik-Signifikanz wird separat ausgewiesen und blockiert hier kein GO/NO-GO.
+    if live_closes >= ZIEL_CLOSES_WOCHE:
         checks = {
             "PF": (kpi.get("live_profit_factor") is not None)
             and float(kpi["live_profit_factor"]) >= ZIEL_PROFIT_FACTOR,
@@ -487,7 +480,7 @@ def status_bewerten(kpi: dict) -> tuple[str, str]:
         failed = [name for name, ok in checks.items() if not ok]
         return "NO-GO", f"Live-Close-KPI unter Ziel: {', '.join(failed)}"
 
-    if int(kpi.get("live_closes", 0)) > 0:
+    if live_closes > 0:
         return (
             "UNKLAR",
             "Live-Closes vorhanden, aber noch zu wenige für belastbare PnL-Gates",
@@ -750,7 +743,10 @@ def markdown_bericht_schreiben(
         f"- **Statistische Signifikanz (⚠️/✅):** KPIs sind erst ab {MIN_TRADES_STATISTIK} abgeschlossenen Trades belastbar. "
         "Darunter ist die Win-Rate statistisch zu unsicher für Entscheidungen.",
         "- **WR-CI 95%:** Wilson-Konfidenzintervall für die Win-Rate. Breite Spanne = wenig Daten, enge Spanne = belastbarer Wert.",
-        f"- **DATENBASIS_ZU_KLEIN:** Status wenn Live-Closes vorhanden aber < {MIN_TRADES_STATISTIK}. Kein GO/NO-GO möglich.",
+        (
+            f"- **UNKLAR:** Bei einzelnen Live-Closes unter {ZIEL_CLOSES_WOCHE} werden noch keine belastbaren "
+            "Live-PnL-Gates gezogen; weitere Paper-Trades sammeln."
+        ),
         (
             "- **Backtest-KPIs** bleiben Fallback, solange noch nicht genug Live-Closes vorhanden sind "
             "(`backtest/SYMBOL_trades.csv`)."

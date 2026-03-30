@@ -67,13 +67,14 @@ input double InpFallbackSlPct = 0.003;           // Fallback-SL in Dezimal (0.3%
 input double InpFallbackTpPct = 0.006;           // Fallback-TP in Dezimal (0.6%) wenn CSV kein TP hat
 
 // --- Sicherheit ---
-input int    InpMaxStaleMinutes = 10;            // Signal aelter als X Minuten → ignorieren
+input int    InpMaxStaleMinutes = 25;            // Signal aelter als X Minuten → ignorieren (M15-Default + Puffer)
 input bool   InpRequireSlTp = true;              // Trade nur wenn SL UND TP vorhanden sind
 
 // --- CSV-Trade-Log (fuer Auswertung) ---
 input bool   InpWriteTradeLog = true;            // true = CSV-Datei mit allen Trades schreiben
 input string InpTradeLogSuffix = "_ea_trades.csv"; // Dateiendung fuer Trade-Log
 input bool   InpShowChartComment = true;          // true = Status-Anzeige direkt im Chart
+input int    InpChartCommentMode = 1;             // 0 = Compact (kleiner Chart), 1 = Detailed (Standard)
 
 
 // ============================================================
@@ -168,6 +169,7 @@ int OnInit()
     PrintFormat("Stale-Limit:  %d Minuten", InpMaxStaleMinutes);
     PrintFormat("Trade-Log:    %s", InpWriteTradeLog ? "aktiv (CSV)" : "aus");
     PrintFormat("Chart-Status: %s", InpShowChartComment ? "aktiv" : "aus");
+    PrintFormat("Chart-Modus:  %s", InpChartCommentMode == 0 ? "Compact" : "Detailed");
     PrintFormat("═══════════════════════════════════════════════════");
 
     // CSV-Trade-Log Header schreiben (falls Datei neu)
@@ -987,6 +989,7 @@ void WriteTradeLogEntry(
 // UpdateChartComment() – Zeigt aktuellen EA-Status direkt im Chart an.
 void UpdateChartComment(const string extra_info)
 {
+    // Aktuellen Positionsstatus fuer die Anzeige bestimmen.
     string pos_status = "Keine";
     if (HasOpenPosition(g_symbol))
     {
@@ -994,24 +997,51 @@ void UpdateChartComment(const string extra_info)
         pos_status = (ptype == POSITION_TYPE_BUY) ? "LONG offen" : "SHORT offen";
     }
 
-    string comment = StringFormat(
-        "─── PythonSignalExecutor v1.10 ───\n"
-        "Symbol:    %s\n"
-        "Modus:     %s\n"
-        "Position:  %s\n"
-        "Trades:    %d geoeffnet | %d geschlossen\n"
-        "PnL:       %.2f (netto)\n"
-        "Letztes:   %s\n"
-        "Update:    %s UTC\n"
-        "──────────────────────────",
-        g_symbol,
-        InpDryRun ? "DRY-RUN" : "LIVE",
-        pos_status,
-        g_trade_count, g_close_count,
-        g_total_pnl,
-        extra_info,
-        TimeToString(TimeGMT(), TIME_DATE | TIME_SECONDS)
-    );
+    // UTC-Zeit nur einmal erzeugen und fuer beide Layouts verwenden.
+    string update_utc = TimeToString(TimeGMT(), TIME_DATE | TIME_SECONDS);
+    string comment = "";
 
+    // Compact-Modus: kurze, platzsparende Darstellung fuer kleine Charts.
+    if (InpChartCommentMode == 0)
+    {
+        comment = StringFormat(
+            "PyExec v1.10 | %s | %s\n"
+            "Pos: %s\n"
+            "T: %d/%d | PnL: %.2f\n"
+            "Event: %s\n"
+            "UTC: %s",
+            g_symbol,
+            InpDryRun ? "DRY" : "LIVE",
+            pos_status,
+            g_trade_count, g_close_count,
+            g_total_pnl,
+            extra_info,
+            update_utc
+        );
+    }
+    // Detailed-Modus: vollstaendige, gut gruppierte Darstellung.
+    else
+    {
+        comment = StringFormat(
+            "=== PythonSignalExecutor v1.10 ===\n"
+            "Symbol / Modus : %s | %s\n"
+            "Position       : %s\n"
+            "--------------------------------\n"
+            "Trades         : Open %d | Close %d\n"
+            "PnL (netto)    : %.2f\n"
+            "Letztes Event  : %s\n"
+            "Update (UTC)   : %s\n"
+            "================================",
+            g_symbol,
+            InpDryRun ? "DRY-RUN" : "LIVE",
+            pos_status,
+            g_trade_count, g_close_count,
+            g_total_pnl,
+            extra_info,
+            update_utc
+        );
+    }
+
+    // Kommentar im Chart anzeigen (ersetzt immer den vorherigen Kommentar).
     Comment(comment);
 }

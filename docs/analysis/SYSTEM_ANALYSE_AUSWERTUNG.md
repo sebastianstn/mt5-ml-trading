@@ -19,6 +19,7 @@
 - [7. Die 5 wichtigsten Fragen](#7-die-5-wichtigsten-fragen-ab-jetzt)
 - [8. Einordnung der Profitabilität](#8-einordnung-der-profitabilität)
 - [9. Konkrete nächste Schritte](#9-konkrete-nächste-schritte)
+- [9.2.1 KPI Go-No-Go Matrix (v4, woechentlich)](#921-kpi-go-no-go-matrix-v4-woechentlich)
 
 ---
 
@@ -353,6 +354,43 @@ Damit bleibt die richtige Haltung aktuell:
    - ähnliche Entry-Preise?
    - SL/TP konsistent?
    - Schließungsgründe nachvollziehbar?
+
+### 9.2.1 KPI Go-No-Go Matrix (v4, woechentlich)
+
+Die folgende Matrix gilt als operative Entscheidungsbasis für den aktuellen v4-Betrieb im Demo-/Paper-Modus.
+
+| KPI | GO (grün) | WATCH (gelb) | NO-GO (rot) |
+| --- | --- | --- | --- |
+| Sharpe (7d rollierend) | >= 0.8 | 0.5 bis < 0.8 | < 0.5 |
+| Profit Factor | >= 1.3 | 1.1 bis < 1.3 | < 1.1 |
+| Max Drawdown (Wochenpeak→Tal) | <= 10% | 10% bis 12% | > 12% |
+| Win-Rate | >= 50% | 45% bis < 50% | < 45% |
+| Trades pro Woche (pro Symbol) | >= 8 | 5 bis 7 | < 5 |
+| Spread-Blockquote | 10% bis 40% | 41% bis 55% | > 55% |
+| Kongruenz-Blocks bei HTF neutral | sichtbar + plausibel | unklar | fehlt/inkonsistent |
+| Technische Stabilität (Crashs/Exceptions) | 0 | 1 | >= 2 |
+
+**Entscheidungsregel (wöchentlich):**
+
+- **GO-Woche:** kein roter KPI und mindestens 5 grüne KPI.
+- **WATCH-Woche:** max. 1 roter KPI oder weniger als 5 grüne KPI.
+- **NO-GO-Woche:** 2+ rote KPI oder Drawdown > 12%.
+
+**Promotionsregel (Phase 7):**
+
+- v4 bleibt Paper/Demo, bis 12 GO-Wochen in Folge erreicht sind.
+- Bei 2 WATCH-Wochen in Folge: keine Promotion, nur kontrollierte Feinjustierung.
+- Bei NO-GO-Woche: Ursachenanalyse + Rollback auf letzte stabile Konfiguration.
+
+**Mindest-Dokumentation pro Woche (pro Symbol):**
+
+1. Trades gesamt, Wins/Losses
+2. PnL %, Profit Factor, Sharpe, Max Drawdown
+3. Anzahl Log-Events:
+   - `SPREAD-FILTER: Trade blockiert`
+   - `KONGRUENZ-FILTER ... BLOCKIERT`
+   - `Regime=Seitwärts → Schwelle erhöht`
+4. Anzahl Exceptions/Neustarts
 
 ### 9.3 Nächste 1–2 Wochen
 

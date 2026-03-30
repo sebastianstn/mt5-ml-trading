@@ -38,7 +38,7 @@ import argparse
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, cast
 
 # Datenverarbeitung
 import numpy as np
@@ -72,22 +72,24 @@ import seaborn as sns  # noqa: E402
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)  # Nur Warnungen im Log
 
+# Pfade
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+MODEL_DIR = BASE_DIR / "models"
+PLOTS_DIR = BASE_DIR / "plots"
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 # Logging konfigurieren
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("train_model.log", encoding="utf-8"),
+        logging.FileHandler(LOG_DIR / "train_model.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
-
-# Pfade
-BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
-MODEL_DIR = BASE_DIR / "models"
-PLOTS_DIR = BASE_DIR / "plots"
 
 # Klassen-Beschriftungen (für Berichte und Plots)
 KLASSEN_NAMEN = {0: "Short", 1: "Neutral", 2: "Long"}
@@ -273,7 +275,7 @@ def features_und_ziel(
 
 
 def daten_aufteilen(
-    X: pd.DataFrame,
+    x: pd.DataFrame,
     y: pd.Series,
     train_bis: str = "2021-12-31",
     val_bis: str = "2022-12-31",
@@ -290,7 +292,7 @@ def daten_aufteilen(
         Test:        2023+     (finale Bewertung, NIE ANFASSEN!)
 
     Args:
-        X: Feature-DataFrame mit DatetimeIndex
+        x: Feature-DataFrame mit DatetimeIndex
         y: Label-Series mit DatetimeIndex
         train_bis: Ende des Trainingszeitraums (inklusiv)
         val_bis: Ende des Validierungszeitraums (inklusiv)
@@ -301,23 +303,23 @@ def daten_aufteilen(
     # Zeitstempel-Grenzen in denselben Zeitzonen-Kontext bringen
     train_cutoff = pd.Timestamp(train_bis)
     val_cutoff = pd.Timestamp(val_bis)
-    index_tz = getattr(X.index, "tz", None)
+    index_tz = getattr(x.index, "tz", None)
     if index_tz is not None:
         train_cutoff = train_cutoff.tz_localize(index_tz)
         val_cutoff = val_cutoff.tz_localize(index_tz)
 
     # Primär-Split: feste Kalenderschnitte (historisch)
-    train_maske = X.index <= train_cutoff
-    val_maske = (X.index > train_cutoff) & (X.index <= val_cutoff)
-    test_maske = X.index > val_cutoff
+    train_maske = x.index <= train_cutoff
+    val_maske = (x.index > train_cutoff) & (x.index <= val_cutoff)
+    test_maske = x.index > val_cutoff
 
-    X_train, y_train = X[train_maske], y[train_maske]
-    X_val, y_val = X[val_maske], y[val_maske]
-    X_test, y_test = X[test_maske], y[test_maske]
+    X_train, y_train = x[train_maske], y[train_maske]
+    X_val, y_val = x[val_maske], y[val_maske]
+    X_test, y_test = x[test_maske], y[test_maske]
 
     # Fallback für neue Datensätze (z. B. nur 2024+): chronologischer 70/15/15-Split
     if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:
-        gesamt = len(X)
+        gesamt = len(x)
         if gesamt < 3:
             raise ValueError(
                 f"Zu wenig Daten für zeitlichen Split: {gesamt} Zeilen (mindestens 3 erforderlich)."
@@ -327,9 +329,9 @@ def daten_aufteilen(
         val_ende = max(train_ende + 1, int(gesamt * 0.85))
         val_ende = min(val_ende, gesamt - 1)
 
-        X_train, y_train = X.iloc[:train_ende], y.iloc[:train_ende]
-        X_val, y_val = X.iloc[train_ende:val_ende], y.iloc[train_ende:val_ende]
-        X_test, y_test = X.iloc[val_ende:], y.iloc[val_ende:]
+        X_train, y_train = x.iloc[:train_ende], y.iloc[:train_ende]
+        X_val, y_val = x.iloc[train_ende:val_ende], y.iloc[train_ende:val_ende]
+        X_test, y_test = x.iloc[val_ende:], y.iloc[val_ende:]
 
         logger.warning(
             "Feste Datums-Splits ergaben leere Teilmengen. "
@@ -337,7 +339,7 @@ def daten_aufteilen(
         )
 
     # Aufteilung protokollieren
-    gesamt = len(X)
+    gesamt = len(x)
     for name, X_teil in [
         ("Training  ", X_train),
         ("Validation", X_val),
@@ -714,7 +716,7 @@ def optuna_lightgbm(
 
 def modell_evaluieren(
     modell,
-    X: pd.DataFrame,
+    x: pd.DataFrame,
     y: pd.Series,
     modell_name: str,
     datensatz: str = "Validierung",
@@ -724,7 +726,7 @@ def modell_evaluieren(
 
     Args:
         modell: Trainiertes Modell (XGBoost oder LightGBM)
-        X: Feature-Matrix
+        x: Feature-Matrix
         y: Wahre Labels (0, 1, 2)
         modell_name: Name für Logging (z.B. "XGBoost Optuna")
         datensatz: Name des Datensatzes (z.B. "Validierung")
@@ -732,7 +734,7 @@ def modell_evaluieren(
     Returns:
         F1-Macro-Score
     """
-    y_pred = np.asarray(modell.predict(X))
+    y_pred = np.asarray(modell.predict(x))
 
     acc = accuracy_score(y, y_pred)
     f1_macro = float(f1_score(y, y_pred, average="macro"))
@@ -858,8 +860,8 @@ def schwellenwert_analyse(
 
 def feature_selection(
     modell,
-    X_train: pd.DataFrame,
-    y_train: pd.Series,
+    _X_train: pd.DataFrame,
+    _y_train: pd.Series,
     X_val: pd.DataFrame,
     y_val: pd.Series,
     modell_name: str,
@@ -875,8 +877,8 @@ def feature_selection(
 
     Args:
         modell:         Trainiertes Modell (XGBoost oder LightGBM)
-        X_train:        Trainings-Features
-        y_train:        Trainings-Labels
+        _X_train:       Trainings-Features
+        _y_train:       Trainings-Labels
         X_val:          Validierungs-Features
         y_val:          Validierungs-Labels
         modell_name:    Name für Logging
@@ -891,24 +893,42 @@ def feature_selection(
     logger.info(f"\n{'─' * 50}")
     logger.info(f"Feature Selection (Permutation Importance) – {modell_name}")
     logger.info(f"{'─' * 50}")
+    logger.info(
+        "  Datensplits: Train=%d Zeilen, Validierung=%d Zeilen",
+        len(_X_train),
+        len(X_val),
+    )
+
+    if len(_X_train) != len(_y_train):
+        raise ValueError("X_train und y_train müssen gleich viele Zeilen enthalten.")
+
+    if list(_X_train.columns) != list(X_val.columns):
+        raise ValueError(
+            "Trainings- und Validierungs-Features müssen dieselben Spalten enthalten."
+        )
 
     # Permutation Importance auf Validierungs-Set berechnen
-    ergebnis = permutation_importance(
-        modell,
-        X_val,
-        y_val,
-        n_repeats=n_repeats,
-        random_state=42,
-        scoring="f1_macro",
-        n_jobs=-1,
+    ergebnis = cast(
+        object,
+        permutation_importance(
+            modell,
+            X_val,
+            y_val,
+            n_repeats=n_repeats,
+            random_state=42,
+            scoring="f1_macro",
+            n_jobs=-1,
+        ),
     )
+    importances_mean = cast(np.ndarray, getattr(ergebnis, "importances_mean"))
+    importances_std = cast(np.ndarray, getattr(ergebnis, "importances_std"))
 
     # Ergebnis als DataFrame sortieren
     imp_df = pd.DataFrame(
         {
             "Feature": X_val.columns,
-            "Importance_Mean": ergebnis.importances_mean,
-            "Importance_Std": ergebnis.importances_std,
+            "Importance_Mean": importances_mean,
+            "Importance_Std": importances_std,
         }
     ).sort_values("Importance_Mean", ascending=False)
 
@@ -970,40 +990,40 @@ class EnsembleModell:
         if hasattr(lgbm_modell, "feature_importances_"):
             self.feature_importances_ = lgbm_modell.feature_importances_
 
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+    def predict_proba(self, x: pd.DataFrame) -> np.ndarray:
         """
         Berechnet gewichteten Durchschnitt der Wahrscheinlichkeiten.
 
         Args:
-            X: Feature-Matrix
+            x: Feature-Matrix
 
         Returns:
             Array der Form (n_samples, 3) mit Klassen-Wahrscheinlichkeiten
         """
-        proba_xgb = self.xgb_modell.predict_proba(X)
-        proba_lgbm = self.lgbm_modell.predict_proba(X)
+        proba_xgb = np.asarray(self.xgb_modell.predict_proba(x), dtype=float)
+        proba_lgbm = np.asarray(self.lgbm_modell.predict_proba(x), dtype=float)
         # Gewichteter Durchschnitt
         proba_ensemble = self.gewicht_xgb * proba_xgb + self.gewicht_lgbm * proba_lgbm
         return proba_ensemble
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, x: pd.DataFrame) -> np.ndarray:
         """
         Vorhersage durch Argmax der kombinierten Wahrscheinlichkeiten.
 
         Args:
-            X: Feature-Matrix
+            x: Feature-Matrix
 
         Returns:
             Array mit vorhergesagten Klassen (0, 1, 2)
         """
-        proba = self.predict_proba(X)
+        proba = self.predict_proba(x)
         return np.argmax(proba, axis=1)
 
 
 def ensemble_erstellen(
     xgb_modell: xgb.XGBClassifier,
     lgbm_modell: lgb.LGBMClassifier,
-    X_val: pd.DataFrame,
+    x_val: pd.DataFrame,
     y_val: pd.Series,
     gewicht_lgbm: float = 0.5,
 ) -> EnsembleModell:
@@ -1013,7 +1033,7 @@ def ensemble_erstellen(
     Args:
         xgb_modell:   Trainiertes XGBoost-Modell (Optuna)
         lgbm_modell:  Trainiertes LightGBM-Modell (Optuna)
-        X_val:        Validierungs-Features
+        x_val:        Validierungs-Features
         y_val:        Validierungs-Labels
         gewicht_lgbm: Gewicht für LightGBM (Standard: 0.5)
 
@@ -1023,7 +1043,7 @@ def ensemble_erstellen(
     ensemble = EnsembleModell(xgb_modell, lgbm_modell, gewicht_lgbm)
 
     # Evaluierung auf Validierungsset
-    y_pred = ensemble.predict(X_val)
+    y_pred = ensemble.predict(x_val)
     f1 = float(f1_score(y_val, y_pred, average="macro"))
 
     logger.info(f"\n{'─' * 50}")
@@ -1319,9 +1339,8 @@ def symbol_trainieren(
         logger.info("  %25s: F1-Macro = %.4f%s", name, f1, stern)
 
     # Bestes Modell (inkl. Ensemble) aktualisieren
-    bestes_name, bestes_f1, bestes_modell, bestes_typ = max(
-        ergebnisse, key=lambda x: x[1]
-    )
+    bestes_ergebnis = max(ergebnisse, key=lambda x: x[1])
+    bestes_name, bestes_f1, bestes_modell, _ = bestes_ergebnis
     logger.info("\nFinales bestes Modell: %s (F1=%.4f)", bestes_name, bestes_f1)
 
     # ---- Schritt 9c: Feature Selection (Permutation Importance) ----

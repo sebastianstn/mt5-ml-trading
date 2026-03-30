@@ -45,7 +45,7 @@ Top-Konfiguration aus Sweep:
 
 Empfohlenes Startskript:
 
-- `start_testphase_topconfig.bat`
+- `start_testphase_topconfig_H1_M15.bat`
 
 Dieses Skript startet beide Trader parallel (USDCAD + USDJPY) im Paper-Modus mit der Top-Konfiguration.
 

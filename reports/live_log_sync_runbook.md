@@ -65,7 +65,7 @@ Empfehlung:
 
 - `python scripts/monitor_live_kpis.py --log_dir logs --file_suffix _signals.csv --hours 24 --timeframe M5_TWO_STAGE --export_csv reports/live_kpis_latest.csv`
 - `python scripts/verify_live_log_sync.py --symbols USDCAD,USDJPY --max_age_minutes 10`
-- `python scripts/verify_live_log_sync.py --log_dir logs/paper_test128 --symbols USDCAD,USDJPY --max_age_minutes 10 --check_watchdog`
+- `python scripts/verify_live_log_sync.py --log_dir logs --symbols USDCAD,USDJPY --max_age_minutes 10 --check_watchdog`
 - `python reports/daily_phase7_dashboard.py --log_dir logs --hours 24 --timeframe M5_TWO_STAGE`
 
 Erwartung:

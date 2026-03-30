@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
 
 INTERVAL_MINUTES="${1:-30}"
-LOG_DIR_ARG="${2:-logs/paper_test128}"
+LOG_DIR_ARG="${2:-logs}"
 SYMBOLS_ARG="${3:-USDCAD,USDJPY}"
 TIMEFRAME_ARG="${4:-M5_TWO_STAGE}"
 MAX_AGE_MINUTES="${5:-10}"

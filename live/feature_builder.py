@@ -15,22 +15,36 @@ import pandas as pd
 
 try:
     from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+    from live.indicators import (
+        _series_sign,
+        ind_adx,
+        ind_atr,
+        ind_bbands,
+        ind_ema,
+        ind_macd,
+        ind_obv,
+        ind_roc,
+        ind_rsi,
+        ind_sma,
+        ind_stoch,
+        ind_williams_r,
+    )
 except ImportError:
     import config  # Import direkt aus live/-Verzeichnis
-from indicators import (
-    _series_sign,
-    ind_adx,
-    ind_atr,
-    ind_bbands,
-    ind_ema,
-    ind_macd,
-    ind_obv,
-    ind_roc,
-    ind_rsi,
-    ind_sma,
-    ind_stoch,
-    ind_williams_r,
-)
+    from indicators import (
+        _series_sign,
+        ind_adx,
+        ind_atr,
+        ind_bbands,
+        ind_ema,
+        ind_macd,
+        ind_obv,
+        ind_roc,
+        ind_rsi,
+        ind_sma,
+        ind_stoch,
+        ind_williams_r,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -56,20 +70,30 @@ def features_berechnen(
     result = df.copy()
 
     # Bars pro Stunde für zeitäquivalente Fenster bestimmen
-    bars_per_hour = config.TIMEFRAME_CONFIG.get(timeframe, config.TIMEFRAME_CONFIG["H1"])[
-        "bars_per_hour"
-    ]
+    bars_per_hour = config.TIMEFRAME_CONFIG.get(
+        timeframe, config.TIMEFRAME_CONFIG["H1"]
+    )["bars_per_hour"]
 
     # --- Trend-Features ---
     result["sma_20"] = ind_sma(result["close"], 20)
     result["sma_50"] = ind_sma(result["close"], 50)
     result["sma_200"] = ind_sma(result["close"], 200)
 
-    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result["sma_20"]
-    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result["sma_50"]
-    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result["sma_200"]
-    result["sma_20_50_cross"] = _series_sign(result["sma_20"] - result["sma_50"]).fillna(0)
-    result["sma_50_200_cross"] = _series_sign(result["sma_50"] - result["sma_200"]).fillna(0)
+    result["price_sma20_ratio"] = (result["close"] - result["sma_20"]) / result[
+        "sma_20"
+    ]
+    result["price_sma50_ratio"] = (result["close"] - result["sma_50"]) / result[
+        "sma_50"
+    ]
+    result["price_sma200_ratio"] = (result["close"] - result["sma_200"]) / result[
+        "sma_200"
+    ]
+    result["sma_20_50_cross"] = _series_sign(
+        result["sma_20"] - result["sma_50"]
+    ).fillna(0)
+    result["sma_50_200_cross"] = _series_sign(
+        result["sma_50"] - result["sma_200"]
+    ).fillna(0)
 
     result["ema_12"] = ind_ema(result["close"], 12)
     result["ema_26"] = ind_ema(result["close"], 26)
@@ -87,9 +111,13 @@ def features_berechnen(
     stoch = ind_stoch(result["high"], result["low"], result["close"])
     result["stoch_k"] = stoch["stoch_k"]
     result["stoch_d"] = stoch["stoch_d"]
-    result["stoch_cross"] = _series_sign(result["stoch_k"] - result["stoch_d"]).fillna(0)
+    result["stoch_cross"] = _series_sign(result["stoch_k"] - result["stoch_d"]).fillna(
+        0
+    )
 
-    result["williams_r"] = ind_williams_r(result["high"], result["low"], result["close"])
+    result["williams_r"] = ind_williams_r(
+        result["high"], result["low"], result["close"]
+    )
     result["roc_10"] = ind_roc(result["close"], 10)
 
     # --- Volatilitäts-Features ---
@@ -144,7 +172,9 @@ def features_berechnen(
     close_h4 = close.resample("4h").last().dropna()
     trend_h4 = _series_sign(ind_sma(close_h4, 20) - ind_sma(close_h4, 50)).fillna(0)
     result["trend_h4"] = trend_h4.shift(1).reindex(result.index, method="ffill")
-    result["rsi_h4"] = ind_rsi(close_h4, 14).shift(1).reindex(result.index, method="ffill")
+    result["rsi_h4"] = (
+        ind_rsi(close_h4, 14).shift(1).reindex(result.index, method="ffill")
+    )
 
     close_d1 = close.resample("1D").last().dropna()
     trend_d1 = _series_sign(ind_sma(close_d1, 20) - ind_sma(close_d1, 50)).fillna(0)
@@ -231,8 +261,16 @@ def features_berechnen(
 
     regime = pd.Series(0, index=result.index, dtype=int)
     hoch_vol = atr_pct > (config.REGIME_HIGH_VOL_FAKTOR * median_atr)
-    aufwaerts = (adx > config.REGIME_ADX_TREND_SCHWELLE) & (result["close"] > result["sma_50"]) & ~hoch_vol
-    abwaerts = (adx > config.REGIME_ADX_TREND_SCHWELLE) & (result["close"] < result["sma_50"]) & ~hoch_vol
+    aufwaerts = (
+        (adx > config.REGIME_ADX_TREND_SCHWELLE)
+        & (result["close"] > result["sma_50"])
+        & ~hoch_vol
+    )
+    abwaerts = (
+        (adx > config.REGIME_ADX_TREND_SCHWELLE)
+        & (result["close"] < result["sma_50"])
+        & ~hoch_vol
+    )
     regime[aufwaerts] = 1
     regime[abwaerts] = 2
     regime[hoch_vol] = 3
@@ -241,10 +279,12 @@ def features_berechnen(
     # --- HMM-Regime (optional, mit robustem Fallback) ---
     if config.HAS_HMMLEARN and config.GaussianHMM is not None:
         try:
-            hmm_input = np.column_stack([
-                log_ret.fillna(0.0).to_numpy(dtype=float),
-                atr_pct.ffill().fillna(0.0).to_numpy(dtype=float),
-            ])
+            hmm_input = np.column_stack(
+                [
+                    log_ret.fillna(0.0).to_numpy(dtype=float),
+                    atr_pct.ffill().fillna(0.0).to_numpy(dtype=float),
+                ]
+            )
 
             hmm_regimes = np.full(len(result), np.nan)
             min_train_bars = min(400, max(120, len(result) // 3))
@@ -254,29 +294,40 @@ def features_berechnen(
             for i in range(min_train_bars, len(result)):
                 if hmm_model is None or (i - min_train_bars) % refit_interval == 0:
                     hmm_model = config.GaussianHMM(
-                        n_components=4, covariance_type="diag", n_iter=120, random_state=42
+                        n_components=4,
+                        covariance_type="diag",
+                        n_iter=120,
+                        random_state=42,
                     )
                     with config.mute_hmmlearn_convergence_logs():
                         hmm_model.fit(hmm_input[:i])
-                hmm_regimes[i] = int(hmm_model.predict(hmm_input[i: i + 1])[0])
+                hmm_regimes[i] = int(hmm_model.predict(hmm_input[i : i + 1])[0])
 
             hmm_state_series = (
                 pd.Series(hmm_regimes, index=result.index).ffill().fillna(0).astype(int)
             )
             stats = (
-                pd.DataFrame({
-                    "state": hmm_state_series,
-                    "ret": log_ret.fillna(0.0),
-                    "vol": atr_pct.fillna(0.0),
-                })
+                pd.DataFrame(
+                    {
+                        "state": hmm_state_series,
+                        "ret": log_ret.fillna(0.0),
+                        "vol": atr_pct.fillna(0.0),
+                    }
+                )
                 .groupby("state")
                 .agg(ret_mean=("ret", "mean"), vol_mean=("vol", "mean"))
             )
 
             high_vol_state = int(stats["vol_mean"].idxmax()) if len(stats) > 0 else 0
-            ret_sorted = stats.drop(index=high_vol_state, errors="ignore").sort_values("ret_mean")
-            bear_state = int(ret_sorted.index[0]) if len(ret_sorted) > 0 else high_vol_state
-            bull_state = int(ret_sorted.index[-1]) if len(ret_sorted) > 0 else high_vol_state
+            ret_sorted = stats.drop(index=high_vol_state, errors="ignore").sort_values(
+                "ret_mean"
+            )
+            bear_state = (
+                int(ret_sorted.index[0]) if len(ret_sorted) > 0 else high_vol_state
+            )
+            bull_state = (
+                int(ret_sorted.index[-1]) if len(ret_sorted) > 0 else high_vol_state
+            )
             regime_map = {int(s): 0 for s in stats.index}
             regime_map[high_vol_state] = 3
             regime_map[bear_state] = 2

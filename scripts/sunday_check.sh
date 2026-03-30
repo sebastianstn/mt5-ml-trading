@@ -31,8 +31,8 @@ echo ""
 echo -e "${FETT}[1/4] Server-Sync prüfen${RESET}"
 echo "──────────────────────────────────────────"
 
-USDCAD_SIGNALS="$BASE_DIR/logs/paper_test128/USDCAD_signals.csv"
-USDJPY_SIGNALS="$BASE_DIR/logs/paper_test128/USDJPY_signals.csv"
+USDCAD_SIGNALS="$BASE_DIR/logs/USDCAD_signals.csv"
+USDJPY_SIGNALS="$BASE_DIR/logs/USDJPY_signals.csv"
 
 if [ -f "$USDCAD_SIGNALS" ]; then
     LETZTE_USDCAD=$(tail -1 "$USDCAD_SIGNALS" | cut -d',' -f1)
@@ -49,8 +49,8 @@ else
 fi
 
 # Abgeschlossene Trades zählen
-USDCAD_CLOSES="$BASE_DIR/logs/paper_test128/USDCAD_closes.csv"
-USDJPY_CLOSES="$BASE_DIR/logs/paper_test128/USDJPY_closes.csv"
+USDCAD_CLOSES="$BASE_DIR/logs/USDCAD_closes.csv"
+USDJPY_CLOSES="$BASE_DIR/logs/USDJPY_closes.csv"
 
 USDCAD_N=0
 USDJPY_N=0
@@ -87,7 +87,7 @@ else
 fi
 
 echo ""
-$PYTHON reports/weekly_kpi_report.py --tage 7 --log_dir logs/paper_test128
+$PYTHON reports/weekly_kpi_report.py --tage 7 --log_dir logs
 echo ""
 
 # ── Schritt 3: Closes dieser Woche anzeigen ─────────────────────────────────

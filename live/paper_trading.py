@@ -7,6 +7,8 @@ Konservative Logik: Bei gleichzeitigem TP/SL-Touch in einer Kerze → SL angenom
 Läuft auf: Windows 11 Laptop
 """
 
+# pylint: disable=logging-fstring-interpolation
+
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, cast
@@ -15,9 +17,10 @@ import pandas as pd
 
 try:
     from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+    from live.trade_logger import trade_close_loggen
 except ImportError:
     import config  # Import direkt aus live/-Verzeichnis
-from trade_logger import trade_close_loggen
+    from trade_logger import trade_close_loggen
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,9 @@ def _letzte_geschlossene_kerze(df: pd.DataFrame) -> pd.Series:
         ValueError: Wenn weniger als zwei Zeilen vorhanden sind.
     """
     if len(df) < 2:
-        raise ValueError("Für die letzte geschlossene Kerze werden mindestens 2 Zeilen benötigt")
+        raise ValueError(
+            "Für die letzte geschlossene Kerze werden mindestens 2 Zeilen benötigt"
+        )
     return df.iloc[-2]
 
 
@@ -119,8 +124,12 @@ def paper_trade_pruefen_und_loggen(
     sl_price = float(letzter_trade.get("sl_price", 0.0))
     tp_price = float(letzter_trade.get("tp_price", 0.0))
     lot = float(letzter_trade.get("lot", config.LOT))
-    open_zeit = cast(datetime, letzter_trade.get("open_zeit", datetime.now(timezone.utc)))
-    bar_minutes = config.TIMEFRAME_CONFIG.get(timeframe, config.TIMEFRAME_CONFIG["H1"])["minutes_per_bar"]
+    open_zeit = cast(
+        datetime, letzter_trade.get("open_zeit", datetime.now(timezone.utc))
+    )
+    bar_minutes = config.TIMEFRAME_CONFIG.get(timeframe, config.TIMEFRAME_CONFIG["H1"])[
+        "minutes_per_bar"
+    ]
 
     for bar_zeit, bar in bars_to_check.iterrows():
         bar_high = float(bar["high"])
@@ -153,10 +162,15 @@ def paper_trade_pruefen_und_loggen(
             else (entry_price - exit_price) * _pip_faktor(symbol)
         )
         pnl_money = _paper_pnl_money_berechnen(
-            entry_price=entry_price, exit_price=exit_price, richtung=richtung, lot=lot,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            richtung=richtung,
+            lot=lot,
         )
 
-        bar_close_time = cast(pd.Timestamp, bar_zeit).to_pydatetime() + timedelta(minutes=bar_minutes)
+        bar_close_time = cast(pd.Timestamp, bar_zeit).to_pydatetime() + timedelta(
+            minutes=bar_minutes
+        )
         dauer_min = max(int((bar_close_time - open_zeit).total_seconds() / 60), 0)
 
         trade_close_loggen(

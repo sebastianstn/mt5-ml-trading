@@ -5,9 +5,12 @@ Kapselt alle MT5-Interaktionen: Verbindung, Auto-Reconnect, Datenabruf, Orders.
 Läuft auf: Windows 11 Laptop (MetaTrader5-Bibliothek NUR auf Windows!)
 """
 
+# pylint: disable=logging-fstring-interpolation,protected-access
+
 import logging
 import os
 import shutil
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,16 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_mt5_common_files_dir() -> Optional[Path]:
-    """Ermittelt den MT5-Common-Files-Ordner über Override oder APPDATA."""
+    """Ermittelt den MT5-Common-Files-Ordner über Override, APPDATA (Windows) oder Wine (Linux)."""
+    # Manueller Override hat höchste Priorität (beide Plattformen)
     override_dir = os.environ.get(config.MT5_COMMON_FILES_ENV, "").strip()
     if override_dir:
         return Path(override_dir).expanduser()
 
+    # Ein explizites APPDATA soll auch unter Linux-Tests/Hybrid-Setups Vorrang haben.
     appdata_dir = os.environ.get("APPDATA", "").strip()
-    if not appdata_dir:
-        return None
+    if appdata_dir:
+        return Path(appdata_dir) / "MetaQuotes" / "Terminal" / "Common" / "Files"
 
-    return Path(appdata_dir) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+    # Linux: MT5 läuft via Wine → Pfad im Wine-Prefix
+    if sys.platform.startswith("linux"):
+        wine_user = os.environ.get("USER", "")
+        wine_prefix = Path(os.environ.get("WINEPREFIX", str(Path.home() / ".wine")))
+        wine_appdata = wine_prefix / "drive_c" / "users" / wine_user / "AppData" / "Roaming"
+        return wine_appdata / "MetaQuotes" / "Terminal" / "Common" / "Files"
+
+    return None
 
 
 def mirror_csv_to_mt5_common(local_csv_path: Path, target_file_name: str) -> bool:
@@ -53,18 +65,27 @@ def mirror_csv_to_mt5_common(local_csv_path: Path, target_file_name: str) -> boo
         True wenn die Spiegelung erfolgreich war.
     """
     if not local_csv_path.exists():
-        logger.warning("MT5-Common-Sync übersprungen: lokale CSV fehlt (%s)", local_csv_path)
+        logger.warning(
+            "MT5-Common-Sync übersprungen: lokale CSV fehlt (%s)", local_csv_path
+        )
         return False
 
     mt5_common_dir = _resolve_mt5_common_files_dir()
     if mt5_common_dir is None:
-        logger.warning("MT5-Common-Sync übersprungen: weder %s noch APPDATA verfügbar", config.MT5_COMMON_FILES_ENV)
+        logger.warning(
+            "MT5-Common-Sync übersprungen: weder %s noch APPDATA verfügbar",
+            config.MT5_COMMON_FILES_ENV,
+        )
         return False
 
     try:
         mt5_common_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        logger.warning("MT5-Common-Ordner konnte nicht erstellt werden (%s): %s", mt5_common_dir, exc)
+        logger.warning(
+            "MT5-Common-Ordner konnte nicht erstellt werden (%s): %s",
+            mt5_common_dir,
+            exc,
+        )
         return False
 
     target_csv_path = mt5_common_dir / target_file_name
@@ -80,7 +101,10 @@ def mirror_csv_to_mt5_common(local_csv_path: Path, target_file_name: str) -> boo
 
     logger.warning(
         "MT5-Common-Sync fehlgeschlagen nach %d Versuchen: %s -> %s | Fehler: %s",
-        config.MT5_COMMON_SYNC_RETRIES, local_csv_path, target_csv_path, last_error,
+        config.MT5_COMMON_SYNC_RETRIES,
+        local_csv_path,
+        target_csv_path,
+        last_error,
     )
     return False
 
@@ -110,7 +134,9 @@ def mt5_verbinden(server: str, login: int, password: str, pfad: str = "") -> boo
     mt5_api = config.mt5_api()
 
     if pfad:
-        ok = mt5_api.initialize(path=pfad, server=server, login=login, password=password)
+        ok = mt5_api.initialize(
+            path=pfad, server=server, login=login, password=password
+        )
     else:
         ok = mt5_api.initialize(server=server, login=login, password=password)
 
@@ -120,7 +146,10 @@ def mt5_verbinden(server: str, login: int, password: str, pfad: str = "") -> boo
 
     # Zugangsdaten für Auto-Reconnect speichern
     config._MT5_RUNTIME_STATE["credentials"] = {
-        "server": server, "login": login, "password": password, "pfad": pfad,
+        "server": server,
+        "login": login,
+        "password": password,
+        "pfad": pfad,
     }
     config._MT5_RUNTIME_STATE["ipc_fail_count"] = 0
 
@@ -155,18 +184,25 @@ def mt5_reconnect() -> bool:
     creds = config._MT5_RUNTIME_STATE["credentials"]
     if creds["pfad"]:
         ok = mt5_api.initialize(
-            path=creds["pfad"], server=creds["server"], login=creds["login"], password=creds["password"],
+            path=creds["pfad"],
+            server=creds["server"],
+            login=creds["login"],
+            password=creds["password"],
         )
     else:
         ok = mt5_api.initialize(
-            server=creds["server"], login=creds["login"], password=creds["password"],
+            server=creds["server"],
+            login=creds["login"],
+            password=creds["password"],
         )
 
     if ok:
         config._MT5_RUNTIME_STATE["ipc_fail_count"] = 0
         konto = mt5_api.account_info()
         if konto:
-            logger.info(f"MT5 Reconnect erfolgreich | Konto: {konto.login} | Saldo: {konto.balance:.2f}")
+            logger.info(
+                f"MT5 Reconnect erfolgreich | Konto: {konto.login} | Saldo: {konto.balance:.2f}"
+            )
         else:
             logger.info("MT5 Reconnect erfolgreich (Kontodaten nicht lesbar)")
         return True
@@ -193,7 +229,9 @@ def mt5_timeframe_konstante(timeframe: str) -> Optional[int]:
 
 def n_barren_fuer_timeframe(timeframe: str) -> int:
     """Berechnet die benötigte Barrenanzahl für denselben Zeit-Buffer je Zeitrahmen."""
-    bars_per_hour = config.TIMEFRAME_CONFIG.get(timeframe, config.TIMEFRAME_CONFIG["H1"])["bars_per_hour"]
+    bars_per_hour = config.TIMEFRAME_CONFIG.get(
+        timeframe, config.TIMEFRAME_CONFIG["H1"]
+    )["bars_per_hour"]
     return config.N_BARREN * bars_per_hour
 
 
@@ -201,10 +239,14 @@ def _infer_mt5_utc_shift_hours(raw_timestamp_utc: datetime) -> int:
     """Leitet einen Broker→UTC-Stundenshift ab, falls MT5-Zeiten in der Zukunft liegen."""
     normalized = raw_timestamp_utc
     now_utc = datetime.now(timezone.utc)
-    future_limit = now_utc + timedelta(minutes=config.MT5_FUTURE_TIMESTAMP_GRACE_MINUTES)
+    future_limit = now_utc + timedelta(
+        minutes=config.MT5_FUTURE_TIMESTAMP_GRACE_MINUTES
+    )
     shift_hours = 0
 
-    while normalized > future_limit and shift_hours < config.MT5_MAX_AUTO_UTC_SHIFT_HOURS:
+    while (
+        normalized > future_limit and shift_hours < config.MT5_MAX_AUTO_UTC_SHIFT_HOURS
+    ):
         normalized -= timedelta(hours=1)
         shift_hours += 1
 
@@ -258,7 +300,9 @@ def mt5_daten_holen(
         logger.error(f"Unbekannter Zeitrahmen: {timeframe}")
         return None
 
-    n_bars_effektiv = n_barren if n_barren is not None else n_barren_fuer_timeframe(timeframe)
+    n_bars_effektiv = (
+        n_barren if n_barren is not None else n_barren_fuer_timeframe(timeframe)
+    )
     rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
 
     if rates is None:
@@ -270,7 +314,9 @@ def mt5_daten_holen(
         )
         if config._MT5_RUNTIME_STATE["ipc_fail_count"] >= config._MT5_RECONNECT_AFTER:
             if mt5_reconnect():
-                rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, n_bars_effektiv)
+                rates = mt5_api.copy_rates_from_pos(
+                    symbol, tf_const, 0, n_bars_effektiv
+                )
                 if rates is not None:
                     logger.info(f"[{symbol}] Daten nach Reconnect erfolgreich geladen")
                 else:
@@ -325,7 +371,9 @@ def mt5_letzte_kerze_uhrzeit(symbol: str, timeframe: str = "H1") -> Optional[dat
                 rates = mt5_api.copy_rates_from_pos(symbol, tf_const, 0, 2)
                 if rates is not None and len(rates) >= 2:
                     config._MT5_RUNTIME_STATE["ipc_fail_count"] = 0
-                    raw_timestamp = datetime.fromtimestamp(int(rates[1]["time"]), tz=timezone.utc)
+                    raw_timestamp = datetime.fromtimestamp(
+                        int(rates[1]["time"]), tz=timezone.utc
+                    )
                     shift_hours = _infer_mt5_utc_shift_hours(raw_timestamp)
                     _log_mt5_utc_shift(symbol, timeframe, shift_hours)
                     return raw_timestamp - timedelta(hours=shift_hours)
@@ -381,9 +429,17 @@ def order_senden(
     richtung_str = "LONG (Kaufen)" if richtung == 2 else "SHORT (Verkaufen)"
 
     if paper_trading:
-        logger.info(f"[PAPER] {symbol} {richtung_str} | Lot={lot} | TP={tp_pct:.1%} | SL={sl_pct:.1%}")
-        return {"success": True, "deal_ticket": None, "position_ticket": None,
-                "entry_price": 0.0, "sl_price": 0.0, "tp_price": 0.0}
+        logger.info(
+            f"[PAPER] {symbol} {richtung_str} | Lot={lot} | TP={tp_pct:.1%} | SL={sl_pct:.1%}"
+        )
+        return {
+            "success": True,
+            "deal_ticket": None,
+            "position_ticket": None,
+            "entry_price": 0.0,
+            "sl_price": 0.0,
+            "tp_price": 0.0,
+        }
 
     if not config.MT5_VERFUEGBAR:
         logger.error("MT5 nicht verfügbar – Order nicht gesendet!")
@@ -431,7 +487,9 @@ def order_senden(
     if result is None or result.retcode != mt5_api.TRADE_RETCODE_DONE:
         fehler_code = result.retcode if result else "None"
         fehler_msg = result.comment if result else "Keine Antwort"
-        logger.error(f"[{symbol}] Order FEHLGESCHLAGEN: Code={fehler_code} | {fehler_msg}")
+        logger.error(
+            f"[{symbol}] Order FEHLGESCHLAGEN: Code={fehler_code} | {fehler_msg}"
+        )
         return None
 
     logger.info(

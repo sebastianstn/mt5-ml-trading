@@ -1,11 +1,15 @@
 # ============================================================
-# Windows 11 Laptop: MT5-Verbindung & Live-Trading
+# Laptop: MT5-Verbindung & Live-Trading
 # Installieren mit: pip install -r requirements-laptop.txt
-# WICHTIG: Nur auf Windows ausführen! MetaTrader5 läuft nicht auf Linux.
+#
+# Funktioniert auf:
+#   - Windows 11: MetaTrader5 Python-Bibliothek (nativ)
+#   - Linux Mint: mt5linux RPyC-Bridge (MT5 via Wine)
 # ============================================================
 
-# MT5-Verbindung (nur Windows!)
-MetaTrader5>=5.0.45
+# MT5-Verbindung (plattformabhängig)
+MetaTrader5>=5.0.45; sys_platform == 'win32'
+mt5linux>=0.0.14; sys_platform == 'linux'
 
 # Datenverarbeitung
 pandas>=2.0.0

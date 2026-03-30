@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectDir = "C:\Users\Sebastian Setnescu\mt5_trading",
+    [string]$ProjectDir = "",
     [string]$LocalLogsDir = "",
     [string]$LinuxUser = "sebastian",
     [string]$LinuxHost = "192.168.1.35",
@@ -29,6 +29,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ProjectDir = Split-Path -Parent $PSScriptRoot
+}
 
 $signalsSuffix = "_signals.csv"
 $closesSuffix = "_closes.csv"

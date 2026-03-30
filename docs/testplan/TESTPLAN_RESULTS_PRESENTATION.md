@@ -40,6 +40,7 @@
 ### 🥇 #1: Test 15 – Hohe Schwelle (0.60)
 
 **Parameter:**
+
 - `--schwelle 0.60`
 - `--tp_pct 0.006, --sl_pct 0.003` (RRR 2:1)
 - `--cooldown_bars 12`
@@ -48,6 +49,7 @@
 - `--horizon 24`
 
 **Performance pro Symbol:**
+
 |  | USDCAD | USDJPY | Ø |
 |--|--------|--------|---|
 | **Sharpe Ratio** | 4.21 | 10.99 | **7.60** |
@@ -56,6 +58,7 @@
 | **Trades** | 437 | 696 | 1133 total |
 
 **Warum ist diese Config besser?**
+
 - ✅ **Sehr niedriger Drawdown** (-1.74% vs. -2.55% bei Test 2)
 - ✅ **Hohe Sharpe Ratio** → bessere risikoadjustierte Rendite
 - ✅ **USDJPY performa exzellent** (Sharpe 10.99!)
@@ -66,6 +69,7 @@
 ### 🥈 #2: Test 14 – Schwelle 58%
 
 **Parameter:**
+
 - `--schwelle 0.58`
 - `--tp_pct 0.006, --sl_pct 0.003` (RRR 2:1)
 - `--cooldown_bars 12`
@@ -74,6 +78,7 @@
 - `--horizon 24`
 
 **Performance pro Symbol:**
+
 |  | USDCAD | USDJPY | Ø |
 |--|--------|--------|---|
 | **Sharpe Ratio** | 3.70 | 11.13 | **7.41** |
@@ -82,6 +87,7 @@
 | **Trades** | 527 | 869 | 1396 total |
 
 **Warum ist diese Config besser?**
+
 - ✅ **Höchste Return** (24.30%) von allen Top-3
 - ✅ **USDJPY Sharpe** noch besser als Test 15 (11.13)
 - ✅ **Gute Balance** zwischen Trades (1396) und Selektivität
@@ -92,6 +98,7 @@
 ### 🥉 #3: Test 27 – Konservativ (Hohe Schwelle + Mehr Cooldown)
 
 **Parameter:**
+
 - `--schwelle 0.58`
 - `--tp_pct 0.006, --sl_pct 0.003` (RRR 2:1)
 - `--cooldown_bars 18` ← mehr als Standard (12)
@@ -100,6 +107,7 @@
 - `--horizon 24`
 
 **Performance pro Symbol:**
+
 |  | USDCAD | USDJPY | Ø |
 |--|--------|--------|---|
 | **Sharpe Ratio** | 3.14 | 11.25 | **7.19** |
@@ -108,6 +116,7 @@
 | **Trades** | 451 | 779 | 1230 total |
 
 **Warum ist diese Config besser?**
+
 - ✅ **Höchste USDJPY Sharpe** (11.25) aller Configs
 - ✅ **Sehr niedriger USDJPY Drawdown** (-1.17%)
 - ✅ **Cooldown 18** verhindert Overtrading
@@ -118,6 +127,7 @@
 ## 🔍 WICHTIGE ERKENNTNISSE
 
 ### 1. **Höhere Schwellen sind besser**
+
 Die Tests zeigen klar: **schwelle=0.58-0.60** schlägt alle niedrigeren Schwellen (0.50-0.55).
 
 | Schwelle | Platzierung | Ø Sharpe |
@@ -222,26 +232,31 @@ Für Trader, die noch niedrigeren Drawdown bevorzugen:
 ## 📊 VOLLSTÄNDIGE ERGEBNISSE
 
 Alle 30 Test-Ergebnisse mit Details findest du in:
-- **[backtest/testplan_results_latest.csv](backtest/testplan_results_latest.csv)** (alle Symbole+Metriken)
-- **[backtest/testplan_ranking_latest.csv](backtest/testplan_ranking_latest.csv)** (aggregiertes Ranking)
-- **[backtest/testplan_30configs.csv](backtest/testplan_30configs.csv)** (Testplan-Übersicht)
+
+- **[../../backtest/testplan_results_latest.csv](../../backtest/testplan_results_latest.csv)** (alle Symbole+Metriken)
+- **[../../backtest/testplan_ranking_latest.csv](../../backtest/testplan_ranking_latest.csv)** (aggregiertes Ranking)
+- **[../../backtest/testplan_30configs.csv](../../backtest/testplan_30configs.csv)** (Testplan-Übersicht)
 
 ---
 
 ## ⚠️ WICHTIG: Nächste Schritte
 
 ### 1. **BAT-Datei aktualisieren**
-Die aktuelle `start_testphase_topconfig.bat` nutzt `--schwelle 0.55` (Platz #8).  
+
+Die aktuelle `start_testphase_topconfig_H1_M15.bat` nutzt `--schwelle 0.55` (Platz #8).  
 **→ Aktualisieren auf `--schwelle 0.60` (Platz #1)!**
 
 ### 2. **Paper-Trading starten**
+
 Nach BAT-Update:
+
 1. BAT-Datei auf Windows-Laptop kopieren
-2. `start_testphase_topconfig.bat` ausführen
+2. `start_testphase_topconfig_H1_M15.bat` ausführen
 3. Mindestens **2 Wochen Paper-Trading** durchlaufen
 4. KPI-Gates prüfen (Sharpe > 0.8, PF > 1.3, MaxDD < 10%)
 
 ### 3. **Monitoring**
+
 - Täglich: MT5-Dashboard prüfen
 - Wöchentlich: Logs analysieren (`verify_live_log_sync.py`)
 - Nach 2 Wochen: Walk-Forward-Validierung

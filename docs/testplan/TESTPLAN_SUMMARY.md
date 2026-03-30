@@ -88,12 +88,12 @@
 
 ## 📊 Alle Ergebnisse
 
-Komplette Analyse: [TESTPLAN_RESULTS_PRESENTATION.md](TESTPLAN_RESULTS_PRESENTATION.md)
+Komplette Analyse: [TESTPLAN_RESULTS_PRESENTATION.md](./TESTPLAN_RESULTS_PRESENTATION.md)
 
 **Dateien:**
-- `backtest/testplan_results_latest.csv` – Alle 30 Tests, beide Symbole
-- `backtest/testplan_ranking_latest.csv` – Ranking nach Sharpe Ratio
-- `backtest/testplan_30configs.csv` – Parameter aller Tests
+- `../../backtest/testplan_results_latest.csv` – Alle 30 Tests, beide Symbole
+- `../../backtest/testplan_ranking_latest.csv` – Ranking nach Sharpe Ratio
+- `../../backtest/testplan_30configs.csv` – Parameter aller Tests
 
 ---
 

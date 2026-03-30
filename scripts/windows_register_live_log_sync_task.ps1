@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectDir = "C:\Users\Sebastian Setnescu\mt5_trading",
+    [string]$ProjectDir = "",
     [string]$LocalLogsDir = "",
     [string]$TaskName = "MT5_Sync_Live_Logs_To_Linux",
     [string]$LinuxUser = "sebastian",
@@ -27,6 +27,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ProjectDir = Split-Path -Parent $PSScriptRoot
+}
 
 function Invoke-Schtasks {
     param(

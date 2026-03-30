@@ -5,15 +5,15 @@ REM
 REM Ausfuehren auf Windows 11 Laptop:
 REM     Doppelklick auf diese Datei ODER in PowerShell: .\start_paper_trading.bat
 REM
-REM Konfiguration (Stand: 08.03.2026):
+REM Konfiguration (Stand: 17.03.2026):
 REM     - Beide Symbole auf v4 (stabil)
-REM     - Two-Stage: H1-Bias + M5-Entry
-REM     - Schwelle: lockerer (Long >= 45%%, Short <= 55%%)
+REM     - Two-Stage: H1-Bias + M15-Entry
+REM     - Schwelle/Mapping: long_prob mit Long >= 50%%, Short <= 50%%
 REM     - Regime-Filter: alle Regime erlaubt (0,1,2,3)
 REM     - ATR-SL 1.5x mit Mindest-SL (4x Spread)
 REM     - RRR 3:1 (TP=0.9%%, SL=0.3%%)
-REM     - Neutraler H1-Bias darf M5-Entries zulassen
-REM     - Kongruenzfilter deaktiviert fuer mehr Feedback im Paper-Lauf
+REM     - Neutraler H1-Bias darf M15-Entries zulassen
+REM     - Kongruenzfilter AKTIV: M5-Trades muessen zum H1-Bias passen
 REM     - Nach Start: 5 Kerzen nur beobachten, erst dann Trades erlauben
 REM     - Demo-Live-Modus (paper_trading=0 auf Demo-Konto fuer PnL-Tracking)
 REM
@@ -44,7 +44,7 @@ set "MT5_INVESTOR=ZcEpDl@8"
 
 echo ================================================
 echo   MT5 ML-Trading - Demo-Live (PnL-Tracking aktiv)
-echo   USDCAD v4 + USDJPY v4
+echo   USDCAD v4 + USDJPY v4 (H1-M15)
 echo ================================================
 echo.
 
@@ -58,20 +58,20 @@ echo.
 
 cd /d "C:\Users\Sebastian Setnescu\mt5_trading"
 
-REM Fenster 1: USDCAD v4 (Two-Stage H1+M5, gelockert)
-start "MT5-Demo-USDCAD-v4" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && !PYTHON_RUNNER! live\live_trader.py --symbol USDCAD --version v4 --paper_trading 0 --schwelle 0.45 --short_schwelle 0.55 --decision_mapping long_prob --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
+REM Fenster 1: USDCAD v4 (Two-Stage H1+M15, primary)
+start "MT5-Demo-USDCAD-v4" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && !PYTHON_RUNNER! live\live_trader.py --symbol USDCAD --version v4 --paper_trading 0 --schwelle 0.50 --short_schwelle 0.50 --decision_mapping long_prob --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 2.0 --lot 0.01 --two_stage_enable 1 --two_stage_mode primary --two_stage_ltf_timeframe M15 --two_stage_version v4 --two_stage_htf_schwelle 0.35 --two_stage_ltf_schwelle 0.50 --two_stage_kongruenz 1 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --max_spread_pips 2.0 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
 
 REM Warte 5 Sekunden vor dem zweiten Start (MT5-Verbindung stabilisieren)
 timeout /t 5 /nobreak >nul
 
-REM Fenster 2: USDJPY v4 (Two-Stage H1+M5, gelockert)
-start "MT5-Demo-USDJPY-v4" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && !PYTHON_RUNNER! live\live_trader.py --symbol USDJPY --version v4 --paper_trading 0 --schwelle 0.45 --short_schwelle 0.55 --decision_mapping long_prob --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 1.5 --lot 0.01 --two_stage_enable 1 --two_stage_ltf_timeframe M5 --two_stage_version v4 --two_stage_kongruenz 0 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
+REM Fenster 2: USDJPY v4 (Two-Stage H1+M15, primary)
+start "MT5-Demo-USDJPY-v4" cmd /k "cd /d "C:\Users\Sebastian Setnescu\mt5_trading" && !PYTHON_RUNNER! live\live_trader.py --symbol USDJPY --version v4 --paper_trading 0 --schwelle 0.50 --short_schwelle 0.50 --decision_mapping long_prob --regime_filter 0,1,2,3 --atr_sl 1 --atr_faktor 2.0 --lot 0.01 --two_stage_enable 1 --two_stage_mode primary --two_stage_ltf_timeframe M15 --two_stage_version v4 --two_stage_htf_schwelle 0.35 --two_stage_ltf_schwelle 0.50 --two_stage_kongruenz 1 --two_stage_allow_neutral_htf 1 --two_stage_cooldown_bars 3 --startup_observation_bars 5 --max_spread_pips 2.0 --mt5_server %MT5_SERVER% --mt5_login %MT5_LOGIN% --mt5_password %MT5_PASSWORD%"
 
 echo.
 echo [OK] Demo-Live-Trading gestartet (PnL-Tracking aktiv)!
 echo.
-echo   Fenster 1: USDCAD v4 (Two-Stage, alle Regime, lockerer)
-echo   Fenster 2: USDJPY v4 (Two-Stage, alle Regime, lockerer)
+echo   Fenster 1: USDCAD v4 (Two-Stage H1-M15, Kongruenz aktiv)
+echo   Fenster 2: USDJPY v4 (Two-Stage H1-M15, Kongruenz aktiv)
 echo.
 echo   Zum Stoppen: Ctrl+C in jedem Fenster druecken.
 echo.

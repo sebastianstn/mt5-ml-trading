@@ -8,6 +8,8 @@ Schreibt alle Signal- und Close-Events parallel in:
 Läuft auf: Windows 11 Laptop
 """
 
+# pylint: disable=logging-fstring-interpolation
+
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -16,10 +18,12 @@ import pandas as pd
 
 try:
     from live import config  # Import als Paket (z.B. pytest, externe Aufrufe)
+    from live import db_manager
+    from live.mt5_connector import mirror_csv_to_mt5_common
 except ImportError:
     import config  # Import direkt aus live/-Verzeichnis
-import db_manager
-from mt5_connector import mirror_csv_to_mt5_common
+    import db_manager
+    from mt5_connector import mirror_csv_to_mt5_common
 
 logger = logging.getLogger(__name__)
 

@@ -56,7 +56,7 @@
 | **+DI / -DI** | Directional Indicator | Richtungskomponenten des ADX |
 | **MTF** | Multi-Timeframe | Features aus höheren Zeitrahmen |
 | **HTF** | Higher Timeframe | Höherer Zeitrahmen (z.B. H1 für Bias) |
-| **LTF** | Lower Timeframe | Niedriger Zeitrahmen (z.B. M5 für Entry) |
+| **LTF** | Lower Timeframe | Niedriger Zeitrahmen (z.B. M15 für Entry) |
 | **SMC** | Smart Money Concepts | Marktstruktur-/Liquiditätskonzepte |
 | **FVG** | Fair Value Gap | Ungleichgewichtslücke im Preisverlauf |
 | **BOS** | Break of Structure | Strukturbruch im Trendverlauf |
@@ -108,7 +108,7 @@
 | **Toleranz** | F1-Abweichung, unter der ein neues Modell noch deployed wird |
 | **Warm-Up** | Anfangsperiode mit NaN (z.B. SMA200 braucht 200 Kerzen) |
 | **Paper-Trading** | Simulierter Handel ohne echtes Geld |
-| **Two-Stage** | Zwei-Stufen-Modell mit HTF-Bias + LTF-Entry (z.B. H1→M5) |
+| **Two-Stage** | Zwei-Stufen-Modell mit HTF-Bias + LTF-Entry (z.B. H1→M15) |
 | **Shadow-Compare** | Kontrollierter Vergleich alt vs. neu im Paper-Betrieb |
 | **Heartbeat** | Regelmäßiges Lebenszeichen-Log pro Kerze |
 | **Kill-Switch** | Automatischer Stopp bei zu hohem Drawdown (>15%) |
@@ -152,8 +152,8 @@
 
 | Code | Basis / Quote | Status |
 | ---- | ------------ | ------ |
-| **USDCAD** | US-Dollar / Kanad. Dollar | ✅ Aktiv (Paper) – Regime 2 |
-| **USDJPY** | US-Dollar / Jap. Yen | ✅ Aktiv (Paper) – Regime 1 |
+| **USDCAD** | US-Dollar / Kanad. Dollar | ✅ Aktiv (Paper) – Two-Stage v4 (H1+M15) |
+| **USDJPY** | US-Dollar / Jap. Yen | ✅ Aktiv (Paper) – Two-Stage v4 (H1+M15) |
 | **EURUSD** | Euro / US-Dollar | Research-only |
 | **GBPUSD** | Brit. Pfund / US-Dollar | Research-only |
 | **AUDUSD** | Austral. Dollar / US-Dollar | Research-only |
@@ -288,7 +288,7 @@
 | `SL_PCT` | 0.003 | Stop-Loss 0.3% |
 | `LOT` | 0.01 | Micro-Lot |
 | `HORIZON` | 5 | 5 Kerzen Zeitschranke |
-| `ATR_SL_FAKTOR` | 1.5 | SL = ATR × 1.5 |
+| `ATR_SL_FAKTOR` | 2.0 | SL = ATR × 2.0 |
 | `KILL_SWITCH_DD` | 0.15 | Stopp bei 15% Drawdown |
 | `MAGIC_NUMBER` | 20260101 | MT5-Kennung für ML-Trades |
 | `N_BARREN` | 500 | Mindest-Kerzen für Features |
@@ -366,7 +366,7 @@
 - USDCAD v5: Sharpe -23.002, PF 0.011, MaxDD -164.30% → **NO-GO**
 - USDJPY v5: Sharpe -2.140, PF 0.692, MaxDD -34.36% → **NO-GO**
 
-Konsequenz: Betrieb weiterhin **PAPER_ONLY** und Shadow-Compare-Laufzeit abwarten.
+Konsequenz: v5 eingestellt. Aktives Setup ist **Two-Stage v4 (H1-Bias + M15-Entry)** im Paper-Modus.
 
 ---
 
@@ -416,7 +416,7 @@ Es liest die CSV-Signaldateien von Python und zeigt alle Informationen direkt au
 | Zeile | Beispiel | Bedeutung |
 | ----- | -------- | --------- |
 | **Status** | `Live Dashboard \| CONNECTED` | Verbindungsstatus. CONNECTED = CSV wird gelesen. STALE/OFFLINE = Verbindung gestört. **Erwünscht: immer CONNECTED.** |
-| **Grenze** | `Grenze: 70min (SignalTF)` | Maximale Gültigkeitsdauer eines Signals. Nach Ablauf wird es als veraltet ignoriert. Standard: 70min für H1. |
+| **Grenze** | `Grenze: 25min (SignalTF)` | Maximale Gültigkeitsdauer eines Signals. Nach Ablauf wird es als veraltet ignoriert. Standard: 25min für M15. |
 | **Countdown** | `Update in 16:23` | Zeit bis zum nächsten Signal-Update von Python. **Je kleiner, desto frischer werden die Daten bald.** |
 
 ### Symbol-Status (pro Währungspaar)
@@ -456,7 +456,7 @@ Es liest die CSV-Signaldateien von Python und zeigt alle Informationen direkt au
 | ----- | -------- | --------- |
 | **Regime** | `Regime: Hohe Volatilität \| PAPER` | Vom ML-Modell erkannte Marktphase (siehe Abschnitt 4). PAPER = kein echtes Geld. **Aufwärtstrend/Abwärtstrend = klarer Markt (gut). Hohe Volatilität = vorsichtig. Seitwärts = wenig Bewegung.** |
 | **Session** | `Session: New York` | Aktive Handelssitzung: Asia, London, New York oder Overlap (London+NY). **Overlap (London+NY) = höchste Liquidität und engste Spreads. Asia = ruhigster Markt.** |
-| **Two-Stage** | `Two-Stage: HTF=Neutral \| LTF=Short` | HTF = Higher Timeframe (H1) Bias, LTF = Lower Timeframe (M5) Entry. **Idealfall: beide zeigen in dieselbe Richtung (z.B. HTF=Long + LTF=Long). Widerspruch = schwaches Signal.** |
+| **Two-Stage** | `Two-Stage: HTF=Neutral \| LTF=Short` | HTF = Higher Timeframe (H1) Bias, LTF = Lower Timeframe (M15) Entry. **Idealfall: beide zeigen in dieselbe Richtung (z.B. HTF=Long + LTF=Long). Widerspruch = schwaches Signal.** |
 
 ### Trade-Info-Labels (oben rechts, 3 Zeilen)
 
@@ -506,4 +506,4 @@ MQL5 (LiveSignalDashboard.mq5 auf MT5)
 
 ---
 
-Letzte Aktualisierung: 2026-03-12
+Letzte Aktualisierung: 2026-03-14

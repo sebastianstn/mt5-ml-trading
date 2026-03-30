@@ -41,4 +41,3 @@ Für alle unsere zukünftigen Interaktionen und Code-Generierungen gelten folgen
 - Lasse nichts aus und kürze nichts ab. Verwende keine Platzhalter wie `// ... rest of code`.
 - Entferne niemals Funktionen, Felder oder Toggles, die wir bereits aufgebaut haben.
 - Falls du eine Änderung oder Löschung für sinnvoll hältst, frage mich **immer zuerst**, ob ich damit einverstanden bin.
-- Gib Terminal-Befehle oder Datei-Inhalte so aus, dass ich sie mit der Methode `cat << 'EOF' > dateiname` direkt in mein Terminal kopieren kann.

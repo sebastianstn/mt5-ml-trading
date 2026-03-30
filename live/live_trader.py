@@ -77,6 +77,7 @@ try:
         mt5_daten_holen,
         mt5_letzte_kerze_uhrzeit,
         mt5_offene_position,
+        mt5_reconnect,
         mt5_verbinden,
         order_senden,
     )
@@ -97,6 +98,7 @@ except ImportError:
         mt5_daten_holen,
         mt5_letzte_kerze_uhrzeit,
         mt5_offene_position,
+        mt5_reconnect,
         mt5_verbinden,
         order_senden,
     )
@@ -489,6 +491,51 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
     cached_h1_df_clean: Optional[pd.DataFrame] = None
     externe_feature_cache: dict = {}
 
+    # Auto-Recovery pro Symbol: nur lokaler Prozesszustand wird angefasst
+    letzter_heartbeat_wallclock_utc = datetime.now(timezone.utc)
+    loop_fehler_in_folge = 0
+    auto_recovery_count = 0
+    max_fehler_in_folge = 3
+    bar_minutes = int(TIMEFRAME_CONFIG.get(effektiver_tf, TIMEFRAME_CONFIG["H1"])["minutes_per_bar"])
+    recovery_timeout_min = max(bar_minutes * 2, 20)
+
+    def symbol_auto_recovery(grund: str) -> None:
+        """Setzt nur den Symbol-Laufzustand zurück, ohne andere Symbole zu beeinflussen."""
+        nonlocal letzte_kerzen_zeit
+        nonlocal letzte_htf_kerzen_zeit
+        nonlocal cached_h1_df_clean
+        nonlocal externe_feature_cache
+        nonlocal letzter_heartbeat_wallclock_utc
+        nonlocal auto_recovery_count
+
+        auto_recovery_count += 1
+        logger.warning(
+            f"[{symbol}] AUTO-RECOVERY #{auto_recovery_count}: {grund}"
+        )
+
+        # 1) Verbindungsebene zurücksetzen (RPyC/Linux oder native MT5/Windows)
+        if MT5_VERFUEGBAR:
+            if os.name == "nt":
+                if not mt5_reconnect():
+                    logger.warning(
+                        f"[{symbol}] MT5-Reconnect fehlgeschlagen – nächster Loop versucht erneut"
+                    )
+            else:
+                config.mt5_rpyc_reconnect()
+
+        # 2) Symbolbezogene Caches leeren, damit die nächste Runde frisch lädt
+        letzte_kerzen_zeit = None
+        letzte_htf_kerzen_zeit = None
+        cached_h1_df_clean = None
+        externe_feature_cache = {}
+        ts_cfg.pop("htf_df", None)
+        ts_cfg.pop("ltf_df", None)
+        ts_cfg.pop("last_htf_bias", None)
+        ts_cfg.pop("last_ltf_signal", None)
+
+        # 3) Recovery-Fenster neu starten
+        letzter_heartbeat_wallclock_utc = datetime.now(timezone.utc)
+
     while True:
         try:
             # ---- Trade-Schließung prüfen (PnL-Logging) ----
@@ -499,6 +546,14 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
 
             # Neue Kerze abwarten (M5 bei Two-Stage, sonst H1)
             if not neue_kerze_abwarten(symbol, letzte_kerzen_zeit, effektiver_tf):
+                minuten_seit_heartbeat = (
+                    datetime.now(timezone.utc) - letzter_heartbeat_wallclock_utc
+                ).total_seconds() / 60.0
+                if minuten_seit_heartbeat >= recovery_timeout_min:
+                    symbol_auto_recovery(
+                        f"kein neuer Kerzen-Heartbeat seit {minuten_seit_heartbeat:.1f} Min "
+                        f"(Limit {recovery_timeout_min} Min)"
+                    )
                 time.sleep(15)
                 continue
 
@@ -510,6 +565,8 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
                 kerzen_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"\n[{symbol}] Neue {effektiver_tf}-Kerze | {kerzen_ts} UTC")
             verarbeitete_kerzen += 1
+            letzter_heartbeat_wallclock_utc = datetime.now(timezone.utc)
+            loop_fehler_in_folge = 0
 
             # Cooldown-Zähler bei jeder neuen Kerze erhöhen
             bars_seit_letztem_trade += 1
@@ -860,11 +917,21 @@ def trading_loop(  # pylint: disable=too-many-arguments,too-many-positional-argu
             break
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error(f"[{symbol}] Fehler in Haupt-Schleife: {e}", exc_info=True)
+            loop_fehler_in_folge += 1
             # Bei RPyC-Verbindungsfehlern: Verbindung zurücksetzen für Reconnect
             err_msg = str(e).lower()
-            if any(k in err_msg for k in ("eof", "stream has been closed", "connection closed", "rpyc")):
+            if any(
+                k in err_msg
+                for k in ("eof", "stream has been closed", "connection closed", "rpyc")
+            ):
                 logger.warning(f"[{symbol}] RPyC-Verbindungsfehler erkannt – setze Verbindung zurück")
                 config.mt5_rpyc_reconnect()
+
+            if loop_fehler_in_folge >= max_fehler_in_folge:
+                symbol_auto_recovery(
+                    f"{loop_fehler_in_folge} Fehler in Folge in Haupt-Schleife"
+                )
+                loop_fehler_in_folge = 0
             logger.info("Warte 60 Sekunden vor Neustart ...")
             time.sleep(60)
 

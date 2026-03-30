@@ -39,7 +39,9 @@ function Get-TimeframeMinutes {
 		"H1" { return 60.0 }
 		"M30" { return 30.0 }
 		"M15" { return 15.0 }
-		"M5_TWO_STAGE" { return 5.0 }
+			# Two-Stage läuft im M15-Loop (HTF auf H1 gecached), deshalb
+			# muss die Watchdog-Frische auf 15 Minuten basieren, nicht auf 5.
+			"M5_TWO_STAGE" { return 15.0 }
 		default { return 60.0 }
 	}
 }
@@ -243,7 +245,10 @@ foreach ($symbol in $symbolList) {
 		$status = "INCIDENT"
 		$reason = "Runtime-Heartbeat stale"
 	}
-	elseif ($signalAge -gt $staleLimitMinutes) {
+	elseif (
+		($signalAge -gt $staleLimitMinutes) -and
+		($signalFileAge -gt $staleLimitMinutes)
+	) {
 		$status = "INCIDENT"
 		$reason = "Signal-CSV stale"
 	}

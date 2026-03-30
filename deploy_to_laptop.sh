@@ -28,6 +28,20 @@
 
 set -e  # Bei Fehler sofort stoppen
 
+# Deploy bewusst NICHT als root ausfuehren.
+# Sonst werden root-spezifische SSH-Keys/known_hosts verwendet,
+# was oft zu Login-Fehlern auf dem Windows-Laptop fuehrt.
+if [ "${EUID}" -eq 0 ]; then
+    echo ""
+    echo "[FEHLER] deploy_to_laptop.sh darf nicht mit sudo/root gestartet werden."
+    echo ""
+    echo "Bitte so ausfuehren:"
+    echo "  bash deploy_to_laptop.sh"
+    echo ""
+    echo "Warum: root nutzt einen anderen SSH-Kontext (known_hosts/Keys) als dein User."
+    exit 1
+fi
+
 # ------------------------------------------------------------
 # Konfiguration – HIER ANPASSEN
 # ------------------------------------------------------------
@@ -316,11 +330,36 @@ echo "        ✅ start_testphase_topconfig_H1_M15.bat (AKTIVE Startdatei)"
 sftp_put "${SERVER_BASIS}/stop_all_traders.bat" "${LAPTOP_ZIELORDNER_SFTP}/stop_all_traders.bat"
 echo "        ✅ stop_all_traders.bat"
 
-sftp_put "${SERVER_BASIS}/register_test128_log_sync_to_server.bat" "${LAPTOP_ZIELORDNER_SFTP}/register_test128_log_sync_to_server.bat"
-echo "        ✅ register_test128_log_sync_to_server.bat"
+if [ -f "${SERVER_BASIS}/register_test128_log_sync_to_server.bat" ]; then
+    sftp_put "${SERVER_BASIS}/register_test128_log_sync_to_server.bat" "${LAPTOP_ZIELORDNER_SFTP}/register_test128_log_sync_to_server.bat"
+    echo "        ✅ register_test128_log_sync_to_server.bat"
+else
+    echo "        ⚠️  register_test128_log_sync_to_server.bat nicht gefunden – übersprungen"
+fi
 
 sftp_put "${SERVER_BASIS}/setup_windows.bat" "${LAPTOP_ZIELORDNER_SFTP}/setup_windows.bat"
 echo "        ✅ setup_windows.bat"
+
+if [ -f "${SERVER_BASIS}/check_logs_now.bat" ]; then
+    sftp_put "${SERVER_BASIS}/check_logs_now.bat" "${LAPTOP_ZIELORDNER_SFTP}/check_logs_now.bat"
+    echo "        ✅ check_logs_now.bat"
+else
+    echo "        ⚠️  check_logs_now.bat nicht gefunden – übersprungen"
+fi
+
+if [ -f "${SERVER_BASIS}/register_check_logs_auto.bat" ]; then
+    sftp_put "${SERVER_BASIS}/register_check_logs_auto.bat" "${LAPTOP_ZIELORDNER_SFTP}/register_check_logs_auto.bat"
+    echo "        ✅ register_check_logs_auto.bat"
+else
+    echo "        ⚠️  register_check_logs_auto.bat nicht gefunden – übersprungen"
+fi
+
+if [ -f "${SERVER_BASIS}/register_check_logs_rotation_auto.bat" ]; then
+    sftp_put "${SERVER_BASIS}/register_check_logs_rotation_auto.bat" "${LAPTOP_ZIELORDNER_SFTP}/register_check_logs_rotation_auto.bat"
+    echo "        ✅ register_check_logs_rotation_auto.bat"
+else
+    echo "        ⚠️  register_check_logs_rotation_auto.bat nicht gefunden – übersprungen"
+fi
 
 # --- Windows-Sync-Skripte (Laptop -> Linux-Server) ---
 if [ -f "${SERVER_BASIS}/scripts/windows_sync_live_logs.ps1" ]; then
@@ -341,6 +380,26 @@ fi
 if [ -f "${SERVER_BASIS}/scripts/windows_live_log_watchdog.ps1" ]; then
     sftp_put "${SERVER_BASIS}/scripts/windows_live_log_watchdog.ps1" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_live_log_watchdog.ps1"
     echo "        ✅ scripts/windows_live_log_watchdog.ps1"
+fi
+
+if [ -f "${SERVER_BASIS}/scripts/windows_run_check_logs_once.ps1" ]; then
+    sftp_put "${SERVER_BASIS}/scripts/windows_run_check_logs_once.ps1" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_run_check_logs_once.ps1"
+    echo "        ✅ scripts/windows_run_check_logs_once.ps1"
+fi
+
+if [ -f "${SERVER_BASIS}/scripts/windows_register_check_logs_task_v2.ps1" ]; then
+    sftp_put "${SERVER_BASIS}/scripts/windows_register_check_logs_task_v2.ps1" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_register_check_logs_task_v2.ps1"
+    echo "        ✅ scripts/windows_register_check_logs_task_v2.ps1"
+fi
+
+if [ -f "${SERVER_BASIS}/scripts/windows_rotate_check_logs_daily.ps1" ]; then
+    sftp_put "${SERVER_BASIS}/scripts/windows_rotate_check_logs_daily.ps1" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_rotate_check_logs_daily.ps1"
+    echo "        ✅ scripts/windows_rotate_check_logs_daily.ps1"
+fi
+
+if [ -f "${SERVER_BASIS}/scripts/windows_register_check_logs_rotation_task.ps1" ]; then
+    sftp_put "${SERVER_BASIS}/scripts/windows_register_check_logs_rotation_task.ps1" "${LAPTOP_ZIELORDNER_SFTP}/scripts/windows_register_check_logs_rotation_task.ps1"
+    echo "        ✅ scripts/windows_register_check_logs_rotation_task.ps1"
 fi
 
 # --- requirements-laptop.txt ---

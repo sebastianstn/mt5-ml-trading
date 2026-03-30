@@ -21,12 +21,27 @@ param(
 #   Erzeugt aus XML-Template eine konkrete Task-Definition und importiert sie
 #   im Windows Task Scheduler (5-Minuten-Intervall).
 #
-# Läuft auf:
+# Laeuft auf:
 #   Windows 11 Laptop (PowerShell als Administrator empfohlen)
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+# Konsolen-Encoding auf UTF-8 setzen, damit Umlaute in CMD/PowerShell korrekt angezeigt werden.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+try {
+    [Console]::InputEncoding = $utf8NoBom
+    [Console]::OutputEncoding = $utf8NoBom
+}
+catch {
+    # Nicht kritisch: Falls die Host-Konsole das nicht erlaubt, laeuft das Skript weiter.
+}
+
+# schtasks schreibt Redirect-Output im OEM-Encoding der aktuellen Windows-Lokale.
+$script:oemEncoding = [System.Text.Encoding]::GetEncoding(
+    [System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage
+)
 
 if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
     $ProjectDir = Split-Path -Parent $PSScriptRoot
@@ -56,8 +71,21 @@ function Invoke-Schtasks {
             -RedirectStandardOutput $stdoutFile `
             -RedirectStandardError $stderrFile
 
-        $stdout = if (Test-Path $stdoutFile) { Get-Content -Path $stdoutFile -Raw } else { "" }
-        $stderr = if (Test-Path $stderrFile) { Get-Content -Path $stderrFile -Raw } else { "" }
+        $stdout = if (Test-Path $stdoutFile) {
+            $stdoutBytes = [System.IO.File]::ReadAllBytes($stdoutFile)
+            $script:oemEncoding.GetString($stdoutBytes)
+        }
+        else {
+            ""
+        }
+
+        $stderr = if (Test-Path $stderrFile) {
+            $stderrBytes = [System.IO.File]::ReadAllBytes($stderrFile)
+            $script:oemEncoding.GetString($stderrBytes)
+        }
+        else {
+            ""
+        }
 
         return [PSCustomObject]@{
             ExitCode = $process.ExitCode
@@ -144,7 +172,7 @@ if ($RunHidden) {
     Write-Host "VBS-Launcher erstellt: $vbsPath" -ForegroundColor DarkGray
 }
 
-# Taskname für schtasks normalisieren (Root-Task mit führendem Backslash).
+# Taskname fuer schtasks normalisieren (Root-Task mit fuehrendem Backslash).
 $taskNameNormalized = if ($TaskName.StartsWith("\")) { $TaskName } else { "\$TaskName" }
 
 # XML-Template rendern
@@ -173,14 +201,21 @@ Write-Host "Task-Diagnose gestartet..." -ForegroundColor Cyan
 Write-Host "TaskName: $taskNameNormalized"
 Write-Host "XML: $generatedXmlPath"
 
-# Bestehende Aufgabe ggf. löschen und neu importieren (mit robuster Fehlerprüfung)
+# Bestehende Aufgabe ggf. loeschen und neu importieren (mit robuster Fehlerpruefung)
 $deleteResult = Invoke-Schtasks -Arguments @("/Delete", "/TN", $taskNameNormalized, "/F")
-Write-StepResult -Step "Task löschen (falls vorhanden)" -ExitCode $deleteResult.ExitCode -Output $deleteResult.Output
-if ($deleteResult.ExitCode -ne 0) {
-    $deleteText = $deleteResult.Output
-    # "Datei nicht gefunden" ist hier ok (Task existierte noch nicht).
-    if (($deleteText -notmatch "angegebene Datei nicht finden") -and ($deleteText -notmatch "cannot find the file")) {
-        Write-Warning "Vorhandene Task konnte nicht gelöscht werden: $deleteText"
+$deleteText = $deleteResult.Output
+$taskMissingOnDelete = ($deleteResult.ExitCode -ne 0) -and (
+    ($deleteText -match "angegebene Datei nicht finden") -or
+    ($deleteText -match "cannot find the file")
+)
+
+if ($taskMissingOnDelete) {
+    Write-StepResult -Step "Task loeschen (falls vorhanden)" -ExitCode 0 -Output "Task war noch nicht vorhanden (OK)."
+}
+else {
+    Write-StepResult -Step "Task loeschen (falls vorhanden)" -ExitCode $deleteResult.ExitCode -Output $deleteResult.Output
+    if ($deleteResult.ExitCode -ne 0) {
+        Write-Warning "Vorhandene Task konnte nicht geloescht werden: $deleteText"
         Write-Warning "Wenn Zugriff verweigert wird: PowerShell als Administrator starten."
     }
 }
@@ -191,7 +226,7 @@ if ($createResult.ExitCode -ne 0) {
     $createText = $createResult.Output
     throw (
         "Task-Erstellung fehlgeschlagen. Ausgabe: $createText`n" +
-        "Hinweis: PowerShell als Administrator starten und erneut ausführen."
+        "Hinweis: PowerShell als Administrator starten und erneut ausfuehren."
     )
 }
 
@@ -227,5 +262,6 @@ if ($RunNow) {
     Write-Host "Task wurde direkt gestartet." -ForegroundColor Cyan
 }
 
-Write-Host "\nNächster Check auf Linux:" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Naechster Check auf Linux:" -ForegroundColor Yellow
 Write-Host ("python scripts/monitor_live_kpis.py --log_dir {0} --file_suffix _signals.csv --hours 24 --timeframe M5_TWO_STAGE --export_csv reports/live_kpis_latest.csv" -f $LinuxLogsDir)
